@@ -16,6 +16,8 @@ add_executable(${PROJECT_NAME}
     src/main.cpp
     src/app/MainWindow.h
     src/app/MainWindow.cpp
+    src/ui/MessagePackagePanel.h
+    src/ui/MessagePackagePanel.cpp
     src/ui/TopicConfigPanel.h
     src/ui/TopicConfigPanel.cpp
     src/ui/DetailPanel.h
@@ -41,6 +43,19 @@ add_executable(${PROJECT_NAME}
     src/core/datasource/RosMsgPackage.cpp
     src/core/datasource/RosMsgPackageRegistry.h
     src/core/datasource/RosMsgPackageRegistry.cpp
+    src/core/ros/RosTypes.h
+    src/core/ros/RosEnvironmentDetector.h
+    src/core/ros/RosEnvironmentDetector.cpp
+    src/core/ros/RosPackageValidator.h
+    src/core/ros/RosPackageValidator.cpp
+    src/core/ros/RosPackageRegistry.h
+    src/core/ros/RosPackageRegistry.cpp
+    src/core/ros/RosWorkspaceManager.h
+    src/core/ros/RosWorkspaceManager.cpp
+    src/core/ros/ProcessRunner.h
+    src/core/ros/ProcessRunner.cpp
+    src/core/ros/RosPackageBuilder.h
+    src/core/ros/RosPackageBuilder.cpp
     src/core/render/SceneManager.h
     src/core/render/SceneManager.cpp
     src/ui/ControlStatusPanel.h

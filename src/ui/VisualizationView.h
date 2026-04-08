@@ -14,7 +14,7 @@ public:
     void resetView();
     void setBackgroundColor(const QColor& color);
     void setGridVisible(bool visible);
-    void setWelcomeState(bool packageLoaded, const QString& packageName = QString());
+    void setWelcomeState(int loadedPackageCount, int compiledPackageCount);
 
 protected:
     void drawBackground(QPainter* painter, const QRectF& rect) override;
@@ -34,6 +34,6 @@ private:
     bool m_isPanning = false;
     QPoint m_lastMousePosition;
     qreal m_zoomFactor = 1.0;
-    bool m_packageLoaded = false;
-    QString m_packageName;
+    int m_loadedPackageCount = 0;
+    int m_compiledPackageCount = 0;
 };

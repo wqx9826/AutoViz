@@ -1,102 +1,287 @@
 # AutoViz
 
-一个基于 C++ / Qt5 的无人车规划控制数据可视化桌面工具，用于后续接入 ROS 消息、配置话题、解析消息并进行二维可视化展示。
+AutoViz 是一个基于 C++17 / Qt5 Widgets 的桌面工具，用于逐步接入 ROS 消息包、完成消息类型构建，并为后续无人车规划控制数据可视化提供运行基础。
 
-## 项目简介
+当前版本的重点不是 topic 绑定和消息解析，而是先把下面这条链路做正确：
 
-AutoViz 面向无人车规划与控制过程中的调试场景，目标是将 ROS 话题数据、路径规划结果、障碍物信息、自车状态以及控制量，以统一桌面工具的方式进行可视化展示与排查。
+1. 启动时检测 ROS1 / ROS2 环境
+2. 加载一个或多个标准 ROS 消息包目录
+3. 校验消息包是否合法
+4. 复制消息包到 AutoViz 内部工作区
+5. 根据 ROS1 / ROS2 执行真实编译命令
+6. 在界面和日志中展示编译结果
 
-当前阶段聚焦以下基础能力：
+## 当前已实现
 
-- 桌面 UI 框架与主窗口布局
-- ROS 消息包加载入口与基础扫描
-- 话题配置面板骨架
-- 二维视图与欢迎态提示
-- 控制状态面板与日志面板
+- Qt5 主窗口、二维视图、对象详情、控制状态、日志面板
+- 中文菜单和中文日志输出
+- 启动时自动检测 ROS 环境
+- 支持识别：
+  - `ROS_VERSION=1` -> ROS1
+  - `ROS_VERSION=2` -> ROS2
+  - 辅助检测 `roscore`、`catkin_make`、`colcon`
+- 左侧“消息包管理面板”
+- 支持一次选择多个消息包目录
+- 标准消息包校验：
+  - 必须包含 `package.xml`
+  - 必须包含 `CMakeLists.txt`
+  - 必须包含 `msg/`
+  - `msg/` 中至少有一个 `.msg`
+- 将合法消息包复制到内部工作区：
+  - ROS1: `runtime/catkin_ws/src/`
+  - ROS2: `runtime/ros2_ws/src/`
+- 同名包覆盖确认
+- 异步执行真实构建命令，不阻塞 UI
+- 实时采集构建 stdout / stderr 并写入日志面板
+- 在表格中展示复制状态和编译状态
+- 中央视图欢迎态根据“未加载 / 已加载未编译 / 已编译成功”切换提示
 
-后续将继续扩展：
+## 当前界面说明
 
-- ROS 消息包解析与依赖分析
-- 消息编译与类型支持生成
-- topic 绑定与运行时订阅
-- 路径、障碍物、自车状态、控制指令等二维可视化能力
+### 菜单
 
-## 当前已实现功能
+- `文件 -> 加载 ROS 消息包`
+- `文件 -> 删除选中消息包`
+- `视图 -> 重置视图`
+- `视图 -> 恢复默认布局`
 
-- 基于 Qt5 Widgets 的主窗口框架
-- 中文化菜单栏、工具栏和主要界面文案
-- 基于 `QGraphicsView` 的二维视图骨架
-- 视图缩放、拖拽平移、网格背景
-- 可关闭、可恢复的停靠面板
-- “视图”菜单中的显示/隐藏面板与默认布局恢复
-- ROS 消息包目录加载入口
-- 对 `package.xml` 与 `msg/` 目录的基础检测
-- 对包内 `.msg` 文件的扫描与登记
-- 基于当前已加载消息包的 topic 配置面板
-- 控制状态占位面板
-- 日志输出面板
+菜单栏下方重复按钮已经移除，不再显示第二排“加载 ROS 消息包 / 重置视图”按钮。
 
-## 规划中的功能
+### 消息包管理面板
 
-- ROS 消息包内容解析
-- `.msg` 依赖分析
-- 基于消息包的编译支持
-- topic 实时订阅
-- 路径、障碍物、自车状态、控制量可视化
-- 调试、录制与回放能力
+左侧面板已从“话题配置面板”调整为“消息包管理面板”，当前职责如下：
 
-## 项目结构
+- 显示当前 ROS 环境
+- 显示当前工作区路径
+- 显示 `roscore`、`catkin_make`、`colcon` 可用状态
+- 显示消息包列表
+- 提供“添加消息包”“删除选中包”“编译消息包”
 
-- `src/app`
-  应用主窗口与整体界面组织逻辑。
-- `src/ui`
-  各类界面组件，包括二维视图、话题配置、对象详情、控制状态和日志面板。
-- `src/core/datasource`
-  数据源与消息相关抽象，包括 ROS 消息包、消息定义、topic 配置和编译占位接口。
-- `src/core/model`
-  统一内部模型定义，如轨迹、障碍物、自车状态等。
-- `src/core/render`
-  二维场景管理与后续渲染逻辑入口。
-- `src/utils`
-  日志等基础工具模块。
-- `configs`
-  项目中的示例配置与 UI 状态配置。
+表格列包括：
 
-## 构建方式
+- 启用
+- 包名
+- 原始路径
+- 工作区路径
+- 消息数
+- ROS 适配
+- 复制状态
+- 编译状态
+
+## ROS 环境识别逻辑
+
+AutoViz 启动后会自动检测一次 ROS 环境。
+
+优先级如下：
+
+1. 读取环境变量 `ROS_VERSION`
+2. 读取 `ROS_DISTRO`
+3. 检查命令是否存在：
+   - `roscore`
+   - `catkin_make`
+   - `colcon`
+
+识别规则：
+
+- `ROS_VERSION=1`：判定为 ROS1
+- `ROS_VERSION=2`：判定为 ROS2
+- 如果没有 `ROS_VERSION`，但存在 `roscore` 或 `catkin_make`：推断为 ROS1
+- 如果没有 `ROS_VERSION`，但存在 `colcon`：推断为 ROS2
+- 都没有：判定为未检测到 ROS
+
+未检测到 ROS 时：
+
+- 状态栏显示“未检测到 ROS 环境”
+- 日志面板写入中文说明
+- “编译消息包”按钮禁用
+
+## 消息包加载与校验流程
+
+用户通过“文件 -> 加载 ROS 消息包”选择一个或多个目录后，程序按以下流程处理：
+
+1. 校验所选路径是否为目录
+2. 检查 `package.xml`
+3. 检查 `CMakeLists.txt`
+4. 检查 `msg/` 目录
+5. 统计 `.msg` 文件数量
+6. 提取包名
+   - 默认使用目录名
+   - 若 `package.xml` 中存在 `<name>`，则以其为准
+7. 将合法包复制到内部工作区
+
+非法包不会加入列表，并会：
+
+- 弹出中文 `QMessageBox`
+- 在日志面板记录失败原因
+
+## 内部工作区设计
+
+内部工作区位于项目根目录下的 `runtime/`：
+
+- ROS1：`runtime/catkin_ws`
+- ROS2：`runtime/ros2_ws`
+
+其中源包目录统一放在：
+
+- ROS1：`runtime/catkin_ws/src/<package_name>`
+- ROS2：`runtime/ros2_ws/src/<package_name>`
+
+如果工作区中已存在同名包：
+
+- 程序弹出覆盖确认
+- 用户确认后删除旧目录并复制新目录
+- 用户取消则不覆盖，并记录“用户取消覆盖”
+
+`runtime/` 已加入 `.gitignore`，不会被提交。
+
+## 编译命令
+
+### ROS1
+
+工作目录：
+
+- `runtime/catkin_ws`
+
+构建命令：
 
 ```bash
-mkdir -p build
-cd build
-cmake ..
-make -j$(nproc)
+source /opt/ros/<distro>/setup.bash && if [ ! -f src/CMakeLists.txt ]; then (cd src && catkin_init_workspace); fi && catkin_make
 ```
 
-## 运行方式
+如果 `/opt/ros/<distro>/setup.bash` 不存在，则退化为直接执行后续初始化与 `catkin_make`。
 
-在构建完成后，于项目根目录执行：
+说明：
+
+- 编译 ROS1 消息包通常不要求 `roscore` 正在运行
+- 但后续订阅和运行节点时仍需要 `roscore`
+
+### ROS2
+
+工作目录：
+
+- `runtime/ros2_ws`
+
+构建命令：
 
 ```bash
+source /opt/ros/<distro>/setup.bash && colcon build --packages-select <包名列表>
+```
+
+如果 `setup.bash` 不存在，则退化为直接执行：
+
+```bash
+colcon build --packages-select <包名列表>
+```
+
+## 编译状态与日志
+
+构建使用 `QProcess` 异步执行，不阻塞主线程。
+
+支持的编译状态：
+
+- 未编译
+- 编译中
+- 编译成功
+- 编译失败
+
+关键日志均为中文，包括：
+
+- 主窗口初始化完成
+- 检测 ROS 环境开始
+- 检测到 ROS1 / ROS2 / 未检测到 ROS
+- 加载消息包目录
+- 校验消息包成功 / 失败
+- 检测到 `package.xml`
+- 检测到 `CMakeLists.txt`
+- 检测到 `msg` 目录
+- 检测到 `.msg` 文件数量
+- 复制消息包到工作区成功 / 失败
+- 工作区初始化完成
+- 开始编译消息包
+- 执行的构建命令
+- 编译成功 / 编译失败
+- 删除消息包
+- 用户取消覆盖
+
+## 目录结构
+
+```text
+AutoViz/
+├── CMakeLists.txt
+├── README.md
+├── configs/
+├── runtime/                  # 运行期工作区，已忽略提交
+├── src/
+│   ├── app/
+│   ├── core/
+│   │   ├── datasource/
+│   │   ├── model/
+│   │   ├── render/
+│   │   └── ros/              # 新增：ROS 环境、校验、工作区、构建模块
+│   ├── ui/
+│   └── utils/
+└── build/
+```
+
+## 构建与运行
+
+在项目根目录执行：
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
 ./build/AutoViz
 ```
 
-或在 `build/` 目录下直接运行：
+如果只是验证程序是否能启动，也可以使用离屏模式：
 
 ```bash
-./AutoViz
+QT_QPA_PLATFORM=offscreen ./build/AutoViz
 ```
 
-## 开发说明
+## 测试 `plan_control` 消息包
 
-当前版本仍处于原型迭代阶段，重点在于：
+假设目录结构如下：
 
-- 桌面交互流程梳理
-- ROS 消息包加载与话题配置骨架搭建
-- 可视化视图和调试面板布局设计
+```text
+plan_control/
+├── CMakeLists.txt
+├── package.xml
+└── msg/
+    ├── M_Control.msg
+    ├── M_Localization.msg
+    ├── M_Plan.msg
+    ├── M_Route.msg
+    ├── M_Task.msg
+    ├── M_VehicleInfo.msg
+    ├── route_point.msg
+    └── trajectory_point.msg
+```
 
-目前尚未实现：
+测试步骤：
 
-- 真实 ROS topic 订阅
-- `.msg` 编译与动态类型支持生成
-- 运行时消息反序列化与业务模型转换
+1. 先 `source` 你的 ROS1 或 ROS2 环境
+2. 启动 `./build/AutoViz`
+3. 确认左侧顶部显示正确的 ROS 环境，例如：
+   - `当前 ROS 环境：ROS1 / noetic`
+   - `当前 ROS 环境：ROS2 / humble`
+4. 点击“添加消息包”
+5. 选择 `plan_control` 根目录
+6. 确认表格中：
+   - 包名为 `plan_control`
+   - 消息数为 `8`
+   - 已复制到对应 `runtime/.../src/plan_control`
+7. 点击“编译消息包”
+8. 查看日志面板和表格中的编译结果
 
-因此，本项目当前可作为 UI 与工程架构基础版本，便于后续继续接入 ROS 和实际可视化逻辑。
+## 当前尚未实现
+
+本轮没有继续做以下内容：
+
+- topic 绑定设计
+- 消息字段提取
+- 路径 / 障碍物 / 控制量业务解析
+- 运行时 ROS 订阅
+- 运行时消息反射或动态类型支持装载
+
+这些内容会在后续迭代中继续实现。

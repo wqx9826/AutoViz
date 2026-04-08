@@ -43,10 +43,10 @@ void VisualizationView::setGridVisible(bool visible)
     viewport()->update();
 }
 
-void VisualizationView::setWelcomeState(bool packageLoaded, const QString& packageName)
+void VisualizationView::setWelcomeState(int loadedPackageCount, int compiledPackageCount)
 {
-    m_packageLoaded = packageLoaded;
-    m_packageName = packageName;
+    m_loadedPackageCount = loadedPackageCount;
+    m_compiledPackageCount = compiledPackageCount;
     viewport()->update();
 }
 
@@ -117,9 +117,17 @@ void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
     painter->setFont(bodyFont);
     painter->setPen(QColor("#c9d6e2"));
 
-    const QString bodyText = m_packageLoaded
-        ? QStringLiteral("当前消息包：%1").arg(m_packageName)
-        : QStringLiteral("当前未加载 ROS 消息包\n请通过“文件 -> 加载 ROS 消息包”开始配置");
+    QString bodyText;
+    if (m_loadedPackageCount <= 0) {
+        bodyText = QStringLiteral(
+            "当前未加载 ROS 消息包\n请通过“文件 -> 加载 ROS 消息包”导入标准 ROS 消息包目录");
+    } else if (m_compiledPackageCount <= 0) {
+        bodyText = QStringLiteral("当前已加载消息包：%1 个\n请点击“编译消息包”完成类型构建")
+                       .arg(m_loadedPackageCount);
+    } else {
+        bodyText = QStringLiteral("当前已编译消息包：%1 个\n可进入下一阶段的话题绑定与可视化配置")
+                       .arg(m_compiledPackageCount);
+    }
     painter->drawText(cardRect.adjusted(24, 58, -24, -20), Qt::AlignTop | Qt::AlignHCenter | Qt::TextWordWrap, bodyText);
 
     painter->restore();

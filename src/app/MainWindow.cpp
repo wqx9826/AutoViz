@@ -1,32 +1,39 @@
 #include "app/MainWindow.h"
 
 #include <QAction>
+#include <QAbstractButton>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QListView>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QRegularExpression>
 #include <QStatusBar>
-#include <QToolBar>
+#include <QTreeView>
 
-#include "core/datasource/MsgCompiler.h"
-#include "core/datasource/RosMsgPackageRegistry.h"
+#include "core/ros/RosEnvironmentDetector.h"
+#include "core/ros/RosPackageBuilder.h"
+#include "core/ros/RosPackageRegistry.h"
+#include "core/ros/RosPackageValidator.h"
+#include "core/ros/RosWorkspaceManager.h"
 #include "core/render/SceneManager.h"
 #include "ui/ControlStatusPanel.h"
 #include "ui/DetailPanel.h"
 #include "ui/LogPanel.h"
-#include "ui/TopicConfigPanel.h"
+#include "ui/MessagePackagePanel.h"
 #include "ui/VisualizationView.h"
 #include "utils/Logger.h"
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    m_packageRegistry = new autoviz::datasource::RosMsgPackageRegistry();
-    m_msgCompiler = new autoviz::datasource::MsgCompiler();
+    m_packageRegistry = new autoviz::ros::RosPackageRegistry();
+    m_packageBuilder = new autoviz::ros::RosPackageBuilder(this);
+    m_workspaceManager = new autoviz::ros::RosWorkspaceManager();
 
     setupUi();
-    connectActions();
 
     Logger::instance().setLogHandler([this](const QString& message) {
         if (m_logPanel != nullptr) {
@@ -34,12 +41,14 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
+    connectActions();
+
     if (m_controlStatusPanel != nullptr) {
         m_controlStatusPanel->setPlaceholderData();
     }
 
-    updatePackageUiState();
-    Logger::instance().info("未加载消息包的欢迎状态已建立。");
+    detectRosEnvironment();
+    refreshUiState();
     Logger::instance().info("主窗口初始化完成。");
 }
 
@@ -47,8 +56,8 @@ MainWindow::~MainWindow()
 {
     Logger::instance().clearLogHandler();
 
-    delete m_msgCompiler;
     delete m_packageRegistry;
+    delete m_workspaceManager;
 }
 
 void MainWindow::setupUi()
@@ -62,7 +71,6 @@ void MainWindow::setupUi()
     setCentralWidget(m_visualizationView);
 
     setupMenuBar();
-    setupToolBar();
     setupStatusBar();
     setupDocks();
 }
@@ -71,7 +79,7 @@ void MainWindow::setupMenuBar()
 {
     QMenu* fileMenu = menuBar()->addMenu(tr("文件"));
     m_loadRosPackageAction = fileMenu->addAction(tr("加载 ROS 消息包..."));
-    m_closeRosPackageAction = fileMenu->addAction(tr("关闭当前消息包"));
+    m_removeRosPackageAction = fileMenu->addAction(tr("删除选中消息包"));
     fileMenu->addSeparator();
     m_exitAction = fileMenu->addAction(tr("退出"));
 
@@ -84,29 +92,21 @@ void MainWindow::setupMenuBar()
     m_aboutAction = helpMenu->addAction(tr("关于"));
 }
 
-void MainWindow::setupToolBar()
-{
-    m_mainToolBar = addToolBar(tr("主工具栏"));
-    m_mainToolBar->setMovable(false);
-    m_mainToolBar->addAction(m_loadRosPackageAction);
-    m_mainToolBar->addAction(m_resetViewAction);
-}
-
 void MainWindow::setupStatusBar()
 {
-    statusBar()->showMessage(tr("未加载消息包"));
+    statusBar()->showMessage(tr("正在检测 ROS 环境..."));
 }
 
 void MainWindow::setupDocks()
 {
-    m_topicConfigPanel = new TopicConfigPanel(m_packageRegistry, this);
+    m_messagePackagePanel = new MessagePackagePanel(this);
     m_detailPanel = new DetailPanel(this);
     m_controlStatusPanel = new ControlStatusPanel(this);
     m_logPanel = new LogPanel(this);
 
-    m_leftDock = new QDockWidget(tr("话题配置面板"), this);
+    m_leftDock = new QDockWidget(tr("消息包管理面板"), this);
     m_leftDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    m_leftDock->setWidget(m_topicConfigPanel);
+    m_leftDock->setWidget(m_messagePackagePanel);
     addDockWidget(Qt::LeftDockWidgetArea, m_leftDock);
 
     m_rightDock = new QDockWidget(tr("对象详情面板"), this);
@@ -130,13 +130,13 @@ void MainWindow::setupDocks()
     m_controlDock->setMinimumHeight(130);
     m_logDock->setMinimumHeight(80);
 
-    bindDockLogging(m_leftDock, QStringLiteral("话题配置面板"));
+    bindDockLogging(m_leftDock, QStringLiteral("消息包管理面板"));
     bindDockLogging(m_rightDock, QStringLiteral("对象详情面板"));
     bindDockLogging(m_controlDock, QStringLiteral("控制状态面板"));
     bindDockLogging(m_logDock, QStringLiteral("日志面板"));
 
     auto* topicDockAction = m_leftDock->toggleViewAction();
-    topicDockAction->setText(tr("显示话题配置面板"));
+    topicDockAction->setText(tr("显示消息包管理面板"));
     m_viewMenu->addAction(topicDockAction);
 
     auto* detailDockAction = m_rightDock->toggleViewAction();
@@ -152,17 +152,16 @@ void MainWindow::setupDocks()
     m_viewMenu->addAction(logDockAction);
 
     restoreDefaultLayout();
-
-    m_leftDock->hide();
-    m_rightDock->hide();
 }
 
 void MainWindow::connectActions()
 {
     connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
 
-    connect(m_loadRosPackageAction, &QAction::triggered, this, [this]() { loadRosMsgPackage(); });
-    connect(m_closeRosPackageAction, &QAction::triggered, this, [this]() { unloadCurrentPackage(); });
+    connect(m_loadRosPackageAction, &QAction::triggered, this, [this]() { loadRosMsgPackages(); });
+    connect(m_removeRosPackageAction, &QAction::triggered, this, [this]() {
+        removeSelectedPackages(m_messagePackagePanel != nullptr ? m_messagePackagePanel->selectedPackageNames() : QStringList());
+    });
 
     connect(m_resetViewAction, &QAction::triggered, this, [this]() {
         if (m_visualizationView != nullptr) {
@@ -173,6 +172,58 @@ void MainWindow::connectActions()
     });
 
     connect(m_restoreLayoutAction, &QAction::triggered, this, [this]() { restoreDefaultLayout(); });
+
+    connect(m_messagePackagePanel, &MessagePackagePanel::addPackagesRequested, this, [this]() { loadRosMsgPackages(); });
+    connect(m_messagePackagePanel, &MessagePackagePanel::removePackagesRequested, this, [this](const QStringList& packageNames) {
+        removeSelectedPackages(packageNames);
+    });
+    connect(m_messagePackagePanel, &MessagePackagePanel::buildPackagesRequested, this, [this]() { buildRosMsgPackages(); });
+    connect(m_messagePackagePanel, &MessagePackagePanel::packageEnabledChanged, this, [this](const QString& packageName, bool enabled) {
+        if (m_packageRegistry != nullptr) {
+            m_packageRegistry->setPackageEnabled(packageName, enabled);
+            refreshUiState();
+        }
+    });
+
+    connect(m_packageBuilder, &autoviz::ros::RosPackageBuilder::buildStarted, this, [this](const QString& commandSummary) {
+        if (m_messagePackagePanel != nullptr) {
+            m_messagePackagePanel->setBuildInProgress(true);
+        }
+        Logger::instance().info("开始编译消息包。");
+        Logger::instance().info(QStringLiteral("执行的构建命令：%1").arg(commandSummary));
+        statusBar()->showMessage(tr("消息包编译中..."));
+    });
+
+    connect(m_packageBuilder, &autoviz::ros::RosPackageBuilder::buildOutput, this, [](const QString& text) {
+        const QStringList lines = text.split(QRegularExpression(QStringLiteral("[\r\n]")), Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            Logger::instance().info(line);
+        }
+    });
+
+    connect(m_packageBuilder, &autoviz::ros::RosPackageBuilder::buildFinished, this, [this](bool success, const QString& summary, const QString&) {
+        if (m_messagePackagePanel != nullptr) {
+            m_messagePackagePanel->setBuildInProgress(false);
+        }
+
+        if (m_packageRegistry != nullptr) {
+            m_packageRegistry->setAllEnabledPackagesBuildStatus(
+                success ? autoviz::ros::PackageBuildStatus::BuildSucceeded : autoviz::ros::PackageBuildStatus::BuildFailed,
+                success ? QString() : summary);
+        }
+
+        refreshUiState();
+
+        if (success) {
+            Logger::instance().info("编译成功。");
+            statusBar()->showMessage(tr("消息包编译成功"), 3000);
+            return;
+        }
+
+        Logger::instance().error(summary);
+        statusBar()->showMessage(tr("消息包编译失败"), 5000);
+        QMessageBox::warning(this, tr("编译失败"), summary);
+    });
 
     connect(m_aboutAction, &QAction::triggered, this, [this]() {
         QMessageBox::about(
@@ -201,84 +252,251 @@ void MainWindow::restoreDefaultLayout()
     Logger::instance().info("已恢复默认布局。");
 }
 
-void MainWindow::updatePackageUiState()
+void MainWindow::refreshUiState()
 {
-    const bool hasPackage = m_packageRegistry != nullptr && m_packageRegistry->hasLoadedPackage();
-    const auto* package = hasPackage ? m_packageRegistry->currentPackage() : nullptr;
+    const int packageCount = m_packageRegistry != nullptr ? m_packageRegistry->packageCount() : 0;
+    const int compiledCount = m_packageRegistry != nullptr ? m_packageRegistry->compiledPackageCount() : 0;
+    const auto environmentInfo = m_packageRegistry != nullptr ? m_packageRegistry->environmentInfo() : autoviz::ros::RosEnvironmentInfo();
 
     if (m_visualizationView != nullptr) {
-        m_visualizationView->setWelcomeState(hasPackage, package != nullptr ? package->packageName : QString());
+        m_visualizationView->setWelcomeState(packageCount, compiledCount);
     }
 
-    if (m_topicConfigPanel != nullptr) {
-        m_topicConfigPanel->refreshPackageState();
+    if (m_messagePackagePanel != nullptr && m_packageRegistry != nullptr) {
+        m_messagePackagePanel->setEnvironmentInfo(environmentInfo, m_packageRegistry->workspaceRoot());
+        m_messagePackagePanel->setPackages(m_packageRegistry->packages());
     }
 
     statusBar()->showMessage(
-        hasPackage
-            ? tr("当前消息包：%1").arg(package->packageName)
-            : tr("未加载消息包"));
-
-    m_closeRosPackageAction->setEnabled(hasPackage);
+        packageCount > 0
+            ? tr("%1，当前消息包：%2 个，已编译：%3 个").arg(autoviz::ros::toEnvironmentSummary(environmentInfo)).arg(packageCount).arg(compiledCount)
+            : tr("%1").arg(autoviz::ros::toEnvironmentSummary(environmentInfo)));
+    m_removeRosPackageAction->setEnabled(packageCount > 0);
 }
 
-void MainWindow::loadRosMsgPackage()
+void MainWindow::detectRosEnvironment()
 {
-    Logger::instance().info("打开“加载 ROS 消息包”对话框。");
+    Logger::instance().info("检测 ROS 环境开始。");
+    const auto environmentInfo = autoviz::ros::RosEnvironmentDetector::detect();
+    m_packageRegistry->setEnvironmentInfo(environmentInfo);
 
-    const QString packageDir = QFileDialog::getExistingDirectory(
-        this,
-        tr("选择 ROS 消息包目录"),
-        QString(),
-        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
-
-    if (packageDir.isEmpty()) {
-        return;
+    if (environmentInfo.rosAvailable) {
+        Logger::instance().info(QStringLiteral("检测到 %1。").arg(
+            environmentInfo.rosVersion == autoviz::ros::RosVersion::Ros1 ? QStringLiteral("ROS1") : QStringLiteral("ROS2")));
+        Logger::instance().info(QStringLiteral("检测到 %1。").arg(autoviz::ros::toEnvironmentSummary(environmentInfo)));
+        if (!environmentInfo.errorMessage.isEmpty()) {
+            Logger::instance().warning(environmentInfo.errorMessage);
+        }
+        initializeWorkspace();
+    } else {
+        Logger::instance().warning("未检测到 ROS 环境。");
+        if (!environmentInfo.errorMessage.isEmpty()) {
+            Logger::instance().warning(environmentInfo.errorMessage);
+        }
+        statusBar()->showMessage(tr("未检测到 ROS 环境"));
     }
-
-    if (!m_packageRegistry->loadPackage(packageDir)) {
-        const QString error = m_packageRegistry->lastError();
-        Logger::instance().error(QStringLiteral("消息包扫描失败：%1").arg(error));
-        QMessageBox::warning(this, tr("加载失败"), tr("加载 ROS 消息包失败：%1").arg(error));
-        return;
-    }
-
-    const auto* package = m_packageRegistry->currentPackage();
-    if (package == nullptr) {
-        return;
-    }
-
-    Logger::instance().info(QStringLiteral("检测到 package.xml：%1").arg(package->packageXmlPath));
-    Logger::instance().info(QStringLiteral("检测到 msg 目录：%1").arg(package->msgDirectoryPath));
-    Logger::instance().info(QStringLiteral("已加载 ROS 消息包：%1").arg(package->packageName));
-    Logger::instance().info(QStringLiteral("包路径：%1").arg(package->packagePath));
-    Logger::instance().info(QStringLiteral("扫描到的 msg 数量：%1").arg(package->msgCount()));
-
-    m_topicConfigPanel->clearTopicConfigs();
-    updatePackageUiState();
-    m_leftDock->show();
-
-    m_msgCompiler->compilePackage(*package);
-    Logger::instance().warning(m_msgCompiler->lastError());
 }
 
-void MainWindow::unloadCurrentPackage()
+QStringList MainWindow::selectPackageDirectories() const
 {
-    if (m_packageRegistry == nullptr || !m_packageRegistry->hasLoadedPackage()) {
+    QFileDialog dialog(const_cast<MainWindow*>(this), tr("选择 ROS 消息包目录"));
+    dialog.setFileMode(QFileDialog::Directory);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setOption(QFileDialog::ShowDirsOnly, true);
+
+    for (auto* view : dialog.findChildren<QListView*>()) {
+        view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    }
+    for (auto* view : dialog.findChildren<QTreeView*>()) {
+        view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    }
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return {};
+    }
+
+    return dialog.selectedFiles();
+}
+
+bool MainWindow::initializeWorkspace()
+{
+    QString workspaceRoot;
+    QString errorMessage;
+    if (!m_workspaceManager->initializeWorkspace(m_packageRegistry->environmentInfo(), &workspaceRoot, &errorMessage)) {
+        Logger::instance().error(QStringLiteral("工作区初始化失败：%1").arg(errorMessage));
+        return false;
+    }
+
+    m_packageRegistry->setWorkspaceRoot(workspaceRoot);
+    Logger::instance().info(QStringLiteral("工作区初始化完成：%1").arg(workspaceRoot));
+    return true;
+}
+
+void MainWindow::loadRosMsgPackages()
+{
+    Logger::instance().info("加载消息包目录。");
+
+    const QStringList packageDirectories = selectPackageDirectories();
+    if (packageDirectories.isEmpty()) {
         return;
     }
 
-    const auto* package = m_packageRegistry->currentPackage();
-    const QString packageName = package != nullptr ? package->packageName : QStringLiteral("未知包");
-
-    m_packageRegistry->unloadCurrentPackage();
-    if (m_topicConfigPanel != nullptr) {
-        m_topicConfigPanel->clearTopicConfigs();
+    if (!m_packageRegistry->environmentInfo().rosAvailable) {
+        QMessageBox::warning(this, tr("未检测到 ROS"), tr("当前未检测到 ROS 环境，无法复制消息包到内部工作区。"));
+        Logger::instance().warning("未检测到 ROS 环境，无法加载消息包到工作区。");
+        return;
     }
-    updatePackageUiState();
-    m_leftDock->hide();
 
-    Logger::instance().info(QStringLiteral("已关闭当前消息包：%1").arg(packageName));
+    if (!initializeWorkspace()) {
+        QMessageBox::warning(this, tr("工作区初始化失败"), tr("无法初始化 AutoViz 内部工作区，请查看日志。"));
+        return;
+    }
+
+    for (const QString& packageDirectory : packageDirectories) {
+        addPackageFromDirectory(packageDirectory);
+    }
+
+    refreshUiState();
+}
+
+bool MainWindow::addPackageFromDirectory(const QString& packageDirectory)
+{
+    Logger::instance().info(QStringLiteral("加载消息包目录：%1").arg(packageDirectory));
+
+    const auto validationResult = autoviz::ros::RosPackageValidator::validate(packageDirectory);
+    if (!validationResult.isValid) {
+        Logger::instance().error(QStringLiteral("校验消息包失败：%1，原因：%2").arg(packageDirectory, validationResult.errorMessage));
+        QMessageBox::warning(this, tr("消息包无效"), tr("目录无效：%1\n原因：%2").arg(packageDirectory, validationResult.errorMessage));
+        return false;
+    }
+
+    Logger::instance().info(QStringLiteral("检测到 package.xml：%1").arg(validationResult.packageXmlPath));
+    Logger::instance().info(QStringLiteral("检测到 CMakeLists.txt：%1").arg(validationResult.cmakeListsPath));
+    Logger::instance().info(QStringLiteral("检测到 msg 目录：%1").arg(validationResult.msgDirectoryPath));
+    Logger::instance().info(QStringLiteral("检测到 .msg 文件数量：%1").arg(validationResult.msgCount));
+    Logger::instance().info(QStringLiteral("校验消息包成功：%1").arg(validationResult.packageName));
+
+    bool overwriteExisting = false;
+    if (m_workspaceManager->packageExists(m_packageRegistry->environmentInfo(), validationResult.packageName)) {
+        const auto answer = QMessageBox::question(
+            this,
+            tr("覆盖确认"),
+            tr("工作区中已存在同名消息包“%1”，是否覆盖？").arg(validationResult.packageName),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            Logger::instance().warning(QStringLiteral("用户取消覆盖：%1").arg(validationResult.packageName));
+            return false;
+        }
+        overwriteExisting = true;
+    }
+
+    QString workspacePackagePath;
+    QString errorMessage;
+    if (!m_workspaceManager->copyPackageToWorkspace(
+            m_packageRegistry->environmentInfo(),
+            validationResult,
+            overwriteExisting,
+            &workspacePackagePath,
+            &errorMessage)) {
+        Logger::instance().error(QStringLiteral("复制消息包到工作区失败：%1").arg(errorMessage));
+        QMessageBox::warning(this, tr("复制失败"), tr("复制消息包到工作区失败：%1").arg(errorMessage));
+        return false;
+    }
+
+    Logger::instance().info(QStringLiteral("复制消息包到工作区成功：%1").arg(workspacePackagePath));
+
+    autoviz::ros::ManagedRosPackage package;
+    package.packageName = validationResult.packageName;
+    package.sourcePath = validationResult.packagePath;
+    package.workspacePath = workspacePackagePath;
+    package.msgCount = validationResult.msgCount;
+    package.rosCompatibility = QStringLiteral("匹配当前%1环境").arg(
+        autoviz::ros::toDisplayString(m_packageRegistry->environmentInfo().rosVersion));
+    package.copyStatus = autoviz::ros::PackageCopyStatus::Copied;
+    package.buildStatus = autoviz::ros::PackageBuildStatus::NotBuilt;
+    m_packageRegistry->upsertPackage(package);
+
+    return true;
+}
+
+void MainWindow::removeSelectedPackages(const QStringList& packageNames)
+{
+    if (packageNames.isEmpty()) {
+        Logger::instance().warning("未选择需要删除的消息包。");
+        return;
+    }
+
+    QMessageBox confirmBox(this);
+    confirmBox.setIcon(QMessageBox::Question);
+    confirmBox.setWindowTitle(tr("删除消息包"));
+    confirmBox.setText(tr("是否删除选中的消息包？"));
+    auto* deleteWorkspaceButton = confirmBox.addButton(tr("删除列表和工作区副本"), QMessageBox::YesRole);
+    auto* removeOnlyButton = confirmBox.addButton(tr("仅从列表移除"), QMessageBox::NoRole);
+    auto* cancelButton = confirmBox.addButton(QMessageBox::Cancel);
+    confirmBox.exec();
+
+    if (confirmBox.clickedButton() == static_cast<QAbstractButton*>(cancelButton)) {
+        return;
+    }
+
+    const bool deleteWorkspaceCopy =
+        confirmBox.clickedButton() == static_cast<QAbstractButton*>(deleteWorkspaceButton);
+    Q_UNUSED(removeOnlyButton);
+
+    for (const QString& packageName : packageNames) {
+        if (deleteWorkspaceCopy) {
+            QString errorMessage;
+            if (!m_workspaceManager->removePackageFromWorkspace(m_packageRegistry->environmentInfo(), packageName, &errorMessage)) {
+                Logger::instance().error(errorMessage);
+                QMessageBox::warning(this, tr("删除失败"), errorMessage);
+                continue;
+            }
+        }
+
+        if (m_packageRegistry->removePackage(packageName)) {
+            Logger::instance().info(QStringLiteral("删除消息包：%1").arg(packageName));
+        }
+    }
+
+    refreshUiState();
+}
+
+void MainWindow::buildRosMsgPackages()
+{
+    if (!m_packageRegistry->environmentInfo().rosAvailable) {
+        Logger::instance().warning("未检测到 ROS 环境，编译按钮已禁用。");
+        QMessageBox::warning(this, tr("无法编译"), tr("当前未检测到 ROS 环境，无法编译消息包。"));
+        return;
+    }
+
+    QStringList enabledPackageNames;
+    for (const auto& package : m_packageRegistry->packages()) {
+        if (package.enabled) {
+            enabledPackageNames.push_back(package.packageName);
+        }
+    }
+
+    if (enabledPackageNames.isEmpty()) {
+        Logger::instance().warning("没有可编译的已启用消息包。");
+        QMessageBox::warning(this, tr("无法编译"), tr("请至少启用一个消息包后再执行编译。"));
+        return;
+    }
+
+    m_packageRegistry->setAllEnabledPackagesBuildStatus(autoviz::ros::PackageBuildStatus::Building);
+    refreshUiState();
+
+    QString errorMessage;
+    if (!m_packageBuilder->startBuild(
+            m_packageRegistry->environmentInfo(),
+            m_packageRegistry->workspaceRoot(),
+            enabledPackageNames,
+            &errorMessage)) {
+        m_packageRegistry->setAllEnabledPackagesBuildStatus(autoviz::ros::PackageBuildStatus::BuildFailed, errorMessage);
+        refreshUiState();
+        Logger::instance().error(QStringLiteral("开始编译消息包失败：%1").arg(errorMessage));
+        QMessageBox::warning(this, tr("编译失败"), errorMessage);
+    }
 }
 
 void MainWindow::bindDockLogging(QDockWidget* dock, const QString& panelName)
