@@ -1,0 +1,11 @@
+{
+  "window": {
+    "left_panel_width": 320,
+    "right_panel_width": 300,
+    "bottom_panel_height": 240
+  },
+  "bottom_splitter": {
+    "control_status_ratio": 3,
+    "log_ratio": 1
+  }
+}

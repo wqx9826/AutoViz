@@ -1,0 +1,34 @@
+# Build outputs
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# CMake generated files
+*.cmake
+*/CMakeFiles/
+
+# Binary and object files
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.out
+
+# Qt user files
+*.user
+*.pro.user
+
+# IDE and editor files
+.idea/
+.vscode/
+.codex
+*.swp
+*.swo
+*~
+
+# Misc
+.DS_Store

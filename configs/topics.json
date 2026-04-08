@@ -1,0 +1,21 @@
+{
+  "note": "该文件仅保留为演示数据，不再作为当前版本的话题与消息主配置源。",
+  "examples": [
+    {
+      "topic_name": "/planning/global_path",
+      "msg_type_name": "custom_msgs/GlobalPath",
+      "msg_file_path": "/path/to/GlobalPath.msg",
+      "visualization_role": "GlobalPath",
+      "compile_status": "Pending",
+      "enabled": true
+    },
+    {
+      "topic_name": "/control/command",
+      "msg_type_name": "custom_msgs/ControlCommand",
+      "msg_file_path": "/path/to/ControlCommand.msg",
+      "visualization_role": "Control",
+      "compile_status": "NotCompiled",
+      "enabled": true
+    }
+  ]
+}
