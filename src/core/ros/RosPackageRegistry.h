@@ -26,6 +26,10 @@ public:
     void setPackageEnabled(const QString& packageName, bool enabled);
     void setPackageBuildStatus(const QString& packageName, PackageBuildStatus status, const QString& errorMessage = QString());
     void setAllEnabledPackagesBuildStatus(PackageBuildStatus status, const QString& errorMessage = QString());
+    void setPackages(const ManagedRosPackageList& packages);
+    QString packageStateFilePath(const QString& projectRoot) const;
+    bool saveToFile(const QString& filePath, QString* errorMessage = nullptr) const;
+    bool loadFromFile(const QString& filePath, QString* errorMessage = nullptr);
 
     QString lastError() const;
 

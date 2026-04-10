@@ -53,29 +53,18 @@ void MessagePackagePanel::setPackages(const ManagedRosPackageList& packages)
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         m_table->setItem(row, 1, nameItem);
 
-        auto* sourceItem = new QTableWidgetItem(package.sourcePath);
-        sourceItem->setFlags(sourceItem->flags() & ~Qt::ItemIsEditable);
-        m_table->setItem(row, 2, sourceItem);
-
-        auto* workspaceItem = new QTableWidgetItem(package.workspacePath);
-        workspaceItem->setFlags(workspaceItem->flags() & ~Qt::ItemIsEditable);
-        m_table->setItem(row, 3, workspaceItem);
-
         auto* msgCountItem = new QTableWidgetItem(QString::number(package.msgCount));
         msgCountItem->setFlags(msgCountItem->flags() & ~Qt::ItemIsEditable);
-        m_table->setItem(row, 4, msgCountItem);
+        m_table->setItem(row, 2, msgCountItem);
 
-        auto* rosCompatibilityItem = new QTableWidgetItem(package.rosCompatibility);
+        auto* rosCompatibilityItem = new QTableWidgetItem(
+            package.rosCompatibility.isEmpty() ? autoviz::ros::toDisplayString(package.rosVersion) : package.rosCompatibility);
         rosCompatibilityItem->setFlags(rosCompatibilityItem->flags() & ~Qt::ItemIsEditable);
-        m_table->setItem(row, 5, rosCompatibilityItem);
-
-        auto* copyStatusItem = new QTableWidgetItem(autoviz::ros::toDisplayString(package.copyStatus));
-        copyStatusItem->setFlags(copyStatusItem->flags() & ~Qt::ItemIsEditable);
-        m_table->setItem(row, 6, copyStatusItem);
+        m_table->setItem(row, 3, rosCompatibilityItem);
 
         auto* buildStatusItem = new QTableWidgetItem(autoviz::ros::toDisplayString(package.buildStatus));
         buildStatusItem->setFlags(buildStatusItem->flags() & ~Qt::ItemIsEditable);
-        m_table->setItem(row, 7, buildStatusItem);
+        m_table->setItem(row, 4, buildStatusItem);
     }
 
     refreshButtonState();
@@ -117,11 +106,6 @@ void MessagePackagePanel::setupUi()
     m_workspaceLabel->setWordWrap(true);
     layout->addWidget(m_workspaceLabel);
 
-    m_hintLabel = new QLabel(this);
-    m_hintLabel->setWordWrap(true);
-    m_hintLabel->setStyleSheet("padding: 8px; background: #1f2a35; border-radius: 4px; color: #cfd8e3;");
-    layout->addWidget(m_hintLabel);
-
     auto* buttonLayout = new QHBoxLayout();
     buttonLayout->setSpacing(6);
 
@@ -134,15 +118,19 @@ void MessagePackagePanel::setupUi()
     buttonLayout->addWidget(m_buildButton);
     layout->addLayout(buttonLayout);
 
-    m_table = new QTableWidget(0, 8, this);
-    m_table->setHorizontalHeaderLabels(
-        {tr("启用"), tr("包名"), tr("原始路径"), tr("工作区路径"), tr("消息数"), tr("ROS 适配"), tr("复制状态"), tr("编译状态")});
+    m_table = new QTableWidget(0, 5, this);
+    m_table->setHorizontalHeaderLabels({tr("启用"), tr("包名"), tr("消息数"), tr("ROS 适配"), tr("编译状态")});
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setAlternatingRowColors(true);
     layout->addWidget(m_table, 1);
+
+    m_hintLabel = new QLabel(this);
+    m_hintLabel->setWordWrap(true);
+    m_hintLabel->setStyleSheet("padding: 6px 2px 0 2px; color: #c0392b;");
+    layout->addWidget(m_hintLabel);
 
     connect(m_addButton, &QPushButton::clicked, this, &MessagePackagePanel::addPackagesRequested);
     connect(m_removeButton, &QPushButton::clicked, this, [this]() {
@@ -182,7 +170,7 @@ void MessagePackagePanel::refreshHeader()
         return;
     }
 
-    m_hintLabel->setText(QStringLiteral("请选择标准 ROS 消息包目录，复制到内部工作区后执行编译。"));
+    m_hintLabel->setText(QStringLiteral("请添加标准 ROS 消息包，并执行编译。"));
 }
 
 void MessagePackagePanel::refreshButtonState()

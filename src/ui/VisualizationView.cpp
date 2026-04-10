@@ -120,7 +120,7 @@ void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
     QString bodyText;
     if (m_loadedPackageCount <= 0) {
         bodyText = QStringLiteral(
-            "当前未加载 ROS 消息包\n请通过“文件 -> 加载 ROS 消息包”导入标准 ROS 消息包目录");
+            "当前未加载自定义消息包，使用默认配置\n请通过“文件 -> 加载 ROS 消息包”打开消息包管理窗口");
     } else if (m_compiledPackageCount <= 0) {
         bodyText = QStringLiteral("当前已加载消息包：%1 个\n请点击“编译消息包”完成类型构建")
                        .arg(m_loadedPackageCount);

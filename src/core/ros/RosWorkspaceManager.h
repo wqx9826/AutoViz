@@ -28,6 +28,7 @@ public:
         const RosEnvironmentInfo& environmentInfo,
         const QString& packageName,
         QString* errorMessage) const;
+    bool removePackageDirectory(const QString& packagePath, QString* errorMessage) const;
 
 private:
     static QString detectProjectRoot();

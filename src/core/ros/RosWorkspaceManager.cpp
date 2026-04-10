@@ -158,6 +158,12 @@ bool RosWorkspaceManager::removePackageFromWorkspace(
     QString* errorMessage) const
 {
     const QString targetPath = QDir(workspaceSrcRootFor(environmentInfo)).filePath(packageName);
+    return removePackageDirectory(targetPath, errorMessage);
+}
+
+bool RosWorkspaceManager::removePackageDirectory(const QString& packagePath, QString* errorMessage) const
+{
+    const QString targetPath = QFileInfo(packagePath).absoluteFilePath();
     const QFileInfo targetInfo(targetPath);
     if (!targetInfo.exists()) {
         if (errorMessage != nullptr) {

@@ -53,6 +53,7 @@ struct ManagedRosPackage {
     QString sourcePath;
     QString workspacePath;
     int msgCount = 0;
+    RosVersion rosVersion = RosVersion::Unknown;
     QString rosCompatibility;
     PackageCopyStatus copyStatus = PackageCopyStatus::NotCopied;
     PackageBuildStatus buildStatus = PackageBuildStatus::NotBuilt;
@@ -109,10 +110,10 @@ inline QString toEnvironmentSummary(const RosEnvironmentInfo& info)
     }
 
     if (info.rosDistro.isEmpty()) {
-        return QStringLiteral("当前 ROS 环境：%1").arg(toDisplayString(info.rosVersion));
+        return QStringLiteral("ROS 环境：%1").arg(toDisplayString(info.rosVersion));
     }
 
-    return QStringLiteral("当前 ROS 环境：%1 / %2").arg(toDisplayString(info.rosVersion), info.rosDistro);
+    return QStringLiteral("ROS 环境：%1 / %2").arg(toDisplayString(info.rosVersion), info.rosDistro);
 }
 
 }  // namespace autoviz::ros
