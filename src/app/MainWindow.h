@@ -1,28 +1,28 @@
 #pragma once
 
-#include <QMainWindow>
-#include <QStringList>
+#include <memory>
 
-#include "core/ros/RosTypes.h"
+#include <QMainWindow>
 
 class QAction;
+class ChartPanel;
 class ControlStatusPanel;
-class DetailPanel;
+class DisplayControlPanel;
 class LogPanel;
-class MessagePackagePanel;
-class QDialog;
 class QDockWidget;
-class QFileDialog;
-class QListView;
-class QMenu;
-class QTreeView;
-class SceneManager;
+class QTimer;
 class VisualizationView;
 
+namespace autoviz::datacenter {
+class DataManager;
+}
+
 namespace autoviz::ros {
-class RosPackageBuilder;
-class RosPackageRegistry;
-class RosWorkspaceManager;
+class RosMsgSubscribeBase;
+}
+
+namespace autoviz::render {
+class SceneManager;
 }
 
 class MainWindow : public QMainWindow
@@ -38,42 +38,28 @@ private:
     void setupDocks();
     void connectActions();
     void restoreDefaultLayout();
-    void refreshUiState();
-    void detectRosEnvironment();
-    void restorePackageState();
-    bool persistPackageState();
-    void showMessagePackageManagerWindow();
-    void loadRosMsgPackages();
-    void removeSelectedPackages(const QStringList& packageNames);
-    void buildRosMsgPackages();
-    QStringList selectPackageDirectories() const;
-    bool initializeWorkspace();
-    bool addPackageFromDirectory(const QString& packageDirectory);
-    void ensureLogDockBottomArea(bool visible);
+    void refreshVisualization();
+    void initializeMessageSubscriber();
     void bindDockLogging(QDockWidget* dock, const QString& panelName);
 
     VisualizationView* m_visualizationView = nullptr;
-    MessagePackagePanel* m_messagePackagePanel = nullptr;
-    QDialog* m_messagePackageDialog = nullptr;
-    DetailPanel* m_detailPanel = nullptr;
+    DisplayControlPanel* m_displayControlPanel = nullptr;
     ControlStatusPanel* m_controlStatusPanel = nullptr;
+    ChartPanel* m_chartPanel = nullptr;
     LogPanel* m_logPanel = nullptr;
-    SceneManager* m_sceneManager = nullptr;
-    autoviz::ros::RosPackageRegistry* m_packageRegistry = nullptr;
-    autoviz::ros::RosPackageBuilder* m_packageBuilder = nullptr;
-    autoviz::ros::RosWorkspaceManager* m_workspaceManager = nullptr;
+    autoviz::render::SceneManager* m_sceneManager = nullptr;
+    autoviz::datacenter::DataManager* m_dataManager = nullptr;
+    std::shared_ptr<autoviz::ros::RosMsgSubscribeBase> m_msgSubscriber;
+    QTimer* m_refreshTimer = nullptr;
 
     QDockWidget* m_rightDock = nullptr;
     QDockWidget* m_controlDock = nullptr;
+    QDockWidget* m_chartDock = nullptr;
     QDockWidget* m_logDock = nullptr;
     QMenu* m_viewMenu = nullptr;
-    bool m_adjustingLogDock = false;
 
-    QAction* m_loadRosPackageAction = nullptr;
-    QAction* m_removeRosPackageAction = nullptr;
     QAction* m_exitAction = nullptr;
     QAction* m_resetViewAction = nullptr;
     QAction* m_restoreLayoutAction = nullptr;
     QAction* m_aboutAction = nullptr;
-    QAction* m_logDockAction = nullptr;
 };

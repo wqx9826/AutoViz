@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(AutoViz VERSION 0.1.0 LANGUAGES CXX)
+project(AutoViz VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,66 +10,80 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
+option(AUTOVIZ_ENABLE_ROS1 "Enable ROS1 adapter compilation hooks." OFF)
+option(AUTOVIZ_ENABLE_ROS2 "Enable ROS2 adapter compilation hooks." OFF)
+
 find_package(Qt5 REQUIRED COMPONENTS Widgets)
 
-add_executable(${PROJECT_NAME}
+set(AUTOVIZ_SOURCES
     src/main.cpp
     src/app/MainWindow.h
     src/app/MainWindow.cpp
-    src/ui/MessagePackagePanel.h
-    src/ui/MessagePackagePanel.cpp
-    src/ui/TopicConfigPanel.h
-    src/ui/TopicConfigPanel.cpp
-    src/ui/DetailPanel.h
-    src/ui/DetailPanel.cpp
-    src/ui/LogPanel.h
-    src/ui/LogPanel.cpp
-    src/ui/VisualizationView.h
-    src/ui/VisualizationView.cpp
     src/core/model/CommonTypes.h
-    src/core/model/TrajectoryModel.h
-    src/core/model/ObstacleModel.h
-    src/core/model/EgoModel.h
-    src/core/datasource/ITopicSource.h
-    src/core/datasource/IMsgParser.h
-    src/core/datasource/TopicConfig.h
-    src/core/datasource/MsgDefinition.h
-    src/core/datasource/MsgDefinition.cpp
-    src/core/datasource/MsgRegistry.h
-    src/core/datasource/MsgRegistry.cpp
-    src/core/datasource/MsgCompiler.h
-    src/core/datasource/MsgCompiler.cpp
-    src/core/datasource/RosMsgPackage.h
-    src/core/datasource/RosMsgPackage.cpp
-    src/core/datasource/RosMsgPackageRegistry.h
-    src/core/datasource/RosMsgPackageRegistry.cpp
-    src/core/ros/RosTypes.h
-    src/core/ros/RosEnvironmentDetector.h
-    src/core/ros/RosEnvironmentDetector.cpp
-    src/core/ros/RosPackageValidator.h
-    src/core/ros/RosPackageValidator.cpp
-    src/core/ros/RosPackageRegistry.h
-    src/core/ros/RosPackageRegistry.cpp
-    src/core/ros/RosWorkspaceManager.h
-    src/core/ros/RosWorkspaceManager.cpp
-    src/core/ros/ProcessRunner.h
-    src/core/ros/ProcessRunner.cpp
-    src/core/ros/RosPackageBuilder.h
-    src/core/ros/RosPackageBuilder.cpp
+    src/core/model/VehicleState.h
+    src/core/model/VehicleState.cpp
+    src/core/model/PathTypes.h
+    src/core/model/PathTypes.cpp
+    src/core/model/ObstacleTypes.h
+    src/core/model/ObstacleTypes.cpp
+    src/core/model/ControlTypes.h
+    src/core/model/ControlTypes.cpp
+    src/core/datacenter/DataManager.h
+    src/core/datacenter/DataManager.cpp
+    src/core/config/VehicleConfig.h
+    src/core/config/VehicleConfig.cpp
     src/core/render/SceneManager.h
     src/core/render/SceneManager.cpp
+    src/core/ros/RosMsgSubscribeBase.h
+    src/core/ros/RosMsgSubscribeBase.cpp
+    src/core/ros/Ros1MsgSubsrcribe.h
+    src/core/ros/Ros1MsgSubsrcribe.cpp
+    src/core/ros/Ros2MsgSubsrcribe.h
+    src/core/ros/Ros2MsgSubsrcribe.cpp
+    src/core/ros/RosMsgSubsrcribeFactory.h
+    src/core/ros/RosMsgSubsrcribeFactory.cpp
+    src/ui/VisualizationView.h
+    src/ui/VisualizationView.cpp
+    src/ui/DisplayControlPanel.h
+    src/ui/DisplayControlPanel.cpp
     src/ui/ControlStatusPanel.h
     src/ui/ControlStatusPanel.cpp
+    src/ui/LogPanel.h
+    src/ui/LogPanel.cpp
+    src/ui/charts/ChartPanel.h
+    src/ui/charts/ChartPanel.cpp
     src/utils/Logger.h
     src/utils/Logger.cpp
 )
 
+if(AUTOVIZ_ENABLE_ROS1)
+    # ROS1 接入说明：
+    # 1. 在已 source ROS1 环境后打开 AUTOVIZ_ENABLE_ROS1。
+    # 2. 后续可在这里补 find_package(catkin QUIET COMPONENTS roscpp std_msgs ...)
+    # 3. 若找到了 catkin，再追加 include_directories / target_link_libraries。
+    add_compile_definitions(AUTOVIZ_ENABLE_ROS1)
+endif()
+
+if(AUTOVIZ_ENABLE_ROS2)
+    # ROS2 接入说明：
+    # 1. 在已 source ROS2 环境后打开 AUTOVIZ_ENABLE_ROS2。
+    # 2. 后续可在这里补 find_package(rclcpp QUIET) 等依赖。
+    # 3. 若找到了 rclcpp，再追加 include 目录与链接库。
+    add_compile_definitions(AUTOVIZ_ENABLE_ROS2)
+endif()
+
+add_executable(${PROJECT_NAME} ${AUTOVIZ_SOURCES})
+
 target_include_directories(${PROJECT_NAME}
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         Qt5::Widgets
 )
+
+# 默认保持 Mock / 占位模式可编译。
+# 即使没有完整 ROS1/ROS2 依赖，也应能构建 UI、内部模型、DataManager 与渲染链路。

@@ -6,15 +6,16 @@
 #include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
 
 namespace {
-constexpr int kMinorGridSpacing = 20;
-constexpr int kMajorGridSpacing = 100;
+constexpr double kMinorGridSpacing = 1.0;
+constexpr double kMajorGridSpacing = 5.0;
 constexpr qreal kZoomStep = 1.15;
-constexpr qreal kMinZoom = 0.2;
-constexpr qreal kMaxZoom = 10.0;
+constexpr qreal kMinZoom = 0.02;
+constexpr qreal kMaxZoom = 500.0;
 }
 
 VisualizationView::VisualizationView(QWidget* parent)
@@ -25,10 +26,40 @@ VisualizationView::VisualizationView(QWidget* parent)
 
 void VisualizationView::resetView()
 {
+    m_autoFitEnabled = true;
     resetTransform();
     m_zoomFactor = 1.0;
     centerOn(0.0, 0.0);
     viewport()->update();
+}
+
+void VisualizationView::fitToRegion(const QRectF& region)
+{
+    if (!region.isValid() || region.isEmpty()) {
+        return;
+    }
+
+    m_lastFitRegion = region;
+    if (!m_autoFitEnabled) {
+        return;
+    }
+    resetTransform();
+    fitInView(region, Qt::KeepAspectRatio);
+    m_zoomFactor = transform().m11();
+    centerOn(region.center());
+}
+
+void VisualizationView::enableAutoFit(bool enabled)
+{
+    m_autoFitEnabled = enabled;
+    if (enabled && m_lastFitRegion.isValid() && !m_lastFitRegion.isEmpty()) {
+        fitToRegion(m_lastFitRegion);
+    }
+}
+
+bool VisualizationView::autoFitEnabled() const
+{
+    return m_autoFitEnabled;
 }
 
 void VisualizationView::setBackgroundColor(const QColor& color)
@@ -43,11 +74,20 @@ void VisualizationView::setGridVisible(bool visible)
     viewport()->update();
 }
 
-void VisualizationView::setWelcomeState(int loadedPackageCount, int compiledPackageCount)
+void VisualizationView::setOverlayMessage(const QString& text)
 {
-    m_loadedPackageCount = loadedPackageCount;
-    m_compiledPackageCount = compiledPackageCount;
+    m_overlayMessage = text;
     viewport()->update();
+}
+
+double VisualizationView::minorGridSpacingMeters() const
+{
+    return kMinorGridSpacing;
+}
+
+double VisualizationView::majorGridSpacingMeters() const
+{
+    return kMajorGridSpacing;
 }
 
 void VisualizationView::drawBackground(QPainter* painter, const QRectF& rect)
@@ -68,17 +108,20 @@ void VisualizationView::drawBackground(QPainter* painter, const QRectF& rect)
     const int top = static_cast<int>(std::floor(rect.top()));
     const int bottom = static_cast<int>(std::ceil(rect.bottom()));
 
-    for (int x = left - (left % kMinorGridSpacing); x <= right; x += kMinorGridSpacing) {
-        painter->setPen((x % kMajorGridSpacing == 0) ? majorPen : minorPen);
+    const int minorSpacing = static_cast<int>(kMinorGridSpacing);
+    const int majorSpacing = static_cast<int>(kMajorGridSpacing);
+
+    for (int x = left - (left % minorSpacing); x <= right; x += minorSpacing) {
+        painter->setPen((x % majorSpacing == 0) ? majorPen : minorPen);
         painter->drawLine(QLineF(x, top, x, bottom));
     }
 
-    for (int y = top - (top % kMinorGridSpacing); y <= bottom; y += kMinorGridSpacing) {
-        painter->setPen((y % kMajorGridSpacing == 0) ? majorPen : minorPen);
+    for (int y = top - (top % minorSpacing); y <= bottom; y += minorSpacing) {
+        painter->setPen((y % majorSpacing == 0) ? majorPen : minorPen);
         painter->drawLine(QLineF(left, y, right, y));
     }
 
-    painter->setPen(QPen(QColor("#8aa2b6"), 0.0));
+    painter->setPen(QPen(QColor("#78909c"), 0.0));
     painter->drawLine(QLineF(left, 0, right, 0));
     painter->drawLine(QLineF(0, top, 0, bottom));
 }
@@ -87,56 +130,57 @@ void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
 {
     Q_UNUSED(rect);
 
+    if (m_overlayMessage.isEmpty()) {
+        return;
+    }
+
     painter->save();
     painter->resetTransform();
 
     const QRect viewportRect = viewport()->rect();
-    QRectF cardRect(
-        viewportRect.width() * 0.5 - 230.0,
-        viewportRect.height() * 0.5 - 80.0,
-        460.0,
-        160.0);
+    QRectF cardRect(viewportRect.width() - 320.0, 18.0, 300.0, 88.0);
 
     QLinearGradient gradient(cardRect.topLeft(), cardRect.bottomRight());
-    gradient.setColorAt(0.0, QColor(18, 25, 34, 210));
-    gradient.setColorAt(1.0, QColor(28, 39, 51, 220));
-    painter->setPen(QPen(QColor("#4f6377"), 1.0));
+    gradient.setColorAt(0.0, QColor(18, 24, 31, 210));
+    gradient.setColorAt(1.0, QColor(29, 40, 52, 220));
+    painter->setPen(QPen(QColor("#5d738b"), 1.0));
     painter->setBrush(gradient);
     painter->drawRoundedRect(cardRect, 12.0, 12.0);
 
-    QFont titleFont = painter->font();
-    titleFont.setPointSize(16);
-    titleFont.setBold(true);
-    painter->setFont(titleFont);
-    painter->setPen(QColor("#e8f1f7"));
-    painter->drawText(cardRect.adjusted(24, 20, -24, 0), Qt::AlignTop | Qt::AlignHCenter, QStringLiteral("AutoViz 二维视图"));
-
-    QFont bodyFont = painter->font();
-    bodyFont.setPointSize(11);
-    bodyFont.setBold(false);
-    painter->setFont(bodyFont);
-    painter->setPen(QColor("#c9d6e2"));
-
-    QString bodyText;
-    if (m_loadedPackageCount <= 0) {
-        bodyText = QStringLiteral(
-            "当前未加载自定义消息包，使用默认配置\n请通过“文件 -> 加载 ROS 消息包”打开消息包管理窗口");
-    } else if (m_compiledPackageCount <= 0) {
-        bodyText = QStringLiteral("当前已加载消息包：%1 个\n请点击“编译消息包”完成类型构建")
-                       .arg(m_loadedPackageCount);
-    } else {
-        bodyText = QStringLiteral("当前已编译消息包：%1 个\n可进入下一阶段的话题绑定与可视化配置")
-                       .arg(m_compiledPackageCount);
-    }
-    painter->drawText(cardRect.adjusted(24, 58, -24, -20), Qt::AlignTop | Qt::AlignHCenter | Qt::TextWordWrap, bodyText);
+    QFont font = painter->font();
+    font.setPointSize(10);
+    painter->setFont(font);
+    painter->setPen(QColor("#dde7ef"));
+    painter->drawText(cardRect.adjusted(14, 12, -14, -12),
+                      Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+                      m_overlayMessage + QStringLiteral("\n网格：细格 1m / 粗格 5m"));
 
     painter->restore();
 }
 
+void VisualizationView::resizeEvent(QResizeEvent* event)
+{
+    QGraphicsView::resizeEvent(event);
+    if (m_autoFitEnabled && m_lastFitRegion.isValid() && !m_lastFitRegion.isEmpty()) {
+        fitToRegion(m_lastFitRegion);
+    }
+}
+
 void VisualizationView::wheelEvent(QWheelEvent* event)
 {
-    const qreal step = (event->angleDelta().y() > 0) ? kZoomStep : (1.0 / kZoomStep);
-    const qreal nextZoom = m_zoomFactor * step;
+    m_autoFitEnabled = false;
+    const QPoint angleDelta = event->angleDelta();
+    const QPoint pixelDelta = event->pixelDelta();
+    const bool zoomIn = angleDelta.y() > 0 || pixelDelta.y() > 0;
+    const bool zoomOut = angleDelta.y() < 0 || pixelDelta.y() < 0;
+    if (!zoomIn && !zoomOut) {
+        event->ignore();
+        return;
+    }
+
+    const qreal currentScale = std::abs(transform().m11());
+    const qreal step = zoomIn ? kZoomStep : (1.0 / kZoomStep);
+    const qreal nextZoom = currentScale * step;
     if (nextZoom < kMinZoom || nextZoom > kMaxZoom) {
         event->accept();
         return;
@@ -150,7 +194,8 @@ void VisualizationView::wheelEvent(QWheelEvent* event)
 
 void VisualizationView::mousePressEvent(QMouseEvent* event)
 {
-    if (event->button() == Qt::MiddleButton || event->button() == Qt::RightButton) {
+    if (isPanButton(event->button())) {
+        m_autoFitEnabled = false;
         m_isPanning = true;
         m_lastMousePosition = event->pos();
         setCursor(Qt::ClosedHandCursor);
@@ -178,7 +223,7 @@ void VisualizationView::mouseMoveEvent(QMouseEvent* event)
 
 void VisualizationView::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (m_isPanning && (event->button() == Qt::MiddleButton || event->button() == Qt::RightButton)) {
+    if (m_isPanning && isPanButton(event->button())) {
         m_isPanning = false;
         setCursor(Qt::ArrowCursor);
         event->accept();
@@ -191,7 +236,7 @@ void VisualizationView::mouseReleaseEvent(QMouseEvent* event)
 void VisualizationView::setupScene()
 {
     auto* graphicsScene = new QGraphicsScene(this);
-    graphicsScene->setSceneRect(-5000, -5000, 10000, 10000);
+    graphicsScene->setSceneRect(-120.0, -120.0, 240.0, 240.0);
     setScene(graphicsScene);
 
     setRenderHint(QPainter::Antialiasing, true);
@@ -200,4 +245,14 @@ void VisualizationView::setupScene()
     setDragMode(QGraphicsView::NoDrag);
     setTransformationAnchor(QGraphicsView::AnchorViewCenter);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
+    setInteractive(false);
+    setFocusPolicy(Qt::StrongFocus);
+    setMouseTracking(true);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+}
+
+bool VisualizationView::isPanButton(Qt::MouseButton button) const
+{
+    return button == Qt::LeftButton || button == Qt::MiddleButton || button == Qt::RightButton;
 }

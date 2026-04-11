@@ -1,18 +1,25 @@
 #pragma once
 
 #include <QObject>
+#include <QColor>
 
-#include "core/model/EgoModel.h"
-#include "core/model/ObstacleModel.h"
-#include "core/model/TrajectoryModel.h"
+#include "core/datacenter/DataManager.h"
 
 class QGraphicsScene;
+class QPointF;
 class VisualizationView;
 
-// SceneManager owns the scene-level rendering policy. It is intentionally
-// separate from the view so later stages can manage layered renderables here.
-class SceneManager : public QObject
-{
+namespace autoviz::render {
+
+struct LayerVisibility {
+    bool showVehicle = true;
+    bool showGlobalPath = true;
+    bool showReferenceLine = true;
+    bool showLocalPath = true;
+    bool showObstacles = true;
+};
+
+class SceneManager : public QObject {
     Q_OBJECT
 
 public:
@@ -20,13 +27,25 @@ public:
 
     void initializeScene();
     void clearScene();
-    void setSceneBackground();
-
-    void updateTrajectory(const autoviz::model::TrajectoryModel& trajectory);
-    void updateObstacles(const autoviz::model::ObstacleCollection& obstacles);
-    void updateEgo(const autoviz::model::EgoModel& ego);
+    void updateScene(const autoviz::datacenter::VisualizationSnapshot& snapshot);
+    void setLayerVisibility(const LayerVisibility& visibility);
+    LayerVisibility layerVisibility() const;
+    void setVehicleCenteredMode(bool enabled);
 
 private:
+    void redraw();
+    void drawVehicle(const autoviz::datacenter::VisualizationSnapshot& snapshot);
+    void drawTrajectory(const autoviz::model::Trajectory& trajectory, const QColor& color, qreal width);
+    void drawReferenceLine(const autoviz::model::ReferenceLine& referenceLine);
+    void drawObstacles(const autoviz::model::ObstacleList& obstacles);
+    void autoFitAndCenter();
+    QPointF toScenePoint(const autoviz::model::Point2D& point) const;
+
     VisualizationView* m_view = nullptr;
     QGraphicsScene* m_scene = nullptr;
+    autoviz::datacenter::VisualizationSnapshot m_snapshot;
+    LayerVisibility m_layerVisibility;
+    bool m_vehicleCenteredMode = false;
 };
+
+}  // namespace autoviz::render
