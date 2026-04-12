@@ -197,9 +197,9 @@ void MainWindow::refreshVisualization()
 void MainWindow::initializeMessageSubscriber()
 {
     autoviz::ros::SubscribeBackend backend = autoviz::ros::SubscribeBackend::None;
-#if defined(AUTOVIZ_ENABLE_ROS1)
+#if AUTOVIZ_ENABLE_ROS1
     backend = autoviz::ros::SubscribeBackend::Ros1;
-#elif defined(AUTOVIZ_ENABLE_ROS2)
+#elif AUTOVIZ_ENABLE_ROS2
     backend = autoviz::ros::SubscribeBackend::Ros2;
 #endif
 

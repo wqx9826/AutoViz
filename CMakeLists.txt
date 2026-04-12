@@ -10,10 +10,45 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
+
 option(AUTOVIZ_ENABLE_ROS1 "Enable ROS1 adapter compilation hooks." OFF)
 option(AUTOVIZ_ENABLE_ROS2 "Enable ROS2 adapter compilation hooks." OFF)
 
+if(AUTOVIZ_ENABLE_ROS1 AND AUTOVIZ_ENABLE_ROS2)
+    message(FATAL_ERROR "AUTOVIZ_ENABLE_ROS1 与 AUTOVIZ_ENABLE_ROS2 不能同时打开。ROS1 与 ROS2 订阅后端当前按互斥模式设计。")
+endif()
+
 find_package(Qt5 REQUIRED COMPONENTS Widgets)
+
+if(AUTOVIZ_ENABLE_ROS1)
+    # ROS1 接入说明：
+    # 1. 在已 source ROS1 环境后打开 AUTOVIZ_ENABLE_ROS1。
+    # 2. 后续可在这里补 find_package(catkin QUIET COMPONENTS roscpp std_msgs ...)
+    # 3. 若找到了 catkin，再追加 include_directories / target_link_libraries。
+endif()
+
+
+if(AUTOVIZ_ENABLE_ROS2)
+
+    find_package(rclcpp REQUIRED)
+    find_package(nav_msgs REQUIRED)
+    find_package(geometry_msgs REQUIRED)
+    find_package(std_msgs REQUIRED)
+
+    # 1. 包含头文件路径
+    include_directories(
+        ${rclcpp_INCLUDE_DIRS}
+        ${nav_msgs_INCLUDE_DIRS}
+        ${geometry_msgs_INCLUDE_DIRS}
+        ${std_msgs_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/message/ros2/custom_msgs/include/custom_msgs/ 
+    )
+
+    # 2. 链接库路径
+    link_directories(
+        ${CMAKE_SOURCE_DIR}/message/ros2/custom_msgs/lib        
+    )
+endif()
 
 set(AUTOVIZ_SOURCES
     src/main.cpp
@@ -56,21 +91,7 @@ set(AUTOVIZ_SOURCES
     src/utils/Logger.cpp
 )
 
-if(AUTOVIZ_ENABLE_ROS1)
-    # ROS1 接入说明：
-    # 1. 在已 source ROS1 环境后打开 AUTOVIZ_ENABLE_ROS1。
-    # 2. 后续可在这里补 find_package(catkin QUIET COMPONENTS roscpp std_msgs ...)
-    # 3. 若找到了 catkin，再追加 include_directories / target_link_libraries。
-    add_compile_definitions(AUTOVIZ_ENABLE_ROS1)
-endif()
 
-if(AUTOVIZ_ENABLE_ROS2)
-    # ROS2 接入说明：
-    # 1. 在已 source ROS2 环境后打开 AUTOVIZ_ENABLE_ROS2。
-    # 2. 后续可在这里补 find_package(rclcpp QUIET) 等依赖。
-    # 3. 若找到了 rclcpp，再追加 include 目录与链接库。
-    add_compile_definitions(AUTOVIZ_ENABLE_ROS2)
-endif()
 
 add_executable(${PROJECT_NAME} ${AUTOVIZ_SOURCES})
 
@@ -80,10 +101,30 @@ target_include_directories(${PROJECT_NAME}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# 始终把 ROS 编译开关定义成 0/1，避免“宏不存在”导致的分支静态检查缺失。
+# 代码里统一使用 #if AUTOVIZ_ENABLE_ROS1 / #if AUTOVIZ_ENABLE_ROS2。
+target_compile_definitions(${PROJECT_NAME}
+    PRIVATE
+        AUTOVIZ_ENABLE_ROS1=$<BOOL:${AUTOVIZ_ENABLE_ROS1}>
+        AUTOVIZ_ENABLE_ROS2=$<BOOL:${AUTOVIZ_ENABLE_ROS2}>
+)
+
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         Qt5::Widgets
 )
 
-# 默认保持 Mock / 占位模式可编译。
-# 即使没有完整 ROS1/ROS2 依赖，也应能构建 UI、内部模型、DataManager 与渲染链路。
+if( AUTOVIZ_ENABLE_ROS2)
+    # ros2 依赖 
+    target_link_libraries(${PROJECT_NAME}
+        PRIVATE
+        ${rclcpp_LIBRARIES}
+        ${std_msgs_LIBRARIES}
+        ${nav_msgs_LIBRARIES}
+        ${geometry_msgs_LIBRARIES}
+    )
+    target_link_libraries(${PROJECT_NAME}
+        PRIVATE
+        custom_msgs__rosidl_typesupport_cpp
+    )
+endif()
