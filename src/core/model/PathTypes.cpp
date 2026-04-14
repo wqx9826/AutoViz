@@ -8,8 +8,8 @@ namespace {
 Trajectory createArcTrajectory(double lateralOffset, double headingBias, int count)
 {
     Trajectory path;
-    path.meta.timestamp = 1712800000000;
-    path.meta.frameId = QStringLiteral("map");
+    path.header.timestamp = 1712800000000;
+    path.header.frameId = QStringLiteral("map");
     for (int index = 0; index < count; ++index) {
         const double x = index * 2.5;
         const double y = std::sin(index * 0.16) * 6.0 + lateralOffset;
@@ -21,7 +21,7 @@ Trajectory createArcTrajectory(double lateralOffset, double headingBias, int cou
         point.acceleration = 0.3;
         point.s = x;
         point.relativeTime = index * 0.12;
-        point.absoluteTime = path.meta.timestamp / 1000.0 + point.relativeTime;
+        point.absoluteTime = path.header.timestamp / 1000.0 + point.relativeTime;
         path.points.push_back(point);
     }
     return path;
@@ -30,24 +30,19 @@ Trajectory createArcTrajectory(double lateralOffset, double headingBias, int cou
 
 Trajectory createMockGlobalPath()
 {
-    Trajectory path = createArcTrajectory(0.0, 0.0, 40);
-    path.meta.sourceTopic = QStringLiteral("/planning/global_path");
-    return path;
+    return createArcTrajectory(0.0, 0.0, 40);
 }
 
 Trajectory createMockLocalPath()
 {
-    Trajectory path = createArcTrajectory(-1.4, 0.04, 18);
-    path.meta.sourceTopic = QStringLiteral("/planning/local_path");
-    return path;
+    return createArcTrajectory(-1.4, 0.04, 18);
 }
 
 ReferenceLine createMockReferenceLine()
 {
     ReferenceLine line;
-    line.meta.timestamp = 1712800000000;
-    line.meta.frameId = QStringLiteral("map");
-    line.meta.sourceTopic = QStringLiteral("/planning/reference_line");
+    line.header.timestamp = 1712800000000;
+    line.header.frameId = QStringLiteral("map");
     for (int index = 0; index < 34; ++index) {
         ReferencePoint point;
         point.position = {index * 3.0, std::sin(index * 0.15) * 4.0 + 1.5};

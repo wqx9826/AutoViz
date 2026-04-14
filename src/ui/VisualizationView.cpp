@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include <QGraphicsScene>
-#include <QLinearGradient>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
@@ -76,8 +76,16 @@ void VisualizationView::setGridVisible(bool visible)
 
 void VisualizationView::setOverlayMessage(const QString& text)
 {
-    m_overlayMessage = text;
-    viewport()->update();
+    if (m_overlayLabel == nullptr) {
+        return;
+    }
+
+    m_overlayLabel->setVisible(!text.trimmed().isEmpty());
+    if (!text.trimmed().isEmpty()) {
+        m_overlayLabel->setText(text);
+        updateOverlayGeometry();
+        m_overlayLabel->raise();
+    }
 }
 
 double VisualizationView::minorGridSpacingMeters() const
@@ -126,41 +134,10 @@ void VisualizationView::drawBackground(QPainter* painter, const QRectF& rect)
     painter->drawLine(QLineF(0, top, 0, bottom));
 }
 
-void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
-{
-    Q_UNUSED(rect);
-
-    if (m_overlayMessage.isEmpty()) {
-        return;
-    }
-
-    painter->save();
-    painter->resetTransform();
-
-    const QRect viewportRect = viewport()->rect();
-    QRectF cardRect(viewportRect.width() - 320.0, 18.0, 300.0, 88.0);
-
-    QLinearGradient gradient(cardRect.topLeft(), cardRect.bottomRight());
-    gradient.setColorAt(0.0, QColor(18, 24, 31, 210));
-    gradient.setColorAt(1.0, QColor(29, 40, 52, 220));
-    painter->setPen(QPen(QColor("#5d738b"), 1.0));
-    painter->setBrush(gradient);
-    painter->drawRoundedRect(cardRect, 12.0, 12.0);
-
-    QFont font = painter->font();
-    font.setPointSize(10);
-    painter->setFont(font);
-    painter->setPen(QColor("#dde7ef"));
-    painter->drawText(cardRect.adjusted(14, 12, -14, -12),
-                      Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
-                      m_overlayMessage + QStringLiteral("\n网格：细格 1m / 粗格 5m"));
-
-    painter->restore();
-}
-
 void VisualizationView::resizeEvent(QResizeEvent* event)
 {
     QGraphicsView::resizeEvent(event);
+    updateOverlayGeometry();
     if (m_autoFitEnabled && m_lastFitRegion.isValid() && !m_lastFitRegion.isEmpty()) {
         fitToRegion(m_lastFitRegion);
     }
@@ -250,6 +227,33 @@ void VisualizationView::setupScene()
     setMouseTracking(true);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    m_overlayLabel = new QLabel(viewport());
+    m_overlayLabel->setWordWrap(true);
+    m_overlayLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_overlayLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_overlayLabel->setStyleSheet(
+        "QLabel {"
+        "padding: 12px 14px;"
+        "border: 1px solid #5d738b;"
+        "border-radius: 12px;"
+        "background-color: rgba(18, 24, 31, 220);"
+        "color: #dde7ef;"
+        "font-size: 13px;"
+        "}");
+    m_overlayLabel->hide();
+}
+
+void VisualizationView::updateOverlayGeometry()
+{
+    if (m_overlayLabel == nullptr) {
+        return;
+    }
+
+    const int maxWidth = qMin(360, qMax(220, viewport()->width() - 36));
+    m_overlayLabel->setFixedWidth(maxWidth);
+    m_overlayLabel->adjustSize();
+    m_overlayLabel->move(18, 18);
 }
 
 bool VisualizationView::isPanButton(Qt::MouseButton button) const

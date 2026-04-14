@@ -25,7 +25,7 @@ struct Obstacle {
     int id = -1;
     ObstacleType type = ObstacleType::Unknown;
     ObstacleShapeType shape = ObstacleShapeType::Box;
-    TopicMetadata meta;
+    Header header;
     bool isStatic = true;
     bool isVirtual = false;
     TrajectoryPoint position;

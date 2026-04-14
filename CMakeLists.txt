@@ -79,10 +79,10 @@ set(AUTOVIZ_SOURCES
     src/core/ros/RosMsgSubsrcribeFactory.cpp
     src/ui/VisualizationView.h
     src/ui/VisualizationView.cpp
-    src/ui/DisplayControlPanel.h
-    src/ui/DisplayControlPanel.cpp
-    src/ui/ControlStatusPanel.h
-    src/ui/ControlStatusPanel.cpp
+    src/ui/ToggleSwitch.h
+    src/ui/ToggleSwitch.cpp
+    src/ui/MainViewDisplayConfigDialog.h
+    src/ui/MainViewDisplayConfigDialog.cpp
     src/ui/LogPanel.h
     src/ui/LogPanel.cpp
     src/ui/charts/ChartPanel.h

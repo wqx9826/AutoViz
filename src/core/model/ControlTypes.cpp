@@ -5,9 +5,8 @@ namespace autoviz::model {
 ControlCmd createMockControlCmd()
 {
     ControlCmd command;
-    command.meta.timestamp = 1712800000000;
-    command.meta.frameId = QStringLiteral("base_link");
-    command.meta.sourceTopic = QStringLiteral("/control/command");
+    command.header.timestamp = 1712800000000;
+    command.header.frameId = QStringLiteral("base_link");
     command.desiredVelocity = 8.2;
     command.desiredAngularVelocity = 0.08;
     command.desiredWheelAngle = 2.5;

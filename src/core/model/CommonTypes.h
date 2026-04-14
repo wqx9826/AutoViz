@@ -27,10 +27,9 @@ struct Box2D {
     double width = 0.0;
 };
 
-struct TopicMetadata {
+struct Header {
     qint64 timestamp = 0;
     QString frameId;
-    QString sourceTopic;
 };
 
 using Polyline2D = QVector<Point2D>;

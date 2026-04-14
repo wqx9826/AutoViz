@@ -21,7 +21,8 @@ bool Ros1MsgSubsrcribe::initialize(QString* errorMessage)
 
     // TODO: 在这里直接写 ROS1 topic 名称并初始化 subscriber。
     // TODO: 收到 ROS1 消息后，直接在 callback 里转换成内部模型。
-    // TODO: 转换完成后，直接调用 dataManager()->setVehicleState(...) / setGlobalPath(...) / setObstacles(...)。
+    // TODO: 转换完成后，直接调用 dataManager()->setVehicleLocation(...) /
+    // dataManager()->setVehicleChassisInfo(...) / setGlobalPath(...) / setObstacles(...)。
     // TODO: 如果某类数据当前没有 topic，请主动 set 空结构，例如 dataManager()->setReferenceLine(model::ReferenceLine{})。
     return true;
 }

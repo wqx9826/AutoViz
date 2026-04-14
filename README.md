@@ -4,7 +4,7 @@ AutoViz 当前的定位是一个面向车辆规划控制链路的可视化工具
 
 它不再负责 ROS 消息包管理、工作区复制、消息包编译，也不再围绕“加载消息包”构建 UI。当前工程的主要工作只有一件事：把 ROS 输入数据转换成项目内部统一的数据结构，再把这些标准数据结构稳定地显示到主视图中。
 
-## 项目主要工作
+## 1.项目主要工作
 
 当前工程围绕下面这条链路工作：
 
@@ -25,7 +25,7 @@ ROS1 / ROS2 topic
 - ROS1 / ROS2 只是输入来源
 - 没有接入的字段，也应该显式写入空结构，避免保留旧数据
 
-## 当前工程结构
+## 2.当前工程结构
 
 ```text
 src/
@@ -49,7 +49,7 @@ src/
 - `src/core/render/`
 - `src/app/`
 
-## 内部标准模型
+## 3.内部标准模型
 
 当前主视图只依赖这些内部模型：
 
@@ -68,13 +68,15 @@ src/
 
 ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这些结构，然后写入 `DataManager`。
 
-## DataManager 的作用
+## 4.DataManager 的作用
 
 `DataManager` 是当前工程的数据中心，用于管理最新一帧可视化数据。
 
 主要接口在：
 
-- `setVehicleState(...)`
+- `setVehicleLocation(...)`
+- `setVehicleChassisInfo(...)`
+- `setVehicleConfig(...)`
 - `setGlobalPath(...)`
 - `setLocalPath(...)`
 - `setReferenceLine(...)`
@@ -88,7 +90,7 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 - 主线程通过 `getSnapshot()` 拿到最新完整数据
 - `SceneManager` 根据这份快照统一重绘
 
-## 当前 ROS 接入方式
+## 5.当前 ROS 接入方式
 
 当前不再保留 topic 配置界面，也不强制使用 parser 中间层。
 
@@ -106,7 +108,7 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 
 这条路径最短，也最符合你现在的开发方式。
 
-## 结合当前 ROS2 工程的使用方式
+### 5.1结合当前 ROS2 工程的使用方式
 
 你现在已经把编译好的 `custom_msgs` 头文件放在了工程内，并且在自己的 ROS2 工作区中完成了消息包编译。
 
@@ -133,7 +135,7 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 
 也就是说，现在用户如果要继续补功能，主要就是补 `Ros2MsgSubsrcribe.cpp` 中四个 callback 的字段映射逻辑。
 
-## 用户应如何补充 ROS2 逻辑
+### 5.2用户应如何补充 ROS2 逻辑
 
 建议直接按下面方式补：
 
@@ -151,13 +153,13 @@ void Ros2MsgSubsrcribe::callbackLocationMsg(const custom_msgs::msg::Location::Co
         return;
     }
 
-    autoviz::model::VehicleState vehicleState;
-    vehicleState.location.position.x = msg->odom_x;
-    vehicleState.location.position.y = msg->odom_y;
-    vehicleState.location.heading = msg->heading;
-    vehicleState.location.speed = msg->velocity;
+    autoviz::model::VehicleLocation location;
+    location.position.x = msg->odom_x;
+    location.position.y = msg->odom_y;
+    location.heading = msg->heading;
+    location.speed = msg->velocity;
 
-    dataManager()->setVehicleState(vehicleState);
+    dataManager()->setVehicleLocation(location);
 }
 ```
 
@@ -176,7 +178,7 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 
 这样界面不会继续显示旧的 mock 数据或者历史残留内容。
 
-## 当前订阅与显示流程
+## 6.当前订阅与显示流程
 
 当前上层调用流程在 `MainWindow` 中已经固定：
 
@@ -200,7 +202,7 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 - `stop()` 支持重复调用
 - 析构时会自动调用 `stop()`
 
-## 主视图说明
+## 7.主视图说明
 
 当前主视图已经完成以下约定：
 
@@ -214,7 +216,7 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 坐标约定：
 
 - 业务 `heading`：东向为 `0`，逆时针为正
-- 主视图显示角度：水平向左为 `0`，逆时针为正
+- 主视图显示角度：水平向右为 `0`，逆时针为正
 
 网格约定：
 
@@ -225,7 +227,7 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 
 - `configs/vehicle_params.json`
 
-## 构建方式
+## 8.构建方式
 
 推荐使用单独构建目录：
 
@@ -242,7 +244,7 @@ make -j4
 ./AutoViz
 ```
 
-## 启用 ROS 后端构建
+## 9.启用 ROS 后端构建
 
 如果要编译 ROS1 或 ROS2 对应实现，可以在 `cmake` 阶段打开开关。
 
@@ -274,7 +276,7 @@ make -j4
 
 这样即使不开某个后端，编辑器和编译器也仍然能检查对应分支的语法结构，不会因为“宏未定义”而把整段代码完全跳过。
 
-## 非 ROS 模式
+## 10.非 ROS 模式运行
 
 如果没有开启 ROS 编译开关：
 
@@ -282,7 +284,7 @@ make -j4
 - 程序默认使用 `DataManager` 初始化的 mock 数据
 - 这样可以先验证渲染和界面框架
 
-## 后续建议优先补充的逻辑
+## 11.后续建议优先补充的逻辑
 
 当前下一步最值得继续做的是：
 

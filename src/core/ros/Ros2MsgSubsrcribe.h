@@ -33,6 +33,14 @@ private:
     std::atomic_bool m_running{false};
     std::thread m_spinThread;
 
+    model::VehicleLocation vehicleLocation_; // 车辆位置
+    model::VehicleChassisInfo vehicleChassisInfo_; // 车辆底盘信息
+    model::ObstacleList obstacles_; // 障碍物列表
+    model::ControlCmd controlCmd_; // 控制指令
+    model::Trajectory global_path_; // 全局路径
+    model::Trajectory local_path_; // 本地路径
+    model::ReferenceLine reference_line_; // 参考线
+
 #if AUTOVIZ_ENABLE_ROS2
 
 private:
@@ -46,8 +54,8 @@ private:
 
     void callbackLocationMsg(const custom_msgs::msg::Location::ConstSharedPtr msg);
     void callbackSceneMsg(const custom_msgs::msg::Scene::ConstSharedPtr msg);
-    void callbackTrajectoryMsg(const custom_msgs::msg::TrajectoryMsg::ConstSharedPtr msg);
-    void callbackPathMsg(const nav_msgs::msg::Path::ConstSharedPtr msg);
+    void callbackLocalPathMsg(const custom_msgs::msg::TrajectoryMsg::ConstSharedPtr msg);
+    void callbackGlobalPathMsg(const nav_msgs::msg::Path::ConstSharedPtr msg);
 
 #endif
 };

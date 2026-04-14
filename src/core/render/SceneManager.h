@@ -31,6 +31,7 @@ public:
     void setLayerVisibility(const LayerVisibility& visibility);
     LayerVisibility layerVisibility() const;
     void setVehicleCenteredMode(bool enabled);
+    bool vehicleCenteredMode() const;
 
 private:
     void redraw();

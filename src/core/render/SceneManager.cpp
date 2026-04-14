@@ -18,7 +18,6 @@ namespace autoviz::render {
 
 namespace {
 constexpr double kRadToDeg = 57.29577951308232;
-constexpr double kVehicleHeadingOffsetDeg = 180.0;
 
 QPainterPath buildTrajectoryPath(const autoviz::model::Trajectory& trajectory)
 {
@@ -62,7 +61,6 @@ void SceneManager::initializeScene()
 {
     if (m_view != nullptr) {
         m_view->setBackgroundColor(QColor("#17212b"));
-        m_view->setOverlayMessage(QStringLiteral("车辆规划控制可视化\n当前使用内部标准模型与 Mock 数据"));
     }
     redraw();
 }
@@ -97,6 +95,11 @@ void SceneManager::setVehicleCenteredMode(bool enabled)
     redraw();
 }
 
+bool SceneManager::vehicleCenteredMode() const
+{
+    return m_vehicleCenteredMode;
+}
+
 void SceneManager::redraw()
 {
     if (m_scene == nullptr) {
@@ -129,27 +132,28 @@ void SceneManager::redraw()
 
 void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    const auto& vehicle = snapshot.vehicleState;
-    const QPointF center = toScenePoint(vehicle.location.position);
+    const auto& vehicleState = snapshot.vehicleState;
+    const auto& vehicleConfig = snapshot.vehicleConfig;
+    const QPointF center = toScenePoint(vehicleState.location.position);
     const double x = center.x();
     const double y = center.y();
 
-    auto* body = m_scene->addRect(x - vehicle.vehicleLength * 0.5,
-                                  y - vehicle.vehicleWidth * 0.5,
-                                  vehicle.vehicleLength,
-                                  vehicle.vehicleWidth,
+    auto* body = m_scene->addRect(x - vehicleConfig.vehicleLength * 0.5,
+                                  y - vehicleConfig.vehicleWidth * 0.5,
+                                  vehicleConfig.vehicleLength,
+                                  vehicleConfig.vehicleWidth,
                                   QPen(QColor("#f7b267"), 0.0),
                                   QBrush(QColor(247, 178, 103, 110)));
     body->setTransformOriginPoint(x, y);
-    body->setRotation(kVehicleHeadingOffsetDeg - vehicle.location.heading * kRadToDeg);
+    body->setRotation(-vehicleState.location.heading * kRadToDeg);
 
     QPolygonF nose;
-    nose << QPointF(x + vehicle.vehicleLength * 0.35, y)
-         << QPointF(x + vehicle.vehicleLength * 0.1, y - 0.55)
-         << QPointF(x + vehicle.vehicleLength * 0.1, y + 0.55);
+    nose << QPointF(x + vehicleConfig.vehicleLength * 0.35, y)
+         << QPointF(x + vehicleConfig.vehicleLength * 0.1, y - 0.55)
+         << QPointF(x + vehicleConfig.vehicleLength * 0.1, y + 0.55);
     auto* headingMarker = m_scene->addPolygon(nose, QPen(QColor("#ffd166"), 0.0), QBrush(QColor("#ffd166")));
     headingMarker->setTransformOriginPoint(x, y);
-    headingMarker->setRotation(kVehicleHeadingOffsetDeg - vehicle.location.heading * kRadToDeg);
+    headingMarker->setRotation(-vehicleState.location.heading * kRadToDeg);
 }
 
 void SceneManager::drawTrajectory(const autoviz::model::Trajectory& trajectory, const QColor& color, qreal width)
@@ -196,7 +200,7 @@ void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
                                       QPen(QColor("#ef476f"), 0.0),
                                       QBrush(QColor(239, 71, 111, 90)));
         rect->setTransformOriginPoint(x, y);
-        rect->setRotation(kVehicleHeadingOffsetDeg - obstacle.position.theta * kRadToDeg);
+        rect->setRotation(-obstacle.position.theta * kRadToDeg);
     }
 }
 

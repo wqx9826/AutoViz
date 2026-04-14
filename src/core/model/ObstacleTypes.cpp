@@ -10,7 +10,7 @@ ObstacleList createMockObstacles()
     vehicle.id = 101;
     vehicle.type = ObstacleType::Vehicle;
     vehicle.isStatic = false;
-    vehicle.meta.frameId = QStringLiteral("map");
+    vehicle.header.frameId = QStringLiteral("map");
     vehicle.position.position = {18.0, 3.8};
     vehicle.position.theta = 0.12;
     vehicle.length = 4.5;
@@ -22,7 +22,7 @@ ObstacleList createMockObstacles()
     pedestrian.id = 201;
     pedestrian.type = ObstacleType::Pedestrian;
     pedestrian.shape = ObstacleShapeType::Polygon;
-    pedestrian.meta.frameId = QStringLiteral("map");
+    pedestrian.header.frameId = QStringLiteral("map");
     pedestrian.position.position = {11.5, -4.0};
     pedestrian.length = 0.8;
     pedestrian.width = 0.8;

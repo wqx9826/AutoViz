@@ -2,17 +2,13 @@
 
 #include <QString>
 
-namespace autoviz::config {
+#include "core/model/VehicleState.h"
 
-struct VehicleConfig {
-    double length = 4.9;
-    double width = 1.95;
-    double wheelBase = 2.85;
-};
+namespace autoviz::config {
 
 class VehicleConfigLoader {
 public:
-    static VehicleConfig loadFromJson(const QString& filePath, QString* errorMessage = nullptr);
+    static model::VehicleConfig loadFromJson(const QString& filePath, QString* errorMessage = nullptr);
 };
 
 }  // namespace autoviz::config

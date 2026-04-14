@@ -6,6 +6,8 @@
 #include <QRectF>
 #include <QString>
 
+class QLabel;
+
 class VisualizationView : public QGraphicsView
 {
 public:
@@ -23,7 +25,6 @@ public:
 
 protected:
     void drawBackground(QPainter* painter, const QRectF& rect) override;
-    void drawForeground(QPainter* painter, const QRectF& rect) override;
     void resizeEvent(QResizeEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -33,6 +34,7 @@ protected:
 private:
     void setupScene();
     bool isPanButton(Qt::MouseButton button) const;
+    void updateOverlayGeometry();
 
     QColor m_backgroundColor = QColor("#17212b");
     QColor m_minorGridColor = QColor("#223141");
@@ -41,7 +43,7 @@ private:
     bool m_isPanning = false;
     QPoint m_lastMousePosition;
     qreal m_zoomFactor = 1.0;
-    QString m_overlayMessage;
+    QLabel* m_overlayLabel = nullptr;
     QRectF m_lastFitRegion;
     bool m_autoFitEnabled = true;
 };

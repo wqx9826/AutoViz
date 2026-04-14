@@ -89,10 +89,10 @@ bool Ros2MsgSubsrcribe::start(QString* errorMessage)
         "/scene", 10, std::bind(&Ros2MsgSubsrcribe::callbackSceneMsg, this, std::placeholders::_1));
 
     m_sub_trajectory = m_node->create_subscription<custom_msgs::msg::TrajectoryMsg>(
-        "/local_path", 10, std::bind(&Ros2MsgSubsrcribe::callbackTrajectoryMsg, this, std::placeholders::_1));
+        "/local_path", 10, std::bind(&Ros2MsgSubsrcribe::callbackLocalPathMsg, this, std::placeholders::_1));
 
     m_sub_path = m_node->create_subscription<nav_msgs::msg::Path>(
-        "/global_path", 10, std::bind(&Ros2MsgSubsrcribe::callbackPathMsg, this, std::placeholders::_1));
+        "/global_path", 10, std::bind(&Ros2MsgSubsrcribe::callbackGlobalPathMsg, this, std::placeholders::_1));
 
     // 开线程 spin
     m_running.store(true);
@@ -139,20 +139,58 @@ QString Ros2MsgSubsrcribe::statusSummary() const
 #if AUTOVIZ_ENABLE_ROS2
 void Ros2MsgSubsrcribe::callbackLocationMsg(const custom_msgs::msg::Location::ConstSharedPtr msg)
 {
-    // 处理 location 消息
-    Q_UNUSED(msg);
+    // 【将 location 消息转换为 VehicleLocation 结构体】
+    vehicleLocation_.position.x = msg->odom_x;
+    vehicleLocation_.position.y = msg->odom_y;
+    vehicleLocation_.heading = msg->heading;
+    vehicleLocation_.speed = msg->velocity;
+    //std::cout << "vehicleLocation_: " << msg->odom_x << ", " << msg->odom_y << ", " << msg->heading << ", " << msg->velocity << std::endl;
+    dataManager()->setVehicleLocation(vehicleLocation_);
 }
 void Ros2MsgSubsrcribe::callbackSceneMsg(const custom_msgs::msg::Scene::ConstSharedPtr msg)
 {
     Q_UNUSED(msg);
 }
-void Ros2MsgSubsrcribe::callbackTrajectoryMsg(const custom_msgs::msg::TrajectoryMsg::ConstSharedPtr msg)
+void Ros2MsgSubsrcribe::callbackLocalPathMsg(const custom_msgs::msg::TrajectoryMsg::ConstSharedPtr msg)
 {
-    Q_UNUSED(msg);
+    // 【将 local_path 消息转换为 Trajectory 结构体】
+    local_path_.points.clear();
+
+    for (const auto& point : msg->trajectory)
+    {
+        // 正确获取 x y z
+        double x = point.pose.position.x;
+        double y = point.pose.position.y;
+        double z = point.pose.position.z;
+
+        // 正确构造 TrajectoryPoint 对象
+        autoviz::model::TrajectoryPoint tp;
+        tp.position.x = x;
+        tp.position.y = y;
+
+        local_path_.points.push_back(tp);
+    }
+    dataManager()->setLocalPath(local_path_);
 }
-void Ros2MsgSubsrcribe::callbackPathMsg(const nav_msgs::msg::Path::ConstSharedPtr msg)
+void Ros2MsgSubsrcribe::callbackGlobalPathMsg(const nav_msgs::msg::Path::ConstSharedPtr msg)
 {
-    Q_UNUSED(msg);
+    // 【将 global_path 消息转换为 Trajectory 结构体】
+    global_path_.points.clear();
+    for (const auto& point : msg->poses)
+    {
+        // nav_msgs/Path 正确层级：poses -> pose -> position
+        double x = point.pose.position.x;
+        double y = point.pose.position.y;
+        double z = point.pose.position.z;
+
+        // 正确构造
+        autoviz::model::TrajectoryPoint tp;
+        tp.position.x = x;
+        tp.position.y = y;
+
+        global_path_.points.push_back(tp);
+    }
+    dataManager()->setGlobalPath(global_path_);
 }
 #endif
 } // namespace autoviz::ros

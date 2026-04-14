@@ -16,7 +16,7 @@ enum class GearPosition {
 };
 
 struct VehicleLocation {
-    TopicMetadata meta;
+    Header header;
     Point2D position;
     double heading = 0.0;
     double curvature = 0.0;
@@ -26,12 +26,12 @@ struct VehicleLocation {
     double acceleration = 0.0;
     double roll = 0.0;
     double pitch = 0.0;
-    Vector3D linearVelocity;
-    Vector3D linearAcceleration;
+    Vector3D Velocity;
+    Vector3D Acceleration;
 };
 
 struct VehicleChassisInfo {
-    TopicMetadata meta;
+    Header header;
     double currentSpeed = 0.0;
     double currentWheelAngle = 0.0;
     double currentSteerWheelAngle = 0.0;
@@ -45,16 +45,19 @@ struct VehicleChassisInfo {
     double rightWheelSpeed = 0.0;
 };
 
-struct VehicleState {
-    VehicleLocation location;
-    VehicleChassisInfo chassis;
+struct VehicleConfig {
     double wheelBase = 2.85;
     double vehicleLength = 4.9;
     double vehicleWidth = 1.95;
 };
 
+struct VehicleState {
+    VehicleLocation location;
+    VehicleChassisInfo chassis;
+};
+
 VehicleState createMockVehicleState();
-void applyVehicleGeometryConfig(VehicleState& state, double vehicleLength, double vehicleWidth, double wheelBase);
+VehicleConfig createDefaultVehicleConfig();
 QString toDisplayString(GearPosition gear);
 
 }  // namespace autoviz::model

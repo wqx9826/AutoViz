@@ -5,7 +5,7 @@
 namespace autoviz::model {
 
 struct ControlCmd {
-    TopicMetadata meta;
+    Header header;
     double desiredVelocity = 0.0;
     double desiredAngularVelocity = 0.0;
     double desiredWheelAngle = 0.0;

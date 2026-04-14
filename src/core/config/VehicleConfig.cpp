@@ -6,9 +6,9 @@
 
 namespace autoviz::config {
 
-VehicleConfig VehicleConfigLoader::loadFromJson(const QString& filePath, QString* errorMessage)
+model::VehicleConfig VehicleConfigLoader::loadFromJson(const QString& filePath, QString* errorMessage)
 {
-    VehicleConfig config;
+    model::VehicleConfig config;
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -20,8 +20,8 @@ VehicleConfig VehicleConfigLoader::loadFromJson(const QString& filePath, QString
 
     const auto document = QJsonDocument::fromJson(file.readAll());
     const auto object = document.object();
-    config.length = object.value(QStringLiteral("length")).toDouble(config.length);
-    config.width = object.value(QStringLiteral("width")).toDouble(config.width);
+    config.vehicleLength = object.value(QStringLiteral("length")).toDouble(config.vehicleLength);
+    config.vehicleWidth = object.value(QStringLiteral("width")).toDouble(config.vehicleWidth);
     config.wheelBase = object.value(QStringLiteral("wheel_base")).toDouble(config.wheelBase);
     return config;
 }

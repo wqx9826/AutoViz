@@ -6,15 +6,16 @@
 
 class QAction;
 class ChartPanel;
-class ControlStatusPanel;
-class DisplayControlPanel;
 class LogPanel;
+class MainViewDisplayConfigDialog;
 class QDockWidget;
+class QMenu;
 class QTimer;
 class VisualizationView;
 
 namespace autoviz::datacenter {
 class DataManager;
+struct VisualizationSnapshot;
 }
 
 namespace autoviz::ros {
@@ -40,11 +41,15 @@ private:
     void restoreDefaultLayout();
     void refreshVisualization();
     void initializeMessageSubscriber();
+    void openMainViewDisplayConfigDialog();
+    void updateMainViewOverlay(const autoviz::datacenter::VisualizationSnapshot& snapshot);
+    void updateMainViewDisplayDialog(const autoviz::datacenter::VisualizationSnapshot& snapshot);
+    void loadMainViewDisplaySettings();
+    void saveMainViewDisplaySettings() const;
     void bindDockLogging(QDockWidget* dock, const QString& panelName);
 
     VisualizationView* m_visualizationView = nullptr;
-    DisplayControlPanel* m_displayControlPanel = nullptr;
-    ControlStatusPanel* m_controlStatusPanel = nullptr;
+    MainViewDisplayConfigDialog* m_mainViewDisplayConfigDialog = nullptr;
     ChartPanel* m_chartPanel = nullptr;
     LogPanel* m_logPanel = nullptr;
     autoviz::render::SceneManager* m_sceneManager = nullptr;
@@ -52,12 +57,11 @@ private:
     std::shared_ptr<autoviz::ros::RosMsgSubscribeBase> m_msgSubscriber;
     QTimer* m_refreshTimer = nullptr;
 
-    QDockWidget* m_rightDock = nullptr;
-    QDockWidget* m_controlDock = nullptr;
     QDockWidget* m_chartDock = nullptr;
     QDockWidget* m_logDock = nullptr;
     QMenu* m_viewMenu = nullptr;
 
+    QAction* m_mainViewDisplayManageAction = nullptr;
     QAction* m_exitAction = nullptr;
     QAction* m_resetViewAction = nullptr;
     QAction* m_restoreLayoutAction = nullptr;

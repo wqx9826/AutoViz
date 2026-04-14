@@ -16,14 +16,22 @@ void RosMsgSubscribeBase::resetVisualizationData()
         return;
     }
 
-    // 进入 ROS 订阅模式后，先把所有可视化通道清成“空值”。
-    // 这样即便某些 topic 当前没有接入，也不会继续显示旧的 mock 结果。
-    m_dataManager->setVehicleState(model::VehicleState{});
-    m_dataManager->setGlobalPath(model::Trajectory{});
-    m_dataManager->setLocalPath(model::Trajectory{});
-    m_dataManager->setReferenceLine(model::ReferenceLine{});
-    m_dataManager->setObstacles(model::ObstacleList{});
-    m_dataManager->setControlCmd(model::ControlCmd{});
+    datacenter::VisualizationInputSource inputSource = datacenter::VisualizationInputSource::Mock;
+    switch (backend()) {
+    case SubscribeBackend::Ros1:
+        inputSource = datacenter::VisualizationInputSource::Ros1;
+        break;
+    case SubscribeBackend::Ros2:
+        inputSource = datacenter::VisualizationInputSource::Ros2;
+        break;
+    case SubscribeBackend::None:
+    default:
+        inputSource = datacenter::VisualizationInputSource::Mock;
+        break;
+    }
+
+    // 进入实时订阅模式后，先把可视化通道清成空值，避免残留旧的 mock 数据。
+    m_dataManager->resetVisualizationData(inputSource);
 }
 
 datacenter::DataManager* RosMsgSubscribeBase::dataManager() const

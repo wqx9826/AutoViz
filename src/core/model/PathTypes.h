@@ -38,12 +38,12 @@ struct ReferencePoint {
 };
 
 struct Trajectory {
-    TopicMetadata meta;
+    Header header;
     QVector<TrajectoryPoint> points;
 };
 
 struct ReferenceLine {
-    TopicMetadata meta;
+    Header header;
     QVector<ReferencePoint> points;
 };
 
