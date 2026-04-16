@@ -2,7 +2,7 @@
 
 AutoViz 当前的定位是一个面向车辆规划控制链路的可视化工具。
 
-它不再负责 ROS 消息包管理、工作区复制、消息包编译，也不再围绕“加载消息包”构建 UI。当前工程的主要工作只有一件事：把 ROS 输入数据转换成项目内部统一的数据结构，再把这些标准数据结构稳定地显示到主视图中。
+当前工程的主要工作只有一件事：把 ROS 输入数据转换成项目内部统一的数据结构，再把这些标准数据结构稳定地显示到主视图中。
 
 ## 1.项目主要工作
 
@@ -92,9 +92,7 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 
 ## 5.当前 ROS 接入方式
 
-当前不再保留 topic 配置界面，也不强制使用 parser 中间层。
-
-推荐方式就是直接在：
+在：
 
 - `src/core/ros/Ros1MsgSubsrcribe.cpp`
 - `src/core/ros/Ros2MsgSubsrcribe.cpp`
@@ -110,7 +108,7 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 
 ### 5.1结合当前 ROS2 工程的使用方式
 
-你现在已经把编译好的 `custom_msgs` 头文件放在了工程内，并且在自己的 ROS2 工作区中完成了消息包编译。
+把编译好的 `custom_msgs` 头文件放在了工程内，并且在自己的 ROS2 工作区中完成了消息包编译。
 
 当前 `Ros2MsgSubsrcribe` 已经按常见 ROS2 节点写法组织：
 
@@ -251,19 +249,21 @@ make -j4
 启用 ROS1：
 
 ```bash
-mkdir -p build
-cd build
+mkdir -p build && cd build
 cmake .. -DAUTOVIZ_ENABLE_ROS1=ON
 make -j4
+./AutoViz
 ```
 
 启用 ROS2：
 
 ```bash
-mkdir -p build
-cd build
+mkdir -p build && cd build
 cmake .. -DAUTOVIZ_ENABLE_ROS2=ON
 make -j4
+#在接收ros2 消息时需要 export 库的位置 ros1 不需要
+export LD_LIBRARY_PATH=/home/wqx/AutoViz/message/ros2/custom_msgs/lib:$LD_LIBRARY_PATH
+./AutoViz
 ```
 
 说明：
@@ -281,15 +281,13 @@ make -j4
 如果没有开启 ROS 编译开关：
 
 - 不会创建 ROS 订阅对象
-- 程序默认使用 `DataManager` 初始化的 mock 数据
+- 程序默认使用 `DataManager` 初始化的 mock 数据, 仅用于可视化展示示例
 - 这样可以先验证渲染和界面框架
 
 ## 11.后续建议优先补充的逻辑
 
 当前下一步最值得继续做的是：
 
-- 补全 `Ros2MsgSubsrcribe.cpp` 中四个 callback 的字段映射
-- 根据真实消息决定是否补 `ReferenceLine`
 - 根据控制消息补 `ControlCmd`
 - 如果 ROS1 也要支持，再按同样模式补 `Ros1MsgSubsrcribe.cpp`
 
