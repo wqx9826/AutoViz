@@ -17,7 +17,7 @@
 #include "ui/LogPanel.h"
 #include "ui/MainViewDisplayConfigDialog.h"
 #include "ui/VisualizationView.h"
-#include "ui/charts/ChartPanel.h"
+#include "ui/charts/ControlPanelWidget.h"
 #include "utils/Logger.h"
 
 MainWindow::MainWindow(QWidget* parent)
@@ -89,21 +89,20 @@ void MainWindow::setupStatusBar()
 
 void MainWindow::setupDocks()
 {
-    m_chartPanel = new ChartPanel(this);
+    m_controlPanel = new autoviz::ui::charts::ControlPanelWidget(this);
     m_logPanel = new LogPanel(this);
 
     m_chartDock = new QDockWidget(tr("控制曲线面板"), this);
-    m_chartDock->setAllowedAreas(Qt::BottomDockWidgetArea);
-    m_chartDock->setWidget(m_chartPanel);
-    addDockWidget(Qt::BottomDockWidgetArea, m_chartDock);
+    m_chartDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_chartDock->setMinimumWidth(380);
+    m_chartDock->setWidget(m_controlPanel);
+    addDockWidget(Qt::RightDockWidgetArea, m_chartDock);
 
     m_logDock = new QDockWidget(tr("日志面板"), this);
     m_logDock->setAllowedAreas(Qt::BottomDockWidgetArea);
     m_logDock->setWidget(m_logPanel);
     addDockWidget(Qt::BottomDockWidgetArea, m_logDock);
 
-    tabifyDockWidget(m_chartDock, m_logDock);
-    m_chartDock->raise();
     m_logDock->hide();
 
     for (auto* dock : {m_chartDock, m_logDock}) {
@@ -144,17 +143,16 @@ void MainWindow::restoreDefaultLayout()
     m_chartDock->show();
     m_logDock->hide();
 
-    addDockWidget(Qt::BottomDockWidgetArea, m_chartDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_chartDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_logDock);
-    tabifyDockWidget(m_chartDock, m_logDock);
-    m_chartDock->raise();
-    resizeDocks({m_chartDock}, {220}, Qt::Vertical);
+    resizeDocks({m_chartDock}, {430}, Qt::Horizontal);
 }
 
 void MainWindow::refreshVisualization()
 {
     const auto snapshot = m_dataManager->getSnapshot();
     m_sceneManager->updateScene(snapshot);
+    m_controlPanel->updateSnapshot(snapshot);
     updateMainViewOverlay(snapshot);
     updateMainViewDisplayDialog(snapshot);
 }
@@ -260,6 +258,9 @@ void MainWindow::updateMainViewOverlay(const autoviz::datacenter::VisualizationS
     if (status.hasObstacleData) {
         receivedChannels << QStringLiteral("obstacles");
     }
+    if (status.hasControlCmdData) {
+        receivedChannels << QStringLiteral("control_cmd");
+    }
 
     QString overlayMessage;
     switch (status.inputSource) {
@@ -294,7 +295,7 @@ void MainWindow::updateMainViewDisplayDialog(const autoviz::datacenter::Visualiz
     }
 
     MainViewDataAvailability availability;
-    availability.hasVehicleData = snapshot.runtimeStatus.hasVehicleLocationData || snapshot.runtimeStatus.hasVehicleChassisData;
+    availability.hasVehicleData = snapshot.runtimeStatus.hasVehicleLocationData;
     availability.hasGlobalPathData = snapshot.runtimeStatus.hasGlobalPathData;
     availability.hasReferenceLineData = snapshot.runtimeStatus.hasReferenceLineData;
     availability.hasLocalPathData = snapshot.runtimeStatus.hasLocalPathData;

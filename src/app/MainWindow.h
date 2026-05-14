@@ -5,7 +5,6 @@
 #include <QMainWindow>
 
 class QAction;
-class ChartPanel;
 class LogPanel;
 class MainViewDisplayConfigDialog;
 class QDockWidget;
@@ -24,6 +23,10 @@ class RosMsgSubscribeBase;
 
 namespace autoviz::render {
 class SceneManager;
+}
+
+namespace autoviz::ui::charts {
+class ControlPanelWidget;
 }
 
 class MainWindow : public QMainWindow
@@ -50,7 +53,7 @@ private:
 
     VisualizationView* m_visualizationView = nullptr;
     MainViewDisplayConfigDialog* m_mainViewDisplayConfigDialog = nullptr;
-    ChartPanel* m_chartPanel = nullptr;
+    autoviz::ui::charts::ControlPanelWidget* m_controlPanel = nullptr;
     LogPanel* m_logPanel = nullptr;
     autoviz::render::SceneManager* m_sceneManager = nullptr;
     autoviz::datacenter::DataManager* m_dataManager = nullptr;

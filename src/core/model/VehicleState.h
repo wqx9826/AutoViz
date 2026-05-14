@@ -33,14 +33,14 @@ struct VehicleLocation {
 struct VehicleChassisInfo {
     Header header;
     double currentSpeed = 0.0;
+    double currentAngularVelocity = 0.0;
     double currentWheelAngle = 0.0;
     double currentSteerWheelAngle = 0.0;
     double throttleRatio = 0.0;
     double brakeRatio = 0.0;
-    GearPosition gear = GearPosition::Unknown;
+    uint8_t currentGearPosition = 0;
     bool handBrake = false;
     double energyRatio = 0.0;
-    unsigned long stateCode = 0;
     double leftWheelSpeed = 0.0;
     double rightWheelSpeed = 0.0;
 };
@@ -51,12 +51,8 @@ struct VehicleConfig {
     double vehicleWidth = 1.95;
 };
 
-struct VehicleState {
-    VehicleLocation location;
-    VehicleChassisInfo chassis;
-};
-
-VehicleState createMockVehicleState();
+VehicleLocation createMockVehicleLocation();
+VehicleChassisInfo createMockVehicleChassisInfo();
 VehicleConfig createDefaultVehicleConfig();
 QString toDisplayString(GearPosition gear);
 

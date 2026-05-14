@@ -2,31 +2,36 @@
 
 namespace autoviz::model {
 
-VehicleState createMockVehicleState()
+VehicleLocation createMockVehicleLocation()
 {
-    VehicleState state;
-    state.location.header.timestamp = 1712800000000;
-    state.location.header.frameId = QStringLiteral("map");
-    state.location.position = {0.0, 0.0};
-    state.location.heading = 0.18;
-    state.location.curvature = 0.012;
-    state.location.speed = 8.2;
-    state.location.yawRate = 0.08;
-    state.location.acceleration = 0.45;
-    state.location.Velocity = {8.2, 0.15, 0.0};
-    state.location.Acceleration = {0.45, 0.02, 0.0};
+    VehicleLocation location;
+    location.header.timestamp = 1712800000000;
+    location.header.frameId = QStringLiteral("map");
+    location.position = {0.0, 0.0};
+    location.heading = 0.18;
+    location.curvature = 0.012;
+    location.speed = 8.2;
+    location.yawRate = 0.08;
+    location.acceleration = 0.45;
+    location.Velocity = {8.2, 0.15, 0.0};
+    location.Acceleration = {0.45, 0.02, 0.0};
+    return location;
+}
 
-    state.chassis.header = state.location.header;
-    state.chassis.currentSpeed = 8.05;
-    state.chassis.currentWheelAngle = 2.4;
-    state.chassis.currentSteerWheelAngle = 18.6;
-    state.chassis.throttleRatio = 0.24;
-    state.chassis.brakeRatio = 0.0;
-    state.chassis.gear = GearPosition::Drive;
-    state.chassis.energyRatio = 0.78;
-    state.chassis.leftWheelSpeed = 8.0;
-    state.chassis.rightWheelSpeed = 8.1;
-    return state;
+VehicleChassisInfo createMockVehicleChassisInfo()
+{
+    VehicleChassisInfo chassis;
+    chassis.header = createMockVehicleLocation().header;
+    chassis.currentSpeed = 8.05;
+    chassis.currentWheelAngle = 2.4;
+    chassis.currentSteerWheelAngle = 18.6;
+    chassis.throttleRatio = 0.24;
+    chassis.brakeRatio = 0.0;
+    chassis.currentGearPosition = static_cast<uint8_t>(GearPosition::Drive);
+    chassis.energyRatio = 0.78;
+    chassis.leftWheelSpeed = 8.0;
+    chassis.rightWheelSpeed = 8.1;
+    return chassis;
 }
 
 VehicleConfig createDefaultVehicleConfig()

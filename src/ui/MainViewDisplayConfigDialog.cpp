@@ -3,6 +3,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QFrame>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 #include "ui/ToggleSwitch.h"
@@ -15,6 +16,12 @@ MainViewDisplayConfigDialog::MainViewDisplayConfigDialog(QWidget* parent)
 
 void MainViewDisplayConfigDialog::setLayerVisibility(const autoviz::render::LayerVisibility& visibility)
 {
+    const QSignalBlocker vehicleBlocker(m_vehicleCheck);
+    const QSignalBlocker globalPathBlocker(m_globalPathCheck);
+    const QSignalBlocker referenceLineBlocker(m_referenceLineCheck);
+    const QSignalBlocker localPathBlocker(m_localPathCheck);
+    const QSignalBlocker obstacleBlocker(m_obstacleCheck);
+
     m_vehicleCheck->setChecked(visibility.showVehicle);
     m_globalPathCheck->setChecked(visibility.showGlobalPath);
     m_referenceLineCheck->setChecked(visibility.showReferenceLine);
@@ -24,6 +31,7 @@ void MainViewDisplayConfigDialog::setLayerVisibility(const autoviz::render::Laye
 
 void MainViewDisplayConfigDialog::setVehicleCenteredMode(bool enabled)
 {
+    const QSignalBlocker blocker(m_vehicleCenteredModeCheck);
     m_vehicleCenteredModeCheck->setChecked(enabled);
 }
 

@@ -85,8 +85,17 @@ set(AUTOVIZ_SOURCES
     src/ui/MainViewDisplayConfigDialog.cpp
     src/ui/LogPanel.h
     src/ui/LogPanel.cpp
-    src/ui/charts/ChartPanel.h
-    src/ui/charts/ChartPanel.cpp
+    src/ui/charts/ControlDebugData.h
+    src/ui/charts/ControlPanelWidget.h
+    src/ui/charts/ControlPanelWidget.cpp
+    src/ui/charts/ControlPanelStyle.h
+    src/ui/charts/ControlPanelStyle.cpp
+    src/ui/charts/ControlPlotBuffer.h
+    src/ui/charts/ControlPlotBuffer.cpp
+    src/ui/charts/PlotCardWidget.h
+    src/ui/charts/PlotCardWidget.cpp
+    src/ui/charts/StatusSummaryWidget.h
+    src/ui/charts/StatusSummaryWidget.cpp
     src/utils/Logger.h
     src/utils/Logger.cpp
 )

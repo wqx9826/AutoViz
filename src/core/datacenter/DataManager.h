@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <mutex>
 
 #include "core/model/ControlTypes.h"
@@ -27,7 +28,8 @@ struct VisualizationRuntimeStatus {
 };
 
 struct VisualizationSnapshot {
-    model::VehicleState vehicleState;
+    model::VehicleLocation vehicleLocation;
+    model::VehicleChassisInfo vehicleChassisInfo;
     model::VehicleConfig vehicleConfig;
     model::Trajectory globalPath;
     model::Trajectory localPath;
@@ -56,12 +58,29 @@ public:
     VisualizationSnapshot getSnapshot() const;
 
 private:
+    using Clock = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
+
+    struct ChannelUpdateTimes {
+        TimePoint vehicleLocation;
+        TimePoint vehicleChassis;
+        TimePoint globalPath;
+        TimePoint localPath;
+        TimePoint referenceLine;
+        TimePoint obstacles;
+        TimePoint controlCmd;
+    };
+
     static bool hasVehicleLocationData(const model::VehicleLocation& vehicleLocation);
     static bool hasVehicleChassisData(const model::VehicleChassisInfo& vehicleChassisInfo);
     static bool hasControlCmdData(const model::ControlCmd& controlCmd);
+    static bool isFresh(TimePoint lastUpdate, TimePoint now);
+    static TimePoint timestampFor(bool hasData);
+    static void applyFreshnessFilter(VisualizationSnapshot& snapshot, const ChannelUpdateTimes& updateTimes, TimePoint now);
 
     mutable std::mutex m_mutex;
     VisualizationSnapshot m_snapshot;
+    ChannelUpdateTimes m_updateTimes;
 };
 
 }  // namespace autoviz::datacenter

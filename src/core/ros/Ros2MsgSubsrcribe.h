@@ -9,6 +9,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/path.hpp>
 
+#include "custom_msgs/msg/chassis_command.hpp"
+#include "custom_msgs/msg/chassis_states.hpp"
 #include "custom_msgs/msg/location.hpp"
 #include "custom_msgs/msg/scene.hpp"
 #include "custom_msgs/msg/trajectory_msg.hpp"
@@ -47,6 +49,8 @@ private:
     rclcpp::Node::SharedPtr m_node;
     rclcpp::Subscription<custom_msgs::msg::Location>::SharedPtr m_sub_location;
     rclcpp::Subscription<custom_msgs::msg::Scene>::SharedPtr m_sub_scene;
+    rclcpp::Subscription<custom_msgs::msg::ChassisCommand>::SharedPtr m_sub_chassis_command;
+    rclcpp::Subscription<custom_msgs::msg::ChassisStates>::SharedPtr m_sub_chassis_states;
     rclcpp::Subscription<custom_msgs::msg::TrajectoryMsg>::SharedPtr m_sub_trajectory;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr m_sub_path;
 
@@ -54,6 +58,8 @@ private:
 
     void callbackLocationMsg(const custom_msgs::msg::Location::ConstSharedPtr msg);
     void callbackSceneMsg(const custom_msgs::msg::Scene::ConstSharedPtr msg);
+    void callbackChassisCommandMsg(const custom_msgs::msg::ChassisCommand::ConstSharedPtr msg);
+    void callbackChassisStatesMsg(const custom_msgs::msg::ChassisStates::ConstSharedPtr msg);
     void callbackLocalPathMsg(const custom_msgs::msg::TrajectoryMsg::ConstSharedPtr msg);
     void callbackGlobalPathMsg(const nav_msgs::msg::Path::ConstSharedPtr msg);
 

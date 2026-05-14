@@ -111,19 +111,20 @@ void SceneManager::redraw()
     auto* centerMarker = m_scene->addEllipse(-0.25, -0.25, 0.5, 0.5, QPen(QColor("#ffd166"), 0.0));
     centerMarker->setBrush(QBrush(QColor(255, 209, 102, 140)));
 
-    if (m_layerVisibility.showReferenceLine) {
+    const auto& status = m_snapshot.runtimeStatus;
+    if (m_layerVisibility.showReferenceLine && status.hasReferenceLineData) {
         drawReferenceLine(m_snapshot.referenceLine);
     }
-    if (m_layerVisibility.showGlobalPath) {
+    if (m_layerVisibility.showGlobalPath && status.hasGlobalPathData) {
         drawTrajectory(m_snapshot.globalPath, QColor("#59c3c3"), 0.18);
     }
-    if (m_layerVisibility.showLocalPath) {
+    if (m_layerVisibility.showLocalPath && status.hasLocalPathData) {
         drawTrajectory(m_snapshot.localPath, QColor("#ff7f50"), 0.24);
     }
-    if (m_layerVisibility.showObstacles) {
+    if (m_layerVisibility.showObstacles && status.hasObstacleData) {
         drawObstacles(m_snapshot.obstacles);
     }
-    if (m_layerVisibility.showVehicle) {
+    if (m_layerVisibility.showVehicle && status.hasVehicleLocationData) {
         drawVehicle(m_snapshot);
     }
 
@@ -132,9 +133,9 @@ void SceneManager::redraw()
 
 void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    const auto& vehicleState = snapshot.vehicleState;
+    const auto& vehicleLocation = snapshot.vehicleLocation;
     const auto& vehicleConfig = snapshot.vehicleConfig;
-    const QPointF center = toScenePoint(vehicleState.location.position);
+    const QPointF center = toScenePoint(vehicleLocation.position);
     const double x = center.x();
     const double y = center.y();
 
@@ -145,7 +146,7 @@ void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot&
                                   QPen(QColor("#f7b267"), 0.0),
                                   QBrush(QColor(247, 178, 103, 110)));
     body->setTransformOriginPoint(x, y);
-    body->setRotation(-vehicleState.location.heading * kRadToDeg);
+    body->setRotation(-vehicleLocation.heading * kRadToDeg);
 
     QPolygonF nose;
     nose << QPointF(x + vehicleConfig.vehicleLength * 0.35, y)
@@ -153,7 +154,7 @@ void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot&
          << QPointF(x + vehicleConfig.vehicleLength * 0.1, y + 0.55);
     auto* headingMarker = m_scene->addPolygon(nose, QPen(QColor("#ffd166"), 0.0), QBrush(QColor("#ffd166")));
     headingMarker->setTransformOriginPoint(x, y);
-    headingMarker->setRotation(-vehicleState.location.heading * kRadToDeg);
+    headingMarker->setRotation(-vehicleLocation.heading * kRadToDeg);
 }
 
 void SceneManager::drawTrajectory(const autoviz::model::Trajectory& trajectory, const QColor& color, qreal width)
@@ -210,16 +211,19 @@ void SceneManager::autoFitAndCenter()
         return;
     }
 
-    const QPointF vehicleCenter = toScenePoint(m_snapshot.vehicleState.location.position);
+    const QPointF vehicleCenter = toScenePoint(m_snapshot.vehicleLocation.position);
     QRectF targetRegion;
 
-    if (m_vehicleCenteredMode) {
+    const bool canCenterOnVehicle = m_vehicleCenteredMode && m_snapshot.runtimeStatus.hasVehicleLocationData;
+    if (canCenterOnVehicle) {
         // 跟车视角优先显示车辆附近区域，不按整条路径做全局缩放。
         targetRegion = QRectF(vehicleCenter.x() - 18.0, vehicleCenter.y() - 12.0, 36.0, 24.0);
     } else {
         targetRegion = m_scene->itemsBoundingRect();
-        const QRectF minimumVehicleRegion(vehicleCenter.x() - 8.0, vehicleCenter.y() - 6.0, 16.0, 12.0);
-        targetRegion = targetRegion.united(minimumVehicleRegion);
+        if (m_snapshot.runtimeStatus.hasVehicleLocationData) {
+            const QRectF minimumVehicleRegion(vehicleCenter.x() - 8.0, vehicleCenter.y() - 6.0, 16.0, 12.0);
+            targetRegion = targetRegion.united(minimumVehicleRegion);
+        }
         targetRegion.adjust(-4.0, -4.0, 4.0, 4.0);
     }
 

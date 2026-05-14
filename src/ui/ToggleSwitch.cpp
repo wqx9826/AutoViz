@@ -28,7 +28,6 @@ void ToggleSwitch::setHasData(bool hasData)
     m_hasData = hasData;
     setEnabled(hasData);
     if (!hasData) {
-        setChecked(false);
         setCursor(Qt::ArrowCursor);
     } else {
         setCursor(Qt::PointingHandCursor);
