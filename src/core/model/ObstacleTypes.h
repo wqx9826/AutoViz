@@ -24,6 +24,9 @@ enum class ObstacleShapeType {
 struct Obstacle {
     int id = -1;
     ObstacleType type = ObstacleType::Unknown;
+    int sourceClass = 0;
+    QString classLabel;
+    QString sourceTopic;
     ObstacleShapeType shape = ObstacleShapeType::Box;
     Header header;
     bool isStatic = true;

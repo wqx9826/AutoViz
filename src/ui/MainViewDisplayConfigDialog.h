@@ -9,6 +9,7 @@ class ToggleSwitch;
 
 struct MainViewDataAvailability {
     bool hasVehicleData = false;
+    bool hasHistoryTrailData = false;
     bool hasGlobalPathData = false;
     bool hasReferenceLineData = false;
     bool hasLocalPathData = false;
@@ -36,6 +37,7 @@ private:
     void updateAvailability(ToggleSwitch* toggleSwitch, bool hasData);
 
     ToggleSwitch* m_vehicleCheck = nullptr;
+    ToggleSwitch* m_historyTrailCheck = nullptr;
     ToggleSwitch* m_globalPathCheck = nullptr;
     ToggleSwitch* m_referenceLineCheck = nullptr;
     ToggleSwitch* m_localPathCheck = nullptr;

@@ -8,7 +8,7 @@ class QWidget;
 
 namespace autoviz::ui::charts::style {
 
-QFont font(int pixelSize = 12, int weight = QFont::Normal);
+QFont font(int pointSize = 12, int weight = QFont::Normal);
 QFont panelTitleFont();
 QFont cardTitleFont();
 QFont captionFont();

@@ -4,6 +4,7 @@
 #include <memory>
 #include <thread>
 
+#include <QHash>
 
 #if AUTOVIZ_ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
@@ -11,8 +12,11 @@
 
 #include "custom_msgs/msg/chassis_command.hpp"
 #include "custom_msgs/msg/chassis_states.hpp"
+#include "custom_msgs/msg/final_target_array.hpp"
 #include "custom_msgs/msg/location.hpp"
 #include "custom_msgs/msg/scene.hpp"
+#include "custom_msgs/msg/system_run_states.hpp"
+#include "custom_msgs/msg/task_params.hpp"
 #include "custom_msgs/msg/trajectory_msg.hpp"
 #endif
 
@@ -43,14 +47,25 @@ private:
     model::Trajectory local_path_; // 本地路径
     model::ReferenceLine reference_line_; // 参考线
 
+    struct TopicMonitorState {
+        model::TopicStatus status;
+        qint64 previousUpdateMs = 0;
+    };
+    void initializeTopicMonitors();
+    void recordTopicMessage(const QString& topicName);
+    QHash<QString, TopicMonitorState> m_topicMonitors;
+
 #if AUTOVIZ_ENABLE_ROS2
 
 private:
     rclcpp::Node::SharedPtr m_node;
     rclcpp::Subscription<custom_msgs::msg::Location>::SharedPtr m_sub_location;
     rclcpp::Subscription<custom_msgs::msg::Scene>::SharedPtr m_sub_scene;
+    rclcpp::Subscription<custom_msgs::msg::FinalTargetArray>::SharedPtr m_sub_final_targets;
     rclcpp::Subscription<custom_msgs::msg::ChassisCommand>::SharedPtr m_sub_chassis_command;
     rclcpp::Subscription<custom_msgs::msg::ChassisStates>::SharedPtr m_sub_chassis_states;
+    rclcpp::Subscription<custom_msgs::msg::SystemRunStates>::SharedPtr m_sub_system_run_states;
+    rclcpp::Subscription<custom_msgs::msg::TaskParams>::SharedPtr m_sub_task_params;
     rclcpp::Subscription<custom_msgs::msg::TrajectoryMsg>::SharedPtr m_sub_trajectory;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr m_sub_path;
 
@@ -58,8 +73,11 @@ private:
 
     void callbackLocationMsg(const custom_msgs::msg::Location::ConstSharedPtr msg);
     void callbackSceneMsg(const custom_msgs::msg::Scene::ConstSharedPtr msg);
+    void callbackFinalTargetArrayMsg(const custom_msgs::msg::FinalTargetArray::ConstSharedPtr msg);
     void callbackChassisCommandMsg(const custom_msgs::msg::ChassisCommand::ConstSharedPtr msg);
     void callbackChassisStatesMsg(const custom_msgs::msg::ChassisStates::ConstSharedPtr msg);
+    void callbackSystemRunStatesMsg(const custom_msgs::msg::SystemRunStates::ConstSharedPtr msg);
+    void callbackTaskParamsMsg(const custom_msgs::msg::TaskParams::ConstSharedPtr msg);
     void callbackLocalPathMsg(const custom_msgs::msg::TrajectoryMsg::ConstSharedPtr msg);
     void callbackGlobalPathMsg(const nav_msgs::msg::Path::ConstSharedPtr msg);
 

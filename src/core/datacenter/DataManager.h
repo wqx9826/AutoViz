@@ -6,6 +6,7 @@
 #include "core/model/ControlTypes.h"
 #include "core/model/ObstacleTypes.h"
 #include "core/model/PathTypes.h"
+#include "core/model/RuntimeStatusTypes.h"
 #include "core/model/VehicleState.h"
 
 namespace autoviz::datacenter {
@@ -33,9 +34,20 @@ struct VisualizationSnapshot {
     model::VehicleConfig vehicleConfig;
     model::Trajectory globalPath;
     model::Trajectory localPath;
+    model::Trajectory historyTrail;
     model::ReferenceLine referenceLine;
     model::ObstacleList obstacles;
     model::ControlCmd controlCmd;
+    model::TopicStatusList topicStatuses;
+    model::LocalizationStatus localizationStatus;
+    model::ChassisRuntimeStatus chassisRuntimeStatus;
+    model::ControlCommandStatus controlCommandStatus;
+    model::PathRuntimeStatus globalPathStatus;
+    model::PathRuntimeStatus localPathStatus;
+    model::PathEndpointStatus pathEndpointStatus;
+    model::ActionRuntimeStatus actionRuntimeStatus;
+    model::TaskRuntimeStatus taskRuntimeStatus;
+    model::RunVisualizationMode runVisualizationMode = model::RunVisualizationMode::Unknown;
     VisualizationRuntimeStatus runtimeStatus;
 };
 
@@ -54,6 +66,16 @@ public:
     void setReferenceLine(const model::ReferenceLine& referenceLine);
     void setObstacles(const model::ObstacleList& obstacles);
     void setControlCmd(const model::ControlCmd& controlCmd);
+    void setTopicStatus(const model::TopicStatus& topicStatus);
+    void setTopicStatuses(const model::TopicStatusList& topicStatuses);
+    void setLocalizationStatus(const model::LocalizationStatus& status);
+    void setChassisRuntimeStatus(const model::ChassisRuntimeStatus& status);
+    void setControlCommandStatus(const model::ControlCommandStatus& status);
+    void setGlobalPathStatus(const model::PathRuntimeStatus& status);
+    void setLocalPathStatus(const model::PathRuntimeStatus& status);
+    void setActionRuntimeStatus(const model::ActionRuntimeStatus& status);
+    void setTaskRuntimeStatus(const model::TaskRuntimeStatus& status);
+    void clearHistoryTrail();
 
     VisualizationSnapshot getSnapshot() const;
 
@@ -77,6 +99,10 @@ private:
     static bool isFresh(TimePoint lastUpdate, TimePoint now);
     static TimePoint timestampFor(bool hasData);
     static void applyFreshnessFilter(VisualizationSnapshot& snapshot, const ChannelUpdateTimes& updateTimes, TimePoint now);
+    static void updateTopicAges(model::TopicStatusList& topicStatuses, qint64 nowMs);
+    void appendHistoryTrailPointLocked(const model::VehicleLocation& vehicleLocation);
+    void updatePathEndpointLocked();
+    void updateRunVisualizationModeLocked();
 
     mutable std::mutex m_mutex;
     VisualizationSnapshot m_snapshot;

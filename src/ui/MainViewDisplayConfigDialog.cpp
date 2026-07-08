@@ -4,9 +4,11 @@
 #include <QLabel>
 #include <QFrame>
 #include <QSignalBlocker>
+#include <QVariant>
 #include <QVBoxLayout>
 
 #include "ui/ToggleSwitch.h"
+#include "ui/theme/UiScaleManager.h"
 
 MainViewDisplayConfigDialog::MainViewDisplayConfigDialog(QWidget* parent)
     : QDialog(parent)
@@ -17,12 +19,14 @@ MainViewDisplayConfigDialog::MainViewDisplayConfigDialog(QWidget* parent)
 void MainViewDisplayConfigDialog::setLayerVisibility(const autoviz::render::LayerVisibility& visibility)
 {
     const QSignalBlocker vehicleBlocker(m_vehicleCheck);
+    const QSignalBlocker historyTrailBlocker(m_historyTrailCheck);
     const QSignalBlocker globalPathBlocker(m_globalPathCheck);
     const QSignalBlocker referenceLineBlocker(m_referenceLineCheck);
     const QSignalBlocker localPathBlocker(m_localPathCheck);
     const QSignalBlocker obstacleBlocker(m_obstacleCheck);
 
     m_vehicleCheck->setChecked(visibility.showVehicle);
+    m_historyTrailCheck->setChecked(visibility.showHistoryTrail);
     m_globalPathCheck->setChecked(visibility.showGlobalPath);
     m_referenceLineCheck->setChecked(visibility.showReferenceLine);
     m_localPathCheck->setChecked(visibility.showLocalPath);
@@ -38,6 +42,7 @@ void MainViewDisplayConfigDialog::setVehicleCenteredMode(bool enabled)
 void MainViewDisplayConfigDialog::setDataAvailability(const MainViewDataAvailability& availability)
 {
     updateAvailability(m_vehicleCheck, availability.hasVehicleData);
+    updateAvailability(m_historyTrailCheck, availability.hasHistoryTrailData);
     updateAvailability(m_globalPathCheck, availability.hasGlobalPathData);
     updateAvailability(m_referenceLineCheck, availability.hasReferenceLineData);
     updateAvailability(m_localPathCheck, availability.hasLocalPathData);
@@ -46,33 +51,34 @@ void MainViewDisplayConfigDialog::setDataAvailability(const MainViewDataAvailabi
 
 void MainViewDisplayConfigDialog::setupUi()
 {
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
     setWindowTitle(tr("主视图显示管理"));
     setModal(false);
-    resize(420, 340);
-    setStyleSheet("QDialog { background: #f8fafc; } QLabel { color: #1f2937; }");
+    resize(scale.scaled(420), scale.scaled(340));
 
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(18, 18, 18, 18);
-    layout->setSpacing(12);
+    layout->setContentsMargins(scale.scaled(18), scale.scaled(18), scale.scaled(18), scale.scaled(18));
+    layout->setSpacing(scale.spacingNormal());
 
     auto* title = new QLabel(tr("主视图显示管理"), this);
-    title->setStyleSheet("font-size: 16px; font-weight: 700;");
+    title->setFont(scale.font(scale.fontSizeTitle(), QFont::Bold));
+    title->setStyleSheet(QStringLiteral("font-weight: 700;"));
     layout->addWidget(title);
 
     auto* hint = new QLabel(tr("绿色表示正在显示，灰色表示已关闭，红色表示当前未接收到数据。"), this);
     hint->setWordWrap(true);
-    hint->setStyleSheet("color: #5f6b76;");
+    hint->setProperty("class", QVariant(QStringLiteral("status-key")));
     layout->addWidget(hint);
 
-    auto addRow = [this, layout](const QString& text, ToggleSwitch*& toggleSwitch) {
+    auto addRow = [this, layout, &scale](const QString& text, ToggleSwitch*& toggleSwitch) {
         auto* row = new QFrame(this);
-        row->setStyleSheet("QFrame { background: white; border: 1px solid #e5e7eb; border-radius: 12px; }");
+        row->setObjectName(QStringLiteral("dialogRow"));
         auto* rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(14, 12, 14, 12);
-        rowLayout->setSpacing(12);
+        rowLayout->setContentsMargins(scale.scaled(14), scale.scaled(12), scale.scaled(14), scale.scaled(12));
+        rowLayout->setSpacing(scale.spacingNormal());
 
         auto* label = new QLabel(text, row);
-        label->setStyleSheet("font-size: 14px;");
+        label->setFont(scale.font(scale.fontSizeNormal()));
         toggleSwitch = new ToggleSwitch(row);
 
         rowLayout->addWidget(label);
@@ -82,18 +88,19 @@ void MainViewDisplayConfigDialog::setupUi()
     };
 
     addRow(tr("车辆定位"), m_vehicleCheck);
+    addRow(tr("历史轨迹"), m_historyTrailCheck);
     addRow(tr("全局路径"), m_globalPathCheck);
     addRow(tr("参考线"), m_referenceLineCheck);
     addRow(tr("局部路径"), m_localPathCheck);
     addRow(tr("障碍物"), m_obstacleCheck);
 
     auto* centerRow = new QFrame(this);
-    centerRow->setStyleSheet("QFrame { background: white; border: 1px solid #e5e7eb; border-radius: 12px; }");
+    centerRow->setObjectName(QStringLiteral("dialogRow"));
     auto* centerLayout = new QHBoxLayout(centerRow);
-    centerLayout->setContentsMargins(14, 12, 14, 12);
-    centerLayout->setSpacing(12);
+    centerLayout->setContentsMargins(scale.scaled(14), scale.scaled(12), scale.scaled(14), scale.scaled(12));
+    centerLayout->setSpacing(scale.spacingNormal());
     auto* centerLabel = new QLabel(tr("车辆居中显示"), centerRow);
-    centerLabel->setStyleSheet("font-size: 14px;");
+    centerLabel->setFont(scale.font(scale.fontSizeNormal()));
     m_vehicleCenteredModeCheck = new ToggleSwitch(centerRow);
     centerLayout->addWidget(centerLabel);
     centerLayout->addStretch(1);
@@ -101,7 +108,7 @@ void MainViewDisplayConfigDialog::setupUi()
     layout->addWidget(centerRow);
     layout->addStretch(1);
 
-    for (auto* toggleSwitch : {m_vehicleCheck, m_globalPathCheck, m_referenceLineCheck, m_localPathCheck, m_obstacleCheck}) {
+    for (auto* toggleSwitch : {m_vehicleCheck, m_historyTrailCheck, m_globalPathCheck, m_referenceLineCheck, m_localPathCheck, m_obstacleCheck}) {
         toggleSwitch->setChecked(true);
         connect(toggleSwitch, &ToggleSwitch::toggled, this, [this](bool) { emitLayerVisibility(); });
     }
@@ -113,6 +120,7 @@ void MainViewDisplayConfigDialog::emitLayerVisibility()
 {
     autoviz::render::LayerVisibility visibility;
     visibility.showVehicle = m_vehicleCheck->isChecked();
+    visibility.showHistoryTrail = m_historyTrailCheck->isChecked();
     visibility.showGlobalPath = m_globalPathCheck->isChecked();
     visibility.showReferenceLine = m_referenceLineCheck->isChecked();
     visibility.showLocalPath = m_localPathCheck->isChecked();

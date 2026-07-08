@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -18,6 +19,7 @@
 #include "ui/charts/ControlPanelStyle.h"
 #include "ui/charts/PlotCardWidget.h"
 #include "ui/charts/StatusSummaryWidget.h"
+#include "ui/theme/UiScaleManager.h"
 
 namespace autoviz::ui::charts {
 
@@ -112,9 +114,9 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
 
 void ControlPanelWidget::setupUi()
 {
-    setMinimumWidth(380);
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    setMinimumWidth(scale.scaled(340));
     setFont(style::font());
-    setStyleSheet(style::panelStyleSheet());
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
@@ -127,14 +129,13 @@ void ControlPanelWidget::setupUi()
 
     auto* content = new QWidget(scrollArea);
     content->setFont(style::font());
-    content->setStyleSheet(style::panelStyleSheet());
     auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(12, 12, 12, 12);
-    layout->setSpacing(12);
+    layout->setContentsMargins(scale.spacingSmall(), scale.spacingSmall(), scale.spacingSmall(), scale.spacingSmall());
+    layout->setSpacing(scale.spacingSmall());
 
     auto* title = new QLabel(tr("控制曲线面板"), content);
     title->setFont(style::panelTitleFont());
-    title->setStyleSheet(QStringLiteral("color: #111827; font-size: 14px; font-weight: 700;"));
+    title->setStyleSheet(QStringLiteral("font-weight: 700;"));
     layout->addWidget(title);
 
     m_statusSummary = new StatusSummaryWidget(content);
@@ -143,10 +144,10 @@ void ControlPanelWidget::setupUi()
     auto* controls = new QFrame(content);
     controls->setObjectName(QStringLiteral("controlPanelToolbar"));
     controls->setFont(style::controlFont());
-    controls->setStyleSheet(style::toolbarStyleSheet());
     auto* controlsLayout = new QHBoxLayout(controls);
-    controlsLayout->setContentsMargins(10, 8, 10, 8);
-    controlsLayout->setSpacing(8);
+    controlsLayout->setContentsMargins(scale.scaled(8), scale.spacingSmall(), scale.scaled(8), scale.spacingSmall());
+    controlsLayout->setSpacing(scale.spacingSmall());
+    controlsLayout->setAlignment(Qt::AlignVCenter);
 
     m_pauseButton = new QPushButton(tr("暂停"), controls);
     style::polishControls(m_pauseButton);
@@ -159,18 +160,21 @@ void ControlPanelWidget::setupUi()
     m_windowCombo->addItem(QStringLiteral("30s"), 30000);
     m_windowCombo->addItem(QStringLiteral("60s"), 60000);
     m_windowCombo->setCurrentIndex(1);
+    m_windowCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_windowCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_windowCombo->setMinimumWidth(m_windowCombo->minimumSizeHint().width() + scale.scaled(18));
     m_autoScaleCheck = new QCheckBox(tr("自动缩放"), controls);
     style::polishControls(m_autoScaleCheck);
     m_autoScaleCheck->setChecked(true);
 
-    controlsLayout->addWidget(m_pauseButton);
-    controlsLayout->addWidget(m_clearButton);
+    controlsLayout->addWidget(m_pauseButton, 0, Qt::AlignVCenter);
+    controlsLayout->addWidget(m_clearButton, 0, Qt::AlignVCenter);
     controlsLayout->addStretch(1);
     auto* windowLabel = new QLabel(tr("窗口"), controls);
     windowLabel->setFont(style::controlFont());
-    controlsLayout->addWidget(windowLabel);
-    controlsLayout->addWidget(m_windowCombo);
-    controlsLayout->addWidget(m_autoScaleCheck);
+    controlsLayout->addWidget(windowLabel, 0, Qt::AlignVCenter);
+    controlsLayout->addWidget(m_windowCombo, 0, Qt::AlignVCenter);
+    controlsLayout->addWidget(m_autoScaleCheck, 0, Qt::AlignVCenter);
     layout->addWidget(controls);
 
     m_speedPlot = new PlotCardWidget(content);

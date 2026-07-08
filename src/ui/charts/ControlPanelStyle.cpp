@@ -4,6 +4,9 @@
 #include <QStringList>
 #include <QWidget>
 
+#include "ui/theme/UiScaleManager.h"
+#include "ui/theme/UiThemeManager.h"
+
 namespace autoviz::ui::charts::style {
 
 namespace {
@@ -28,83 +31,107 @@ QString fontFamily()
 }
 }
 
-QFont font(int pixelSize, int weight)
+QFont font(int pointSize, int weight)
 {
-    QFont result(fontFamily());
-    result.setPixelSize(pixelSize);
+    QFont result = autoviz::ui::theme::UiScaleManager::instance().font(pointSize, weight);
+    result.setFamily(fontFamily());
     result.setWeight(weight);
     return result;
 }
 
 QFont panelTitleFont()
 {
-    return font(14, QFont::Bold);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeNormal(), QFont::Bold);
 }
 
 QFont cardTitleFont()
 {
-    return font(14, QFont::Bold);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeNormal(), QFont::Bold);
 }
 
 QFont captionFont()
 {
-    return font(11, QFont::Normal);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeSmall(), QFont::Normal);
 }
 
 QFont statusValueFont()
 {
-    return font(16, QFont::Bold);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeTitle(), QFont::Bold);
 }
 
 QFont currentValueFont()
 {
-    return font(12, QFont::Normal);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeSmall(), QFont::Normal);
 }
 
 QFont legendFont()
 {
-    return font(11, QFont::Normal);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeSmall(), QFont::Normal);
 }
 
 QFont axisFont()
 {
-    return font(10, QFont::Normal);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeSmall(), QFont::Normal);
 }
 
 QFont controlFont()
 {
-    return font(12, QFont::Normal);
+    return font(autoviz::ui::theme::UiScaleManager::instance().fontSizeNormal(), QFont::Normal);
 }
 
 QString panelStyleSheet()
 {
-    return QStringLiteral("background: #F3F4F6; font-family: \"%1\"; font-size: 12px; color: #374151;").arg(fontFamily());
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+    return QStringLiteral("background: %1; font-family: \"%2\"; color: %3;")
+        .arg(p.window.name(), fontFamily(), p.text.name());
 }
 
 QString toolbarStyleSheet()
 {
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
     return QStringLiteral(
-        "#controlPanelToolbar { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; }"
-        "QPushButton { color: #111827; background: #F9FAFB; border: 1px solid #D1D5DB; border-radius: 5px; padding: 4px 10px; min-height: 28px; font-size: 12px; font-weight: 400; }"
-        "QPushButton:checked { background: #DBEAFE; border-color: #2563EB; color: #1D4ED8; }"
-        "QComboBox { color: #111827; background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 5px; padding: 3px 8px; min-height: 28px; font-size: 12px; font-weight: 400; }"
-        "QCheckBox { color: #374151; font-size: 12px; font-weight: 400; }"
-        "QLabel { color: #374151; font-size: 12px; font-weight: 400; }");
+        "#controlPanelToolbar { background: %1; border: 1px solid %2; border-radius: 6px; }"
+        "QPushButton { color: %3; background: %4; border: 1px solid %2; border-radius: 5px; padding: %5px %6px; min-height: %7px; font-weight: 400; }"
+        "QPushButton:hover { border-color: %8; }"
+        "QPushButton:checked { background: %9; border-color: %8; color: %10; }"
+        "QComboBox { color: %3; background: %4; border: 1px solid %2; border-radius: 5px; padding: %11px %14px %11px %12px; min-height: %7px; font-weight: 400; }"
+        "QComboBox::drop-down { width: %15px; border: 0; }"
+        "QCheckBox { color: %3; font-weight: 400; }"
+        "QLabel { color: %13; font-weight: 400; }")
+        .arg(p.panel.name())
+        .arg(p.border.name())
+        .arg(p.text.name())
+        .arg(p.plotBackground.name())
+        .arg(scale.scaled(3))
+        .arg(scale.scaled(8))
+        .arg(scale.scaled(24))
+        .arg(p.accent.name())
+        .arg(p.selection.name())
+        .arg(p.dark ? QStringLiteral("#FFFFFF") : QStringLiteral("#0F172A"))
+        .arg(scale.scaled(2))
+        .arg(scale.scaled(7))
+        .arg(p.mutedText.name())
+        .arg(scale.scaled(28))
+        .arg(scale.scaled(22));
 }
 
 QString statusCardStyleSheet()
 {
-    return QStringLiteral("#statusSummaryCard { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; }");
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+    return QStringLiteral("#statusSummaryCard { background: %1; border: 1px solid %2; border-radius: 6px; }")
+        .arg(p.panel.name(), p.border.name());
 }
 
 QString captionStyleSheet()
 {
-    return QStringLiteral("color: #6B7280; font-size: 11px; font-weight: 400;");
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+    return QStringLiteral("color: %1; font-weight: 400;").arg(p.mutedText.name());
 }
 
 QString statusValueStyleSheet(const QColor& color)
 {
-    return QStringLiteral("color: %1; font-size: 16px; font-weight: 700;").arg(color.name());
+    return QStringLiteral("color: %1; font-weight: 700;").arg(color.name());
 }
 
 void polishControls(QWidget* widget)

@@ -3,6 +3,9 @@
 #include <QMouseEvent>
 #include <QPainter>
 
+#include "ui/theme/UiScaleManager.h"
+#include "ui/theme/UiThemeManager.h"
+
 namespace {
 constexpr int kSwitchWidth = 52;
 constexpr int kSwitchHeight = 30;
@@ -20,7 +23,8 @@ ToggleSwitch::ToggleSwitch(QWidget* parent)
 
 QSize ToggleSwitch::sizeHint() const
 {
-    return QSize(kSwitchWidth, kSwitchHeight);
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    return QSize(scale.scaled(kSwitchWidth), scale.scaled(kSwitchHeight));
 }
 
 void ToggleSwitch::setHasData(bool hasData)
@@ -48,9 +52,10 @@ void ToggleSwitch::paintEvent(QPaintEvent* event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    QColor trackColor("#8b1e1e");
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+    QColor trackColor = p.warnBackground;
     if (m_hasData) {
-        trackColor = isChecked() ? QColor("#1f9d55") : QColor("#6b7280");
+        trackColor = isChecked() ? p.normalBackground : p.offlineBackground;
     }
 
     const QRectF trackRect(1.0, 1.0, width() - 2.0, height() - 2.0);
@@ -58,13 +63,14 @@ void ToggleSwitch::paintEvent(QPaintEvent* event)
     painter.setBrush(trackColor);
     painter.drawRoundedRect(trackRect, trackRect.height() * 0.5, trackRect.height() * 0.5);
 
-    const qreal knobDiameter = trackRect.height() - 2.0 * kMargin;
+    const qreal scaledMargin = autoviz::ui::theme::UiScaleManager::instance().scaled(kMargin);
+    const qreal knobDiameter = trackRect.height() - 2.0 * scaledMargin;
     const qreal knobX = isChecked() && m_hasData
-                            ? trackRect.right() - kMargin - knobDiameter
-                            : trackRect.left() + kMargin;
-    const QRectF knobRect(knobX, trackRect.top() + kMargin, knobDiameter, knobDiameter);
+                            ? trackRect.right() - scaledMargin - knobDiameter
+                            : trackRect.left() + scaledMargin;
+    const QRectF knobRect(knobX, trackRect.top() + scaledMargin, knobDiameter, knobDiameter);
 
-    painter.setBrush(QColor("#f8fafc"));
+    painter.setBrush(p.switchKnob);
     painter.drawEllipse(knobRect);
 }
 

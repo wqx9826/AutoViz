@@ -1,0 +1,181 @@
+QMainWindow, QDialog, QWidget {
+    background: #F4F6F8;
+    color: #17202A;
+}
+QMenuBar, QStatusBar {
+    background: #EEF2F6;
+    color: #17202A;
+    border-bottom: 1px solid #D5DAE1;
+}
+QMenu {
+    background: #FFFFFF;
+    color: #17202A;
+    border: 1px solid #D5DAE1;
+}
+QMenu::item, QMenuBar::item {
+    padding: 4px 10px;
+}
+QMenu::item:selected, QMenuBar::item:selected {
+    background: #B9E3F7;
+    color: #0F172A;
+}
+QSplitter::handle {
+    background: #D5DAE1;
+}
+QTabWidget::pane {
+    border: 1px solid #D5DAE1;
+    background: #F4F6F8;
+}
+QTabBar::tab {
+    background: #EEF2F6;
+    color: #607080;
+    border: 1px solid #D5DAE1;
+    padding: 4px 10px;
+}
+QTabBar::tab:selected {
+    background: #FFFFFF;
+    color: #17202A;
+}
+QGroupBox {
+    background: #FFFFFF;
+    border: 1px solid #D5DAE1;
+    border-radius: 6px;
+    margin-top: 12px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: #0077B6;
+    font-weight: 700;
+}
+QLabel {
+    background: transparent;
+    color: #17202A;
+}
+QLabel[class="status-key"] {
+    color: #607080;
+    font-size: 10pt;
+    font-weight: 400;
+}
+QLabel[class="status-value"] {
+    color: #17202A;
+    font-family: "JetBrains Mono", "Roboto Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 10pt;
+    font-weight: 600;
+}
+QLabel[class="status-badge"] {
+    font-family: "JetBrains Mono", "Roboto Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 10pt;
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 1px 4px;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#status-normal {
+    color: #047857;
+    background: #DDF8EA;
+    border: 1px solid #047857;
+}
+QLabel#status-warn {
+    color: #B45309;
+    background: #FEF3C7;
+    border: 1px solid #B45309;
+}
+QLabel#status-offline {
+    color: #475569;
+    background: #E2E8F0;
+    border: 1px solid #D5DAE1;
+}
+QFrame#dialogRow, QFrame#statusSummaryCard, QFrame#controlPanelToolbar {
+    background: #FFFFFF;
+    border: 1px solid #D5DAE1;
+    border-radius: 6px;
+}
+QFrame#metricBlock {
+    background: #F8FAFC;
+    border: 1px solid #D5DAE1;
+    border-radius: 6px;
+}
+QPlainTextEdit, QTableWidget, QTableView {
+    background: #EEF2F6;
+    alternate-background-color: #EEF2F6;
+    color: #17202A;
+    border: 1px solid #D5DAE1;
+    selection-background-color: #B9E3F7;
+    selection-color: #0F172A;
+    gridline-color: #E0E0E0;
+}
+QTableWidget::item, QTableView::item {
+    background: #EEF2F6;
+    color: #17202A;
+    padding: 4px 10px;
+}
+QTableWidget::item:selected, QTableView::item:selected {
+    background: #B9E3F7;
+    color: #0F172A;
+}
+QHeaderView::section {
+    background: #FFFFFF;
+    color: #607080;
+    border: 0;
+    border-bottom: 1px solid #E0E0E0;
+    padding: 4px 10px;
+    font-weight: 700;
+}
+QTableWidget#topicDashboardTable {
+    background: #EEF2F6;
+    border: 1px solid #D5DAE1;
+    border-radius: 6px;
+    gridline-color: transparent;
+}
+QTableWidget#topicDashboardTable::item {
+    border: 0;
+    border-bottom: 1px solid #E0E0E0;
+    padding: 4px 10px;
+}
+QTableWidget#topicDashboardTable QHeaderView::section {
+    background: #EEF2F6;
+    border: 0;
+    border-bottom: 1px solid #E0E0E0;
+}
+QPushButton {
+    color: #17202A;
+    background: #F8FAFC;
+    border: 1px solid #D5DAE1;
+    border-radius: 5px;
+    padding: 4px 10px;
+    min-height: 24px;
+}
+QPushButton:hover {
+    border-color: #0077B6;
+}
+QPushButton:checked {
+    background: #B9E3F7;
+    color: #0F172A;
+    border-color: #0077B6;
+}
+QComboBox {
+    color: #17202A;
+    background: #F8FAFC;
+    border: 1px solid #D5DAE1;
+    border-radius: 5px;
+    padding: 3px 28px 3px 8px;
+    min-height: 24px;
+}
+QComboBox::drop-down {
+    width: 22px;
+    border: 0;
+}
+QCheckBox {
+    color: #17202A;
+    background: transparent;
+}
+QScrollArea, QScrollBar {
+    background: #F4F6F8;
+    border: 0;
+}
+QScrollBar::handle {
+    background: #D5DAE1;
+    border-radius: 4px;
+}

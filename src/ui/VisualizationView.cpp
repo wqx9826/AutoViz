@@ -10,6 +10,9 @@
 #include <QScrollBar>
 #include <QWheelEvent>
 
+#include "ui/theme/UiScaleManager.h"
+#include "ui/theme/UiThemeManager.h"
+
 namespace {
 constexpr double kMinorGridSpacing = 1.0;
 constexpr double kMajorGridSpacing = 5.0;
@@ -74,6 +77,51 @@ void VisualizationView::setGridVisible(bool visible)
     viewport()->update();
 }
 
+void VisualizationView::applyTheme(const autoviz::ui::theme::ThemePalette& palette)
+{
+    m_backgroundColor = palette.dark ? QColor("#17212B") : QColor("#F2F6FA");
+    m_minorGridColor = palette.dark ? QColor("#223141") : QColor("#DDE6EF");
+    m_majorGridColor = palette.dark ? QColor("#35506A") : QColor("#B8C7D6");
+
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    if (m_overlayLabel != nullptr) {
+        m_overlayLabel->setStyleSheet(
+            QStringLiteral("QLabel {"
+                           "padding: %1px %2px;"
+                           "border: 1px solid %3;"
+                           "border-radius: %4px;"
+                           "background-color: rgba(%5, %6, %7, %8);"
+                           "color: %9;"
+                           "}")
+                .arg(scale.scaled(4))
+                .arg(scale.scaled(7))
+                .arg(palette.overlayBorder.name())
+                .arg(scale.scaled(5))
+                .arg(palette.overlayBackground.red())
+                .arg(palette.overlayBackground.green())
+                .arg(palette.overlayBackground.blue())
+                .arg(palette.overlayBackground.alpha())
+                .arg(palette.overlayText.name()));
+    }
+    if (m_verticalStatusLabel != nullptr) {
+        m_verticalStatusLabel->setStyleSheet(
+            QStringLiteral("QLabel {"
+                           "padding: %1px %2px;"
+                           "border: 1px solid %3;"
+                           "border-radius: %4px;"
+                           "background-color: %5;"
+                           "color: %6;"
+                           "}")
+                .arg(scale.scaled(5))
+                .arg(scale.scaled(7))
+                .arg(palette.accent.name())
+                .arg(scale.scaled(5))
+                .arg(palette.dark ? QStringLiteral("rgba(8, 47, 73, 225)") : QStringLiteral("rgba(232, 247, 255, 235)"))
+                .arg(palette.dark ? QStringLiteral("#E0F2FE") : QStringLiteral("#075985")));
+    }
+    viewport()->update();
+}
+
 void VisualizationView::setOverlayMessage(const QString& text)
 {
     if (m_overlayLabel == nullptr) {
@@ -85,6 +133,21 @@ void VisualizationView::setOverlayMessage(const QString& text)
         m_overlayLabel->setText(text);
         updateOverlayGeometry();
         m_overlayLabel->raise();
+    }
+}
+
+void VisualizationView::setVerticalStatusMessage(const QString& text)
+{
+    if (m_verticalStatusLabel == nullptr) {
+        return;
+    }
+
+    const bool hasText = !text.trimmed().isEmpty();
+    m_verticalStatusLabel->setVisible(hasText);
+    if (hasText) {
+        m_verticalStatusLabel->setText(text);
+        updateOverlayGeometry();
+        m_verticalStatusLabel->raise();
     }
 }
 
@@ -228,20 +291,23 @@ void VisualizationView::setupScene()
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+
     m_overlayLabel = new QLabel(viewport());
     m_overlayLabel->setWordWrap(true);
     m_overlayLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_overlayLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    m_overlayLabel->setStyleSheet(
-        "QLabel {"
-        "padding: 12px 14px;"
-        "border: 1px solid #5d738b;"
-        "border-radius: 12px;"
-        "background-color: rgba(18, 24, 31, 220);"
-        "color: #dde7ef;"
-        "font-size: 13px;"
-        "}");
+    m_overlayLabel->setFont(scale.font(scale.fontSizeSmall()));
     m_overlayLabel->hide();
+
+    m_verticalStatusLabel = new QLabel(viewport());
+    m_verticalStatusLabel->setWordWrap(true);
+    m_verticalStatusLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_verticalStatusLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_verticalStatusLabel->setFont(scale.font(scale.fontSizeSmall()));
+    m_verticalStatusLabel->hide();
+
+    applyTheme(autoviz::ui::theme::UiThemeManager::instance().effectivePalette());
 }
 
 void VisualizationView::updateOverlayGeometry()
@@ -250,10 +316,18 @@ void VisualizationView::updateOverlayGeometry()
         return;
     }
 
-    const int maxWidth = qMin(360, qMax(220, viewport()->width() - 36));
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    const int maxWidth = qMin(scale.scaled(280), qMax(scale.scaled(190), viewport()->width() / 4));
     m_overlayLabel->setFixedWidth(maxWidth);
     m_overlayLabel->adjustSize();
-    m_overlayLabel->move(18, 18);
+    m_overlayLabel->move(scale.scaled(8), scale.scaled(8));
+
+    if (m_verticalStatusLabel != nullptr) {
+        const int verticalMaxWidth = qMin(qMax(scale.scaled(210), viewport()->width() / 4), scale.scaled(300));
+        m_verticalStatusLabel->setFixedWidth(verticalMaxWidth);
+        m_verticalStatusLabel->adjustSize();
+        m_verticalStatusLabel->move(qMax(scale.scaled(8), viewport()->width() - verticalMaxWidth - scale.scaled(8)), scale.scaled(8));
+    }
 }
 
 bool VisualizationView::isPanButton(Qt::MouseButton button) const

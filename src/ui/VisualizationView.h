@@ -8,6 +8,10 @@
 
 class QLabel;
 
+namespace autoviz::ui::theme {
+struct ThemePalette;
+}
+
 class VisualizationView : public QGraphicsView
 {
 public:
@@ -19,7 +23,9 @@ public:
     bool autoFitEnabled() const;
     void setBackgroundColor(const QColor& color);
     void setGridVisible(bool visible);
+    void applyTheme(const autoviz::ui::theme::ThemePalette& palette);
     void setOverlayMessage(const QString& text);
+    void setVerticalStatusMessage(const QString& text);
     double minorGridSpacingMeters() const;
     double majorGridSpacingMeters() const;
 
@@ -44,6 +50,7 @@ private:
     QPoint m_lastMousePosition;
     qreal m_zoomFactor = 1.0;
     QLabel* m_overlayLabel = nullptr;
+    QLabel* m_verticalStatusLabel = nullptr;
     QRectF m_lastFitRegion;
     bool m_autoFitEnabled = true;
 };

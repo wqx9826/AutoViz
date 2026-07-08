@@ -13,6 +13,8 @@
 #include <QToolTip>
 
 #include "ui/charts/ControlPanelStyle.h"
+#include "ui/theme/UiScaleManager.h"
+#include "ui/theme/UiThemeManager.h"
 
 namespace autoviz::ui::charts {
 
@@ -50,7 +52,7 @@ PlotCardWidget::PlotCardWidget(QWidget* parent)
 {
     setMouseTracking(true);
     setFont(style::font());
-    setMinimumHeight(290);
+    setMinimumHeight(autoviz::ui::theme::UiScaleManager::instance().scaled(240));
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::MinimumExpanding);
 }
 
@@ -118,7 +120,9 @@ void PlotCardWidget::paintEvent(QPaintEvent* event)
     drawSeries(painter, geometry, leftRange, rightRange);
 
     if (!anySeriesHasData()) {
-        painter.setPen(QColor("#6B7280"));
+        const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+        painter.setFont(style::axisFont());
+        painter.setPen(p.mutedText);
         painter.drawText(geometry.plot, Qt::AlignCenter, tr("等待数据..."));
     }
 }
@@ -247,12 +251,16 @@ qint64 PlotCardWidget::toRelativeTimeMs(qint64 elapsedMs, qint64 windowStartMs)
 
 PlotCardWidget::PlotGeometry PlotCardWidget::geometryFor(const QRect& bounds) const
 {
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
     PlotGeometry geometry;
     geometry.card = bounds.adjusted(0, 0, -1, -1);
     const bool hasRightAxis = std::any_of(m_series.begin(), m_series.end(), [](const SeriesConfig& series) {
         return series.axis == AxisSide::Right;
     });
-    geometry.plot = geometry.card.adjusted(62, 88, hasRightAxis ? -72 : -18, -34);
+    geometry.plot = geometry.card.adjusted(scale.scaled(76),
+                                           scale.scaled(86),
+                                           hasRightAxis ? -scale.scaled(84) : -scale.scaled(28),
+                                           -scale.scaled(44));
     return geometry;
 }
 
@@ -340,24 +348,33 @@ QString PlotCardWidget::currentValuesText() const
 
 void PlotCardWidget::drawCard(QPainter& painter, const PlotGeometry& geometry)
 {
-    painter.setPen(QPen(QColor("#E5E7EB"), 1.0));
-    painter.setBrush(QColor("#FFFFFF"));
-    painter.drawRoundedRect(geometry.card, 10, 10);
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+    painter.setPen(QPen(p.border, 1.0));
+    painter.setBrush(p.panel);
+    painter.drawRoundedRect(geometry.card, 6, 6);
 
     painter.setFont(style::cardTitleFont());
-    painter.setPen(QColor("#111827"));
-    const QRectF titleRect(geometry.card.left() + 14, geometry.card.top() + 10, geometry.card.width() * 0.36, 20);
+    painter.setPen(p.text);
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    const QRectF titleRect(geometry.card.left() + scale.scaled(14),
+                           geometry.card.top() + scale.scaled(7),
+                           geometry.card.width() * 0.36,
+                           scale.scaled(18));
     painter.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter, m_title);
 
     painter.setFont(style::currentValueFont());
-    painter.setPen(QColor("#374151"));
+    painter.setPen(p.offlineText);
     const QRectF valuesRect(geometry.card.left() + geometry.card.width() * 0.38,
-                            geometry.card.top() + 8,
-                            geometry.card.width() * 0.60 - 14,
-                            34);
+                            geometry.card.top() + scale.scaled(6),
+                            geometry.card.width() * 0.60 - scale.scaled(14),
+                            scale.scaled(28));
     painter.drawText(valuesRect, Qt::AlignRight | Qt::AlignTop | Qt::TextWordWrap, currentValuesText());
 
-    drawLegend(painter, QRectF(geometry.card.left() + 14, geometry.card.top() + 44, geometry.card.width() - 28, 34));
+    drawLegend(painter,
+               QRectF(geometry.card.left() + scale.scaled(14),
+                      geometry.card.top() + scale.scaled(34),
+                      geometry.card.width() - scale.scaled(28),
+                      scale.scaled(38)));
 }
 
 void PlotCardWidget::drawGridAndAxes(QPainter& painter,
@@ -366,16 +383,17 @@ void PlotCardWidget::drawGridAndAxes(QPainter& painter,
                                      const AxisRange& rightRange)
 {
     const auto plot = geometry.plot;
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
     const qint64 latestElapsedMs = m_samples.isEmpty() ? m_latest.elapsedMs : m_samples.last().elapsedMs;
     const qint64 windowStartMs = std::max<qint64>(0, latestElapsedMs - m_windowMs);
 
-    painter.setBrush(QColor("#FAFAFA"));
+    painter.setBrush(p.plotBackground);
     painter.setPen(Qt::NoPen);
     painter.drawRect(plot);
 
     painter.setFont(style::axisFont());
 
-    painter.setPen(QPen(QColor("#E5E7EB"), 1.0));
+    painter.setPen(QPen(p.grid, 1.0));
     const auto xTicks = xTickOffsets(m_windowMs);
     for (const qint64 offsetMs : xTicks) {
         const double x = plot.left() + (static_cast<double>(offsetMs) / static_cast<double>(m_windowMs)) * plot.width();
@@ -388,10 +406,14 @@ void PlotCardWidget::drawGridAndAxes(QPainter& painter,
             const double ratio = static_cast<double>(index) / static_cast<double>(kYTicks - 1);
             const double value = leftRange.max - ratio * (leftRange.max - leftRange.min);
             const double y = plot.top() + ratio * plot.height();
-            painter.setPen(QPen(QColor("#E5E7EB"), 1.0));
+            painter.setPen(QPen(p.grid, 1.0));
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
-            painter.setPen(QColor("#374151"));
-            painter.drawText(QRectF(geometry.card.left() + 8, y - 8, plot.left() - geometry.card.left() - 12, 16),
+            painter.setPen(p.mutedText);
+            const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+            painter.drawText(QRectF(geometry.card.left() + scale.scaled(8),
+                                    y - scale.scaled(9),
+                                    plot.left() - geometry.card.left() - scale.scaled(12),
+                                    scale.scaled(18)),
                              Qt::AlignRight | Qt::AlignVCenter,
                              QString::number(value, 'f', 2));
         }
@@ -402,31 +424,46 @@ void PlotCardWidget::drawGridAndAxes(QPainter& painter,
             const double ratio = static_cast<double>(index) / static_cast<double>(kYTicks - 1);
             const double value = rightRange.max - ratio * (rightRange.max - rightRange.min);
             const double y = plot.top() + ratio * plot.height();
-            painter.setPen(QColor("#4B5563"));
-            painter.drawText(QRectF(plot.right() + 6, y - 8, geometry.card.right() - plot.right() - 10, 16),
+            painter.setPen(p.mutedText);
+            const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+            painter.drawText(QRectF(plot.right() + scale.scaled(6),
+                                    y - scale.scaled(9),
+                                    geometry.card.right() - plot.right() - scale.scaled(10),
+                                    scale.scaled(18)),
                              Qt::AlignLeft | Qt::AlignVCenter,
                              QString::number(value, 'f', 2));
         }
     }
 
-    painter.setPen(QPen(QColor("#9CA3AF"), 1.2));
+    painter.setPen(QPen(p.axis, 1.2));
     painter.drawLine(plot.bottomLeft(), plot.topLeft());
     painter.drawLine(plot.bottomLeft(), plot.bottomRight());
     if (rightRange.valid) {
         painter.drawLine(plot.bottomRight(), plot.topRight());
     }
 
-    painter.setPen(QColor("#4B5563"));
-    painter.drawText(QRectF(plot.left() - 52, plot.top() - 20, 50, 16), Qt::AlignRight | Qt::AlignVCenter, m_leftAxisTitle);
+    painter.setPen(p.mutedText);
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    painter.drawText(QRectF(plot.left() - scale.scaled(70),
+                            plot.top() - scale.scaled(28),
+                            scale.scaled(68),
+                            scale.scaled(18)),
+                     Qt::AlignRight | Qt::AlignVCenter,
+                     m_leftAxisTitle);
     if (rightRange.valid) {
-        painter.drawText(QRectF(plot.right() + 6, plot.top() - 20, 66, 16), Qt::AlignLeft | Qt::AlignVCenter, m_rightAxisTitle);
+        painter.drawText(QRectF(plot.right() + scale.scaled(6),
+                                plot.top() - scale.scaled(28),
+                                scale.scaled(76),
+                                scale.scaled(18)),
+                         Qt::AlignLeft | Qt::AlignVCenter,
+                         m_rightAxisTitle);
     }
 
-    painter.setPen(QColor("#6B7280"));
+    painter.setPen(p.mutedText);
     for (const qint64 offsetMs : xTicks) {
         const double x = plot.left() + (static_cast<double>(offsetMs) / static_cast<double>(m_windowMs)) * plot.width();
         const QString label = secondsLabel(windowStartMs + offsetMs);
-        QRectF labelRect(x - 28, plot.bottom() + 7, 56, 16);
+        QRectF labelRect(x - scale.scaled(28), plot.bottom() + scale.scaled(7), scale.scaled(56), scale.scaled(18));
         Qt::Alignment alignment = Qt::AlignCenter;
         if (offsetMs == 0) {
             labelRect.moveLeft(plot.left());
@@ -442,19 +479,21 @@ void PlotCardWidget::drawGridAndAxes(QPainter& painter,
 void PlotCardWidget::drawLegend(QPainter& painter, const QRectF& area)
 {
     painter.setFont(style::legendFont());
+    const auto p = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
 
     double x = area.left();
     double y = area.top();
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
     for (const auto& series : m_series) {
-        const double itemWidth = painter.fontMetrics().horizontalAdvance(series.label) + 38;
+        const double itemWidth = painter.fontMetrics().horizontalAdvance(series.label) + scale.scaled(38);
         if (x > area.left() && x + itemWidth > area.right()) {
             x = area.left();
-            y += 16;
+            y += scale.scaled(18);
         }
         painter.setPen(linePen(series.color, series.width));
-        painter.drawLine(QPointF(x, y + 8), QPointF(x + 18, y + 8));
-        painter.setPen(QColor("#374151"));
-        painter.drawText(QRectF(x + 24, y, itemWidth, 16), Qt::AlignLeft | Qt::AlignVCenter, series.label);
+        painter.drawLine(QPointF(x, y + scale.scaled(9)), QPointF(x + scale.scaled(18), y + scale.scaled(9)));
+        painter.setPen(p.offlineText);
+        painter.drawText(QRectF(x + scale.scaled(24), y, itemWidth, scale.scaled(18)), Qt::AlignLeft | Qt::AlignVCenter, series.label);
         x += itemWidth;
     }
 }

@@ -63,6 +63,7 @@ set(AUTOVIZ_SOURCES
     src/core/model/ObstacleTypes.cpp
     src/core/model/ControlTypes.h
     src/core/model/ControlTypes.cpp
+    src/core/model/RuntimeStatusTypes.h
     src/core/datacenter/DataManager.h
     src/core/datacenter/DataManager.cpp
     src/core/config/VehicleConfig.h
@@ -85,6 +86,12 @@ set(AUTOVIZ_SOURCES
     src/ui/MainViewDisplayConfigDialog.cpp
     src/ui/LogPanel.h
     src/ui/LogPanel.cpp
+    src/ui/status/BottomStatusPanel.h
+    src/ui/status/BottomStatusPanel.cpp
+    src/ui/theme/UiScaleManager.h
+    src/ui/theme/UiScaleManager.cpp
+    src/ui/theme/UiThemeManager.h
+    src/ui/theme/UiThemeManager.cpp
     src/ui/charts/ControlDebugData.h
     src/ui/charts/ControlPanelWidget.h
     src/ui/charts/ControlPanelWidget.cpp
