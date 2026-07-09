@@ -27,6 +27,10 @@ struct TrajectoryPoint {
     double dddlDs = 0.0;
     double relativeTime = 0.0;
     double absoluteTime = 0.0;
+    double depth = 0.0;
+    double height = 0.0;
+    bool hasDepth = false;
+    bool hasHeight = false;
 };
 
 struct ReferencePoint {

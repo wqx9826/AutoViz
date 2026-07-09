@@ -112,8 +112,8 @@ QString toolbarStyleSheet()
         .arg(scale.scaled(2))
         .arg(scale.scaled(7))
         .arg(p.mutedText.name())
-        .arg(scale.scaled(28))
-        .arg(scale.scaled(22));
+        .arg(scale.scaled(38))
+        .arg(scale.scaled(30));
 }
 
 QString statusCardStyleSheet()

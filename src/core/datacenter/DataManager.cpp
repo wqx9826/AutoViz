@@ -12,7 +12,17 @@ namespace autoviz::datacenter {
 namespace {
 constexpr auto kRealtimeDataTimeout = std::chrono::seconds(3);
 constexpr int kMaxHistoryTrailPoints = 2000;
+// XY 轨迹仍按水平位移降采样；垂向动作需要 depth/height 和时间兜底共同触发采样。
 constexpr double kHistoryTrailMinDistance = 1.0;
+constexpr double kHistoryTrailMinDepthDelta = 0.1;
+constexpr double kHistoryTrailMinHeightDelta = 0.1;
+constexpr double kVerticalHistoryMinTimeIntervalSec = 1.0;
+
+bool isVerticalHistoryMode(model::RunVisualizationMode mode)
+{
+    return mode == model::RunVisualizationMode::VerticalMotion
+           || mode == model::RunVisualizationMode::BuoyancyAdjust;
+}
 }
 
 DataManager::DataManager()
@@ -87,7 +97,7 @@ void DataManager::setVehicleLocation(const model::VehicleLocation& vehicleLocati
     m_snapshot.vehicleLocation = vehicleLocation;
     m_snapshot.runtimeStatus.hasVehicleLocationData = hasVehicleLocationData(vehicleLocation);
     m_updateTimes.vehicleLocation = timestampFor(m_snapshot.runtimeStatus.hasVehicleLocationData);
-    appendHistoryTrailPointLocked(vehicleLocation);
+    appendHistoryTrailPointLocked();
 }
 
 void DataManager::setVehicleChassisInfo(const model::VehicleChassisInfo& vehicleChassisInfo)
@@ -167,6 +177,7 @@ void DataManager::setLocalizationStatus(const model::LocalizationStatus& status)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_snapshot.localizationStatus = status;
+    appendHistoryTrailPointLocked();
 }
 
 void DataManager::setChassisRuntimeStatus(const model::ChassisRuntimeStatus& status)
@@ -323,25 +334,72 @@ void DataManager::updateTopicAges(model::TopicStatusList& topicStatuses, qint64 
     }
 }
 
-void DataManager::appendHistoryTrailPointLocked(const model::VehicleLocation& vehicleLocation)
+model::TrajectoryPoint DataManager::buildHistoryTrailPointLocked() const
 {
-    if (!m_snapshot.runtimeStatus.hasVehicleLocationData) {
-        return;
-    }
+    const auto& vehicleLocation = m_snapshot.vehicleLocation;
+    const qint64 timestampMs = vehicleLocation.header.timestamp > 0
+                                  ? vehicleLocation.header.timestamp
+                                  : QDateTime::currentMSecsSinceEpoch();
 
     model::TrajectoryPoint point;
     point.position = vehicleLocation.position;
     point.theta = vehicleLocation.heading;
     point.velocity = vehicleLocation.speed;
-    point.absoluteTime = static_cast<double>(vehicleLocation.header.timestamp) / 1000.0;
+    point.absoluteTime = static_cast<double>(timestampMs) / 1000.0;
+
+    const auto& localization = m_snapshot.localizationStatus;
+    if (localization.valid && localization.timestampMs == timestampMs) {
+        point.depth = localization.depth;
+        point.height = localization.height;
+        point.hasDepth = true;
+        point.hasHeight = true;
+    }
+
+    return point;
+}
+
+void DataManager::appendHistoryTrailPointLocked()
+{
+    if (!m_snapshot.runtimeStatus.hasVehicleLocationData) {
+        return;
+    }
+
+    const auto& vehicleLocation = m_snapshot.vehicleLocation;
+    const qint64 timestampMs = vehicleLocation.header.timestamp > 0
+                                  ? vehicleLocation.header.timestamp
+                                  : QDateTime::currentMSecsSinceEpoch();
+    const model::TrajectoryPoint point = buildHistoryTrailPointLocked();
 
     auto& history = m_snapshot.historyTrail;
-    history.header.timestamp = vehicleLocation.header.timestamp;
+    history.header.timestamp = timestampMs;
     if (!history.points.isEmpty()) {
-        const auto& lastPoint = history.points.constLast().position;
-        const double dx = point.position.x - lastPoint.x;
-        const double dy = point.position.y - lastPoint.y;
-        if (std::hypot(dx, dy) < kHistoryTrailMinDistance) {
+        auto& lastPoint = history.points.last();
+        const double dx = point.position.x - lastPoint.position.x;
+        const double dy = point.position.y - lastPoint.position.y;
+        const bool sameSample = std::abs(point.absoluteTime - lastPoint.absoluteTime) < 1e-6
+                                && std::hypot(dx, dy) < 1e-6;
+        if (sameSample) {
+            if (point.hasDepth) {
+                lastPoint.depth = point.depth;
+                lastPoint.hasDepth = true;
+            }
+            if (point.hasHeight) {
+                lastPoint.height = point.height;
+                lastPoint.hasHeight = true;
+            }
+            return;
+        }
+
+        const bool movedHorizontally = std::hypot(dx, dy) >= kHistoryTrailMinDistance;
+        const bool depthChanged = point.hasDepth && lastPoint.hasDepth
+                                  && std::abs(point.depth - lastPoint.depth) >= kHistoryTrailMinDepthDelta;
+        const bool heightChanged = point.hasHeight && lastPoint.hasHeight
+                                   && std::abs(point.height - lastPoint.height) >= kHistoryTrailMinHeightDelta;
+        const bool verticalDataBecameAvailable = (point.hasDepth && !lastPoint.hasDepth)
+                                                 || (point.hasHeight && !lastPoint.hasHeight);
+        const bool verticalTimeFallback = isVerticalHistoryMode(m_snapshot.runVisualizationMode)
+                                          && (point.absoluteTime - lastPoint.absoluteTime) >= kVerticalHistoryMinTimeIntervalSec;
+        if (!movedHorizontally && !depthChanged && !heightChanged && !verticalDataBecameAvailable && !verticalTimeFallback) {
             return;
         }
     }

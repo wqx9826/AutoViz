@@ -288,8 +288,8 @@ QCheckBox {
         .arg(p.dark ? QStringLiteral("#FFFFFF") : QStringLiteral("#0F172A"))
         .arg(scale.scaled(3))
         .arg(scale.scaled(12))
-        .arg(scale.scaled(28))
-        .arg(scale.scaled(22));
+        .arg(scale.scaled(38))
+        .arg(scale.scaled(30));
 }
 
 bool UiThemeManager::systemPrefersDark() const

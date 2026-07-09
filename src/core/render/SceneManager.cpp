@@ -5,12 +5,11 @@
 
 #include <QBrush>
 #include <QGraphicsEllipseItem>
-#include <QGraphicsPathItem>
 #include <QGraphicsPolygonItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
-#include <QGraphicsTextItem>
 #include <QFont>
+#include <QDateTime>
 #include <QLineF>
 #include <QPainterPath>
 #include <QPen>
@@ -52,6 +51,7 @@ QPainterPath buildReferencePath(const autoviz::model::ReferenceLine& line)
     }
     return path;
 }
+
 }  // namespace
 
 QString toDisplayString(MainViewMode mode)
@@ -62,7 +62,7 @@ QString toDisplayString(MainViewMode mode)
     case MainViewMode::TopDownXY:
         return QStringLiteral("俯视 XY");
     case MainViewMode::VerticalProfile:
-        return QStringLiteral("垂向剖面 X-Z");
+        return QStringLiteral("垂向剖面");
     }
     return QStringLiteral("未知");
 }
@@ -92,6 +92,7 @@ void SceneManager::clearScene()
 void SceneManager::updateScene(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
     m_snapshot = snapshot;
+    updateVerticalMotionSegment(m_snapshot);
     redraw();
 }
 
@@ -148,6 +149,9 @@ void SceneManager::redraw()
         redrawVerticalProfile();
         return;
     }
+    if (m_view != nullptr) {
+        m_view->clearVerticalProfileFrame();
+    }
     redrawTopDownXY();
 }
 
@@ -180,84 +184,237 @@ void SceneManager::redrawTopDownXY()
     autoFitAndCenter();
 }
 
+bool SceneManager::isVerticalMode(autoviz::model::RunVisualizationMode mode) const
+{
+    return mode == autoviz::model::RunVisualizationMode::VerticalMotion
+           || mode == autoviz::model::RunVisualizationMode::BuoyancyAdjust;
+}
+
+bool SceneManager::shouldStartNewVerticalSegment(const autoviz::datacenter::VisualizationSnapshot& snapshot) const
+{
+    if (!isVerticalMode(snapshot.runVisualizationMode)) {
+        return false;
+    }
+    if (!m_verticalSegment.active || m_verticalSegment.frozen) {
+        return true;
+    }
+    if (!isVerticalMode(m_previousRunMode)) {
+        return true;
+    }
+
+    const auto& task = snapshot.taskRuntimeStatus;
+    if (task.valid) {
+        if (task.taskType != m_verticalSegment.taskType || task.taskId != m_verticalSegment.taskId) {
+            return true;
+        }
+    }
+
+    const auto& action = snapshot.actionRuntimeStatus;
+    if (action.valid && m_verticalSegment.chassisMode != 0 &&
+        action.chassisMode != 0 && action.chassisMode != m_verticalSegment.chassisMode) {
+        return true;
+    }
+
+    return false;
+}
+
+void SceneManager::startVerticalMotionSegment(const autoviz::datacenter::VisualizationSnapshot& snapshot, qint64 nowMs)
+{
+    const auto& loc = snapshot.localizationStatus;
+    const auto& action = snapshot.actionRuntimeStatus;
+    const auto& task = snapshot.taskRuntimeStatus;
+
+    m_verticalSegment = VerticalMotionSegment{};
+    m_verticalSegment.active = true;
+    m_verticalSegment.frozen = false;
+    m_verticalSegment.emergencyStop = task.valid && task.emergencyStop;
+    m_verticalSegment.startTimestampMs = loc.valid && loc.timestampMs > 0 ? loc.timestampMs : nowMs;
+    m_verticalSegment.lastVerticalTimestampMs = nowMs;
+    m_verticalSegment.startDepth = loc.depth;
+    m_verticalSegment.hasStartDepth = loc.valid;
+    m_verticalSegment.startHeight = loc.height;
+    m_verticalSegment.hasStartHeight = loc.valid;
+    m_verticalSegment.startX = loc.valid ? loc.odomX : 0.0;
+    m_verticalSegment.startY = loc.valid ? loc.odomY : 0.0;
+    m_verticalSegment.startYaw = loc.valid ? loc.heading : 0.0;
+    m_verticalSegment.targetDepth = action.targetDepth;
+    m_verticalSegment.hasTargetDepth = action.valid;
+    m_verticalSegment.targetHeight = action.targetHeight;
+    m_verticalSegment.hasTargetHeight = action.valid;
+    m_verticalSegment.taskType = task.valid ? task.taskType : 0;
+    m_verticalSegment.taskId = task.valid ? task.taskId : 0;
+    m_verticalSegment.chassisMode = action.valid ? action.chassisMode : 0;
+}
+
+void SceneManager::appendVerticalMotionSample(const autoviz::datacenter::VisualizationSnapshot& snapshot, qint64 nowMs)
+{
+    if (!m_verticalSegment.active || m_verticalSegment.startTimestampMs <= 0) {
+        return;
+    }
+
+    const auto& loc = snapshot.localizationStatus;
+    const auto& action = snapshot.actionRuntimeStatus;
+    const auto& task = snapshot.taskRuntimeStatus;
+
+    m_verticalSegment.emergencyStop = m_verticalSegment.emergencyStop || (task.valid && task.emergencyStop);
+    m_verticalSegment.targetDepth = action.targetDepth;
+    m_verticalSegment.hasTargetDepth = action.valid;
+    m_verticalSegment.targetHeight = action.targetHeight;
+    m_verticalSegment.hasTargetHeight = action.valid;
+    m_verticalSegment.chassisMode = action.valid ? action.chassisMode : m_verticalSegment.chassisMode;
+
+    const double elapsedSec = std::max(0.0, static_cast<double>(nowMs - m_verticalSegment.startTimestampMs) / 1000.0);
+    bool emergencyChanged = false;
+    if (!m_verticalSegment.samples.isEmpty()) {
+        const auto& last = m_verticalSegment.samples.constLast();
+        const bool targetChanged = action.valid && (!last.hasTargetDepth || std::abs(action.targetDepth - last.targetDepth) > 1.0e-6);
+        emergencyChanged = task.valid && task.emergencyStop && !last.emergencyStop;
+        if (elapsedSec - last.elapsedSec < 0.10 && !targetChanged && !emergencyChanged) {
+            return;
+        }
+    }
+
+    if (emergencyChanged || (task.valid && task.emergencyStop && m_verticalSegment.emergencyEventTimes.isEmpty())) {
+        m_verticalSegment.emergencyEventTimes.push_back(elapsedSec);
+    }
+
+    VerticalMotionSegmentSample sample;
+    sample.elapsedSec = elapsedSec;
+    sample.depth = loc.depth;
+    sample.hasDepth = loc.valid;
+    sample.targetDepth = action.targetDepth;
+    sample.hasTargetDepth = action.valid;
+    sample.height = loc.height;
+    sample.hasHeight = loc.valid;
+    sample.targetHeight = action.targetHeight;
+    sample.hasTargetHeight = action.valid;
+    sample.depthError = sample.hasDepth && sample.hasTargetDepth ? sample.depth - sample.targetDepth : 0.0;
+    sample.emergencyStop = task.valid && task.emergencyStop;
+    m_verticalSegment.samples.push_back(sample);
+
+    constexpr int kMaxVerticalSegmentSamples = 2400;
+    while (m_verticalSegment.samples.size() > kMaxVerticalSegmentSamples) {
+        m_verticalSegment.samples.pop_front();
+    }
+}
+
+void SceneManager::freezeVerticalMotionSegment()
+{
+    if (!m_verticalSegment.active) {
+        return;
+    }
+    m_verticalSegment.active = false;
+    m_verticalSegment.frozen = true;
+}
+
+void SceneManager::updateVerticalMotionSegment(const autoviz::datacenter::VisualizationSnapshot& snapshot)
+{
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool verticalMode = isVerticalMode(snapshot.runVisualizationMode);
+    const bool emergencyStop = snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::EmergencyStop
+                               || (snapshot.taskRuntimeStatus.valid && snapshot.taskRuntimeStatus.emergencyStop);
+
+    if (shouldStartNewVerticalSegment(snapshot)) {
+        startVerticalMotionSegment(snapshot, nowMs);
+    }
+
+    if (m_verticalSegment.active && (verticalMode || emergencyStop)) {
+        if (verticalMode) {
+            m_verticalSegment.lastVerticalTimestampMs = nowMs;
+            m_verticalSegment.leftVerticalSinceMs = 0;
+        }
+        appendVerticalMotionSample(snapshot, nowMs);
+    }
+
+    if (m_verticalSegment.active) {
+        if (m_verticalSegment.emergencyStop && snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::Idle) {
+            freezeVerticalMotionSegment();
+        } else if (!verticalMode && !emergencyStop) {
+            if (snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::HorizontalMotion ||
+                snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::Idle) {
+                freezeVerticalMotionSegment();
+            } else {
+                if (m_verticalSegment.leftVerticalSinceMs == 0) {
+                    m_verticalSegment.leftVerticalSinceMs = nowMs;
+                }
+                if (nowMs - m_verticalSegment.leftVerticalSinceMs > 1000) {
+                    freezeVerticalMotionSegment();
+                }
+            }
+        }
+
+        const auto& loc = snapshot.localizationStatus;
+        if (loc.valid && loc.timestampMs > 0 && nowMs - loc.timestampMs > 3000) {
+            freezeVerticalMotionSegment();
+        }
+    }
+
+    m_previousRunMode = snapshot.runVisualizationMode;
+}
+
 void SceneManager::redrawVerticalProfile()
 {
-    const auto& loc = m_snapshot.localizationStatus;
-    const auto& action = m_snapshot.actionRuntimeStatus;
-    const auto& chassis = m_snapshot.chassisRuntimeStatus;
-
-    const double currentX = loc.valid ? loc.odomX : 0.0;
-    const double currentDepth = loc.valid ? loc.depth : 0.0;
-    const double targetDepth = action.valid ? action.targetDepth : currentDepth;
-    const double maxDepth = std::max({1.0, currentDepth, targetDepth, currentDepth + std::max(0.0, loc.height)}) + 2.0;
-    const double leftX = currentX - 10.0;
-    const double rightX = currentX + 10.0;
-
-    QPen axisPen(QColor("#8F8F94"), 0.0);
-    QPen gridPen(QColor(77, 88, 104, 120), 0.0, Qt::DashLine);
-    for (int depth = 0; depth <= static_cast<int>(std::ceil(maxDepth)); depth += 1) {
-        const double y = static_cast<double>(depth);
-        m_scene->addLine(QLineF(leftX, y, rightX, y), depth % 5 == 0 ? axisPen : gridPen);
+    if (m_view == nullptr) {
+        return;
     }
 
-    m_scene->addLine(QLineF(leftX, 0.0, rightX, 0.0), QPen(QColor("#4CC3FF"), 0.0));
-    m_scene->addLine(QLineF(currentX, 0.0, currentX, maxDepth), axisPen);
+    VisualizationView::VerticalProfileFrame frame;
+    frame.visible = true;
+    frame.frozen = m_verticalSegment.frozen;
+    frame.emergencyStop = m_verticalSegment.emergencyStop;
 
-    auto* depthAxis = m_scene->addText(QStringLiteral("Depth +"));
-    depthAxis->setDefaultTextColor(QColor("#8F8F94"));
-    depthAxis->setFont(QFont(QStringLiteral("Sans Serif"), 1));
-    depthAxis->setPos(currentX + 0.4, maxDepth - 0.9);
+    QString modeText = autoviz::model::toDisplayString(m_snapshot.runVisualizationMode);
+    if (m_verticalSegment.frozen) {
+        modeText = m_verticalSegment.emergencyStop ? QStringLiteral("急停后已冻结") : QStringLiteral("已冻结 / 上次垂向动作");
+    } else if (m_verticalSegment.emergencyStop) {
+        modeText = QStringLiteral("急停");
+    }
+    frame.modeText = modeText;
+    frame.startDepth = m_verticalSegment.startDepth;
+    frame.hasStartDepth = m_verticalSegment.hasStartDepth;
+    frame.emergencyEventTimes = m_verticalSegment.emergencyEventTimes;
 
-    if (action.valid) {
-        QPen targetPen(QColor("#FFB45C"), 0.0, Qt::DashLine);
-        targetPen.setDashPattern({4.0, 2.0});
-        m_scene->addLine(QLineF(leftX, targetDepth, rightX, targetDepth), targetPen);
-        auto* targetLabel = m_scene->addText(QStringLiteral("target depth %1 m").arg(QString::number(targetDepth, 'f', 2)));
-        targetLabel->setDefaultTextColor(QColor("#FFB45C"));
-        targetLabel->setFont(QFont(QStringLiteral("Sans Serif"), 1));
-        targetLabel->setPos(leftX + 0.4, targetDepth - 0.9);
+    const VerticalMotionSegmentSample* latestDepthSample = nullptr;
+    const VerticalMotionSegmentSample* latestTargetSample = nullptr;
+    for (const auto& sample : m_verticalSegment.samples) {
+        VisualizationView::VerticalProfileSample viewSample;
+        viewSample.elapsedSec = sample.elapsedSec;
+        viewSample.depth = sample.depth;
+        viewSample.hasDepth = sample.hasDepth;
+        viewSample.targetDepth = sample.targetDepth;
+        viewSample.hasTargetDepth = sample.hasTargetDepth;
+        viewSample.emergencyStop = sample.emergencyStop;
+        frame.samples.push_back(viewSample);
+    }
+    for (int index = m_verticalSegment.samples.size() - 1; index >= 0; --index) {
+        const auto& sample = m_verticalSegment.samples.at(index);
+        if (latestDepthSample == nullptr && sample.hasDepth) {
+            latestDepthSample = &sample;
+        }
+        if (latestTargetSample == nullptr && sample.hasTargetDepth) {
+            latestTargetSample = &sample;
+        }
+        if (latestDepthSample != nullptr && latestTargetSample != nullptr) {
+            break;
+        }
+    }
+    if (latestDepthSample != nullptr) {
+        frame.elapsedSec = latestDepthSample->elapsedSec;
+        frame.currentDepth = latestDepthSample->depth;
+        frame.hasCurrentDepth = true;
+    } else if (!m_verticalSegment.samples.isEmpty()) {
+        frame.elapsedSec = m_verticalSegment.samples.constLast().elapsedSec;
+    }
+    if (latestTargetSample != nullptr) {
+        frame.targetDepth = latestTargetSample->targetDepth;
+        frame.hasTargetDepth = true;
     }
 
-    if (loc.valid) {
-        auto* robot = m_scene->addEllipse(currentX - 0.35,
-                                          currentDepth - 0.35,
-                                          0.7,
-                                          0.7,
-                                          QPen(QColor("#6EF2A0"), 0.0),
-                                          QBrush(QColor(110, 242, 160, 180)));
-        robot->setZValue(10.0);
-
-        auto* label = m_scene->addText(QStringLiteral("current depth %1 m").arg(QString::number(currentDepth, 'f', 2)));
-        label->setDefaultTextColor(QColor("#6EF2A0"));
-        label->setFont(QFont(QStringLiteral("Sans Serif"), 1));
-        label->setPos(currentX + 0.6, currentDepth - 0.8);
+    m_view->setVerticalProfileFrame(frame);
+    return;
     }
 
-    const QString statusText =
-        QStringLiteral("垂向剖面 X-Z\n"
-                       "运行模式: %1\n"
-                       "current height: %2 m\n"
-                       "target height: %3 m\n"
-                       "buoyancy_adjust: %4\n"
-                       "water tank level: %5\n"
-                       "water tank state: %6\n"
-                       "垂向历史轨迹: 当前模型未保存 depth 历史")
-            .arg(autoviz::model::toDisplayString(m_snapshot.runVisualizationMode))
-            .arg(loc.valid ? QString::number(loc.height, 'f', 2) : QStringLiteral("--"))
-            .arg(action.valid ? QString::number(action.targetHeight, 'f', 2) : QStringLiteral("--"))
-            .arg(action.valid ? QString::number(action.buoyancyAdjust) : QStringLiteral("--"))
-            .arg(chassis.valid ? QString::number(chassis.waterTankLevelStatus) : QStringLiteral("--"))
-            .arg(chassis.valid ? QString::number(chassis.waterTankStatus) : QStringLiteral("--"));
 
-    auto* status = m_scene->addText(statusText);
-    status->setDefaultTextColor(QColor("#E3E3E6"));
-    status->setFont(QFont(QStringLiteral("Sans Serif"), 1));
-    status->setPos(leftX, -2.5);
-    status->setZValue(20.0);
-
-    QRectF targetRegion(leftX - 1.5, -3.0, rightX - leftX + 3.0, maxDepth + 5.0);
-    m_view->fitToRegion(targetRegion);
-}
 
 void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {

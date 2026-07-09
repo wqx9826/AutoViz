@@ -37,16 +37,6 @@
 namespace {
 constexpr qint64 kMainViewAutoSwitchDebounceMs = 800;
 
-QString formatOptionalNumber(bool valid, double value, int precision = 2)
-{
-    return valid ? QString::number(value, 'f', precision) : QStringLiteral("--");
-}
-
-QString formatOptionalInt(bool valid, int value)
-{
-    return valid ? QString::number(value) : QStringLiteral("--");
-}
-
 QString topicStatusSummary(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
     if (snapshot.topicStatuses.isEmpty()) {
@@ -231,7 +221,7 @@ void MainWindow::setupMainViewModeMenu()
 
     m_autoMainViewModeAction = m_mainViewModeMenu->addAction(tr("自动"));
     m_topDownMainViewModeAction = m_mainViewModeMenu->addAction(tr("俯视 XY"));
-    m_verticalProfileMainViewModeAction = m_mainViewModeMenu->addAction(tr("垂向剖面 X-Z"));
+    m_verticalProfileMainViewModeAction = m_mainViewModeMenu->addAction(tr("垂向剖面"));
 
     for (auto* action : {m_autoMainViewModeAction, m_topDownMainViewModeAction, m_verticalProfileMainViewModeAction}) {
         action->setCheckable(true);
@@ -381,6 +371,15 @@ void MainWindow::setRequestedMainViewMode(autoviz::render::MainViewMode mode)
     }
 
     if (mode == autoviz::render::MainViewMode::Auto) {
+        const auto snapshot = m_dataManager->getSnapshot();
+        autoviz::render::MainViewMode candidate;
+        if (runModeHasMainViewCandidate(snapshot.runVisualizationMode, &candidate)) {
+            m_effectiveMainViewMode = candidate;
+            m_pendingAutoMainViewMode = candidate;
+            if (m_sceneManager != nullptr) {
+                m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
+            }
+        }
         return;
     }
 
@@ -572,37 +571,7 @@ void MainWindow::updateMainViewOverlay(const autoviz::datacenter::VisualizationS
                                m_requestedMainViewMode == autoviz::render::MainViewMode::Auto ? QStringLiteral("自动") : QStringLiteral("手动"));
 
     m_visualizationView->setOverlayMessage(overlayMessage);
-
-    const bool showVerticalOverlay =
-        snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::VerticalMotion ||
-        snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::BuoyancyAdjust;
-    if (!showVerticalOverlay) {
-        m_visualizationView->setVerticalStatusMessage(QString());
-        return;
-    }
-
-    const auto& loc = snapshot.localizationStatus;
-    const auto& action = snapshot.actionRuntimeStatus;
-    const auto& chassis = snapshot.chassisRuntimeStatus;
-    const QString verticalMessage =
-        QStringLiteral("垂向状态\n"
-                       "current depth: %1 m\n"
-                       "target depth: %2 m\n"
-                       "current height: %3 m\n"
-                       "target height: %4 m\n"
-                       "buoyancy_adjust: %5\n"
-                       "tank level: %6\n"
-                       "tank state: %7\n"
-                       "vertical action state: %8")
-            .arg(formatOptionalNumber(loc.valid, loc.depth))
-            .arg(formatOptionalNumber(action.valid, action.targetDepth))
-            .arg(formatOptionalNumber(loc.valid, loc.height))
-            .arg(formatOptionalNumber(action.valid, action.targetHeight))
-            .arg(formatOptionalInt(action.valid, action.buoyancyAdjust))
-            .arg(formatOptionalInt(chassis.valid, chassis.waterTankLevelStatus))
-            .arg(formatOptionalInt(chassis.valid, chassis.waterTankStatus))
-            .arg(formatOptionalInt(action.valid, action.state));
-    m_visualizationView->setVerticalStatusMessage(verticalMessage);
+    m_visualizationView->setVerticalStatusMessage(QString());
 }
 
 void MainWindow::updateMainViewDisplayDialog(const autoviz::datacenter::VisualizationSnapshot& snapshot)

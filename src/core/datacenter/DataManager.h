@@ -100,7 +100,8 @@ private:
     static TimePoint timestampFor(bool hasData);
     static void applyFreshnessFilter(VisualizationSnapshot& snapshot, const ChannelUpdateTimes& updateTimes, TimePoint now);
     static void updateTopicAges(model::TopicStatusList& topicStatuses, qint64 nowMs);
-    void appendHistoryTrailPointLocked(const model::VehicleLocation& vehicleLocation);
+    model::TrajectoryPoint buildHistoryTrailPointLocked() const;
+    void appendHistoryTrailPointLocked();
     void updatePathEndpointLocked();
     void updateRunVisualizationModeLocked();
 

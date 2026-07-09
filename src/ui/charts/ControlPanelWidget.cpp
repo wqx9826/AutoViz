@@ -161,8 +161,8 @@ void ControlPanelWidget::setupUi()
     m_windowCombo->addItem(QStringLiteral("60s"), 60000);
     m_windowCombo->setCurrentIndex(1);
     m_windowCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    m_windowCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_windowCombo->setMinimumWidth(m_windowCombo->minimumSizeHint().width() + scale.scaled(18));
+    m_windowCombo->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_windowCombo->setMinimumWidth(m_windowCombo->minimumSizeHint().width() + scale.scaled(34));
     m_autoScaleCheck = new QCheckBox(tr("自动缩放"), controls);
     style::polishControls(m_autoScaleCheck);
     m_autoScaleCheck->setChecked(true);

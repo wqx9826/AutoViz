@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
@@ -151,9 +152,37 @@ void VisualizationView::setVerticalStatusMessage(const QString& text)
     }
 }
 
+void VisualizationView::setVerticalProfileFrame(const VerticalProfileFrame& frame)
+{
+    m_verticalProfileFrame = frame;
+    viewport()->update();
+}
+
+void VisualizationView::clearVerticalProfileFrame()
+{
+    if (!m_verticalProfileFrame.visible) {
+        return;
+    }
+    m_verticalProfileFrame = VerticalProfileFrame{};
+    viewport()->update();
+}
+
 double VisualizationView::minorGridSpacingMeters() const
 {
     return kMinorGridSpacing;
+}
+
+void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
+{
+    QGraphicsView::drawForeground(painter, rect);
+    if (!m_verticalProfileFrame.visible) {
+        return;
+    }
+
+    painter->save();
+    painter->resetTransform();
+    drawVerticalProfileForeground(painter);
+    painter->restore();
 }
 
 double VisualizationView::majorGridSpacingMeters() const
@@ -271,6 +300,268 @@ void VisualizationView::mouseReleaseEvent(QMouseEvent* event)
     }
 
     QGraphicsView::mouseReleaseEvent(event);
+}
+
+void VisualizationView::drawVerticalProfileForeground(QPainter* painter) const
+{
+    const auto palette = autoviz::ui::theme::UiThemeManager::instance().effectivePalette();
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    const QRect viewportRect = viewport()->rect();
+    if (viewportRect.width() <= 0 || viewportRect.height() <= 0) {
+        return;
+    }
+
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setRenderHint(QPainter::TextAntialiasing, true);
+
+    painter->fillRect(viewportRect, palette.window);
+
+    const int margin = scale.scaled(18);
+    const int topReserve = qMax(scale.scaled(128), viewportRect.height() / 5);
+    const int leftReserve = scale.scaled(74);
+    const int rightReserve = scale.scaled(38);
+    const int bottomReserve = scale.scaled(70);
+    QRectF plotRect(viewportRect.left() + margin + leftReserve,
+                    viewportRect.top() + topReserve,
+                    viewportRect.width() - margin * 2 - leftReserve - rightReserve,
+                    viewportRect.height() - topReserve - bottomReserve - margin);
+    if (plotRect.width() < scale.scaled(260) || plotRect.height() < scale.scaled(160)) {
+        plotRect = QRectF(viewportRect.left() + scale.scaled(72),
+                          viewportRect.top() + scale.scaled(110),
+                          qMax(scale.scaled(260), viewportRect.width() - scale.scaled(120)),
+                          qMax(scale.scaled(160), viewportRect.height() - scale.scaled(180)));
+    }
+
+    double xMax = 10.0;
+    bool hasDepthRange = false;
+    double depthMin = 0.0;
+    double depthMax = 5.0;
+    for (const auto& sample : m_verticalProfileFrame.samples) {
+        xMax = std::max(xMax, sample.elapsedSec);
+        if (sample.hasDepth) {
+            depthMin = hasDepthRange ? std::min(depthMin, sample.depth) : sample.depth;
+            depthMax = hasDepthRange ? std::max(depthMax, sample.depth) : sample.depth;
+            hasDepthRange = true;
+        }
+        if (sample.hasTargetDepth) {
+            depthMin = hasDepthRange ? std::min(depthMin, sample.targetDepth) : sample.targetDepth;
+            depthMax = hasDepthRange ? std::max(depthMax, sample.targetDepth) : sample.targetDepth;
+            hasDepthRange = true;
+        }
+    }
+    if (m_verticalProfileFrame.hasStartDepth) {
+        depthMin = hasDepthRange ? std::min(depthMin, m_verticalProfileFrame.startDepth) : m_verticalProfileFrame.startDepth;
+        depthMax = hasDepthRange ? std::max(depthMax, m_verticalProfileFrame.startDepth) : m_verticalProfileFrame.startDepth;
+        hasDepthRange = true;
+    }
+    if (!hasDepthRange) {
+        depthMin = 0.0;
+        depthMax = 5.0;
+    }
+
+    const double depthSpan = std::max(1.0, depthMax - depthMin);
+    const double depthMargin = std::max(0.6, depthSpan * 0.15);
+    const double topDepth = std::max(0.0, depthMin - depthMargin);
+    const double bottomDepth = depthMax + depthMargin;
+    const auto timeToX = [&plotRect, xMax](double elapsedSec) {
+        const double ratio = xMax > 0.0 ? std::clamp(elapsedSec / xMax, 0.0, 1.0) : 0.0;
+        return plotRect.left() + ratio * plotRect.width();
+    };
+    const auto depthToY = [&plotRect, topDepth, bottomDepth](double depth) {
+        const double ratio = bottomDepth > topDepth ? std::clamp((depth - topDepth) / (bottomDepth - topDepth), 0.0, 1.0) : 0.0;
+        return plotRect.top() + ratio * plotRect.height();
+    };
+
+    const QColor depthColor = palette.dark ? QColor("#4CC3FF") : QColor("#0B63CE");
+    const QColor targetColor = palette.dark ? QColor("#FFB45C") : QColor("#C45A0A");
+    const QColor startColor = palette.dark ? QColor("#A78BFA") : QColor("#7C3AED");
+    const QColor emergencyColor = palette.dark ? QColor("#FF5C7A") : QColor("#DC2626");
+    const QColor gridColor = palette.dark ? QColor(60, 68, 78, 130) : QColor(209, 220, 232, 170);
+    const QColor majorGridColor = palette.dark ? QColor(82, 94, 108, 150) : QColor(174, 190, 208, 190);
+
+    const QFont titleFont = scale.font(scale.fontSizeTitle() + 5, QFont::DemiBold);
+    const QFont summaryFont = scale.font(scale.fontSizeNormal(), QFont::Normal);
+    QFont axisFont = scale.font(scale.fontSizeSmall(), QFont::Normal);
+    QFont valueFont = scale.font(scale.fontSizeSmall(), QFont::DemiBold);
+    valueFont.setFamily(QStringLiteral("JetBrains Mono"));
+    valueFont.setStyleHint(QFont::Monospace);
+
+    QRectF titleRect(viewportRect.left() + scale.scaled(260),
+                     viewportRect.top() + scale.scaled(24),
+                     qMax(0, viewportRect.width() - scale.scaled(520)),
+                     scale.scaled(34));
+    painter->setFont(titleFont);
+    painter->setPen(palette.text);
+    painter->drawText(titleRect, Qt::AlignCenter, tr("垂向动作段深度趋势图"));
+
+    const QString summary = tr("模式：%1    已执行：%2 s    深度：%3 m -> 目标 %4 m")
+                                .arg(m_verticalProfileFrame.modeText.isEmpty() ? tr("--") : m_verticalProfileFrame.modeText,
+                                     QString::number(m_verticalProfileFrame.elapsedSec, 'f', 1),
+                                     m_verticalProfileFrame.hasCurrentDepth ? QString::number(m_verticalProfileFrame.currentDepth, 'f', 2) : QStringLiteral("--"),
+                                     m_verticalProfileFrame.hasTargetDepth ? QString::number(m_verticalProfileFrame.targetDepth, 'f', 2) : QStringLiteral("--"));
+    QRectF summaryRect(titleRect.left(),
+                       titleRect.bottom() + scale.scaled(8),
+                       titleRect.width(),
+                       scale.scaled(24));
+    painter->setFont(summaryFont);
+    painter->setPen(palette.mutedText);
+    painter->drawText(summaryRect, Qt::AlignCenter, summary);
+
+    painter->setPen(QPen(palette.border, 1.0));
+    painter->setBrush(palette.plotBackground);
+    painter->drawRect(plotRect);
+
+    painter->setFont(axisFont);
+    const double xStep = xMax <= 20.0 ? 2.0 : (xMax <= 60.0 ? 10.0 : 30.0);
+    for (double t = 0.0; t <= xMax + 1.0e-6; t += xStep) {
+        const double x = timeToX(t);
+        painter->setPen(QPen(qFuzzyIsNull(t) ? majorGridColor : gridColor, 1.0, Qt::DashLine));
+        painter->drawLine(QPointF(x, plotRect.top()), QPointF(x, plotRect.bottom()));
+        painter->setPen(palette.mutedText);
+        painter->drawText(QRectF(x - scale.scaled(26), plotRect.bottom() + scale.scaled(6), scale.scaled(52), scale.scaled(20)),
+                          Qt::AlignCenter,
+                          QString::number(t, 'f', 0));
+    }
+
+    const double yStep = depthSpan > 20.0 ? 5.0 : (depthSpan > 8.0 ? 2.0 : 1.0);
+    const int firstDepthTick = static_cast<int>(std::floor(topDepth / yStep));
+    for (double depth = static_cast<double>(firstDepthTick) * yStep; depth <= bottomDepth + 1.0e-6; depth += yStep) {
+        if (depth < topDepth - 1.0e-6) {
+            continue;
+        }
+        const double y = depthToY(depth);
+        painter->setPen(QPen(std::abs(std::fmod(depth, 5.0)) < 1.0e-6 ? majorGridColor : gridColor, 1.0, Qt::DashLine));
+        painter->drawLine(QPointF(plotRect.left(), y), QPointF(plotRect.right(), y));
+        painter->setPen(palette.mutedText);
+        painter->drawText(QRectF(plotRect.left() - scale.scaled(60), y - scale.scaled(10), scale.scaled(52), scale.scaled(20)),
+                          Qt::AlignRight | Qt::AlignVCenter,
+                          QStringLiteral("%1m").arg(QString::number(depth, 'f', 0)));
+    }
+
+    painter->setPen(QPen(palette.axis, 1.2));
+    painter->drawLine(plotRect.bottomLeft(), plotRect.topLeft());
+    painter->drawLine(plotRect.bottomLeft(), plotRect.bottomRight());
+
+    painter->setPen(palette.text);
+    painter->drawText(QRectF(plotRect.left(), plotRect.bottom() + scale.scaled(28), plotRect.width(), scale.scaled(24)),
+                      Qt::AlignCenter,
+                      tr("elapsed time / s"));
+    painter->save();
+    painter->translate(plotRect.left() - scale.scaled(42), plotRect.center().y());
+    painter->rotate(-90);
+    painter->drawText(QRectF(-plotRect.height() * 0.5, -scale.scaled(12), plotRect.height(), scale.scaled(24)),
+                      Qt::AlignCenter,
+                      tr("depth / m"));
+    painter->restore();
+
+    const VerticalProfileSample* latestDepthSample = nullptr;
+    const VerticalProfileSample* latestTargetSample = nullptr;
+    for (int index = m_verticalProfileFrame.samples.size() - 1; index >= 0; --index) {
+        const auto& sample = m_verticalProfileFrame.samples.at(index);
+        if (latestDepthSample == nullptr && sample.hasDepth) {
+            latestDepthSample = &sample;
+        }
+        if (latestTargetSample == nullptr && sample.hasTargetDepth) {
+            latestTargetSample = &sample;
+        }
+        if (latestDepthSample != nullptr && latestTargetSample != nullptr) {
+            break;
+        }
+    }
+
+    if (latestTargetSample != nullptr) {
+        QPen targetPen(targetColor, 1.3, Qt::DashLine);
+        targetPen.setDashPattern({6.0, 4.0});
+        painter->setPen(targetPen);
+        const double y = depthToY(latestTargetSample->targetDepth);
+        painter->drawLine(QPointF(plotRect.left(), y), QPointF(plotRect.right(), y));
+    }
+    if (m_verticalProfileFrame.hasStartDepth) {
+        QPen startPen(startColor, 1.3, Qt::DashLine);
+        startPen.setDashPattern({5.0, 4.0});
+        painter->setPen(startPen);
+        const double y = depthToY(m_verticalProfileFrame.startDepth);
+        painter->drawLine(QPointF(plotRect.left(), y), QPointF(plotRect.right(), y));
+    }
+
+    for (const double eventTime : m_verticalProfileFrame.emergencyEventTimes) {
+        const double x = timeToX(eventTime);
+        painter->setPen(QPen(emergencyColor, 1.2, Qt::DashLine));
+        painter->drawLine(QPointF(x, plotRect.top()), QPointF(x, plotRect.bottom()));
+        painter->setPen(emergencyColor);
+        painter->drawText(QPointF(x + scale.scaled(4), plotRect.top() + scale.scaled(18)), tr("急停"));
+    }
+
+    QPainterPath path;
+    bool hasPath = false;
+    for (const auto& sample : m_verticalProfileFrame.samples) {
+        if (!sample.hasDepth) {
+            continue;
+        }
+        const QPointF point(timeToX(sample.elapsedSec), depthToY(sample.depth));
+        if (!hasPath) {
+            path.moveTo(point);
+            hasPath = true;
+        } else {
+            path.lineTo(point);
+        }
+    }
+    if (hasPath) {
+        painter->setPen(QPen(depthColor, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawPath(path);
+    } else {
+        painter->setFont(scale.font(scale.fontSizeTitle(), QFont::DemiBold));
+        painter->setPen(palette.warnText);
+        painter->drawText(plotRect, Qt::AlignCenter, tr("等待 depth 数据"));
+        painter->setFont(axisFont);
+    }
+
+    if (latestDepthSample != nullptr) {
+        const QPointF point(timeToX(latestDepthSample->elapsedSec), depthToY(latestDepthSample->depth));
+        painter->setPen(QPen(depthColor, 2.0));
+        painter->setBrush(palette.plotBackground);
+        painter->drawEllipse(point, scale.scaled(6), scale.scaled(6));
+        painter->setBrush(depthColor);
+        painter->drawEllipse(point, scale.scaled(3), scale.scaled(3));
+    }
+
+    const QSize legendSize(scale.scaled(150), scale.scaled(72));
+    QRectF legendRect(plotRect.right() - legendSize.width() - scale.scaled(10),
+                      plotRect.top() - legendSize.height() - scale.scaled(18),
+                      legendSize.width(),
+                      legendSize.height());
+    if (legendRect.top() < summaryRect.bottom() + scale.scaled(8)) {
+        legendRect.moveTop(plotRect.top() + scale.scaled(10));
+    }
+    painter->setPen(QPen(palette.border, 1.0));
+    painter->setBrush(palette.panel);
+    painter->drawRect(legendRect);
+
+    const auto drawLegendRow = [&](int row, const QColor& color, const QString& text, Qt::PenStyle style) {
+        const qreal y = legendRect.top() + scale.scaled(18 + row * 18);
+        painter->setPen(QPen(color, 1.6, style));
+        painter->drawLine(QPointF(legendRect.left() + scale.scaled(14), y),
+                          QPointF(legendRect.left() + scale.scaled(44), y));
+        painter->setPen(palette.text);
+        painter->drawText(QRectF(legendRect.left() + scale.scaled(54),
+                                 y - scale.scaled(9),
+                                 legendRect.width() - scale.scaled(62),
+                                 scale.scaled(18)),
+                          Qt::AlignLeft | Qt::AlignVCenter,
+                          text);
+    };
+    drawLegendRow(0, depthColor, tr("当前深度"), Qt::SolidLine);
+    drawLegendRow(1, targetColor, tr("目标深度"), Qt::DashLine);
+    drawLegendRow(2, startColor, tr("起始深度"), Qt::DashLine);
+
+    painter->setPen(palette.mutedText);
+    painter->drawText(QRectF(viewportRect.left() + margin,
+                             viewportRect.bottom() - scale.scaled(32),
+                             viewportRect.width() - margin * 2,
+                             scale.scaled(20)),
+                      Qt::AlignLeft | Qt::AlignVCenter,
+                      tr("Depth 向下为正，t=0 为动作开始时刻"));
 }
 
 void VisualizationView::setupScene()

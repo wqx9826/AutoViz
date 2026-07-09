@@ -160,11 +160,11 @@ QComboBox {
     background: #18181C;
     border: 1px solid #2D2D34;
     border-radius: 5px;
-    padding: 3px 28px 3px 8px;
+    padding: 3px 38px 3px 8px;
     min-height: 24px;
 }
 QComboBox::drop-down {
-    width: 22px;
+    width: 30px;
     border: 0;
 }
 QCheckBox {
