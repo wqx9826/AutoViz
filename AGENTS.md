@@ -162,15 +162,16 @@ make -j4
 ROS2 模式：
 
 ```bash
+source /opt/ros/humble/setup.bash
+source /home/wqx/LZBK/robot_ws/install/setup.bash
 mkdir -p build
 cd build
 cmake .. -DAUTOVIZ_ENABLE_ROS2=ON
 make -j4
-export LD_LIBRARY_PATH=/home/wqx/AutoViz/message/ros2/custom_msgs/lib:$LD_LIBRARY_PATH
 ./AutoViz
 ```
 
-ROS2 模式依赖本地 `message/ros2/custom_msgs` 下的头文件和库。若该目录缺失或未构建，不要假设 ROS2 编译可通过。
+ROS2 模式通过 `find_package(custom_msgs REQUIRED)` 使用已 source 的 ROS2 工作区安装包。AutoViz 不保存 `custom_msgs` 的头文件或动态库副本；若消息包更新，重新 source 工作区并重新执行 CMake 配置即可。
 
 ## 修改建议
 
@@ -190,4 +191,3 @@ ROS2 模式依赖本地 `message/ros2/custom_msgs` 下的头文件和库。若�
 - 现有工程使用 Qt 容器和 Qt 类型较多，如 `QVector`、`QString`。
 - 日志使用 `Logger::instance()`。
 - 构建系统当前只要求 Qt5 Widgets；ROS 依赖只在对应开关打开时查找。
-

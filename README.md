@@ -37,7 +37,6 @@ src/
 │   ├── model/                       # 内部标准模型
 │   ├── render/                      # SceneManager
 │   └── ros/                         # ROS1 / ROS2 订阅实现
-├── message/                         # 用户放置消息头文件的位置
 └── ui/                              # 主视图、面板、图表骨架
 ```
 
@@ -108,7 +107,7 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 
 ### 5.1结合当前 ROS2 工程的使用方式
 
-把编译好的 `custom_msgs` 头文件放在了工程内，并且在自己的 ROS2 工作区中完成了消息包编译。
+`custom_msgs` 由已 source 的 ROS2 工作区提供；AutoViz 不保存消息头文件或动态库副本。
 
 当前 `Ros2MsgSubsrcribe` 已经按常见 ROS2 节点写法组织：
 
@@ -258,13 +257,17 @@ make -j4
 启用 ROS2：
 
 ```bash
+source /opt/ros/humble/setup.bash
+source /home/wqx/LZBK/robot_ws/install/setup.bash
 mkdir -p build && cd build
 cmake .. -DAUTOVIZ_ENABLE_ROS2=ON
 make -j4
-#在接收ros2 消息时需要 export 库的位置 ros1 不需要
-export LD_LIBRARY_PATH=/home/wqx/AutoViz/message/ros2/custom_msgs/lib:$LD_LIBRARY_PATH
 ./AutoViz
 ```
+
+`custom_msgs` 由 `find_package(custom_msgs REQUIRED)` 从已 source 的 ROS2 工作区中查找。
+AutoViz 不保存任何 ROS 消息头文件或动态库副本；消息包更新后只需重新 source 对应工作区并
+重新执行 CMake 配置，避免头文件、动态库与车辆发布端的消息定义不一致。
 
 说明：
 

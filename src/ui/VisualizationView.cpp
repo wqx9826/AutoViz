@@ -567,7 +567,8 @@ void VisualizationView::drawVerticalProfileForeground(QPainter* painter) const
 void VisualizationView::setupScene()
 {
     auto* graphicsScene = new QGraphicsScene(this);
-    graphicsScene->setSceneRect(-120.0, -120.0, 240.0, 240.0);
+    // 不设置固定 sceneRect：由当前图元范围动态决定可平移区域，避免远距离定位
+    // 超出固定边界后无法居中或继续平移。
     setScene(graphicsScene);
 
     setRenderHint(QPainter::Antialiasing, true);

@@ -24,7 +24,8 @@
 namespace autoviz::ui::charts {
 
 namespace {
-constexpr qint64 kTimeoutMs = 1000;
+// 控制曲线只在持续断流后报警，避免回放中的短暂时间空洞造成状态跳变。
+constexpr qint64 kTimeoutMs = 5000;
 
 double normalizeAngle(double angle)
 {

@@ -10,7 +10,8 @@
 namespace autoviz::datacenter {
 
 namespace {
-constexpr auto kRealtimeDataTimeout = std::chrono::seconds(3);
+// 与 topic 状态监控保持一致，避免短暂发布空档导致主视图数据闪烁。
+constexpr auto kRealtimeDataTimeout = std::chrono::seconds(5);
 constexpr int kMaxHistoryTrailPoints = 2000;
 // XY 轨迹仍按水平位移降采样；垂向动作需要 depth/height 和时间兜底共同触发采样。
 constexpr double kHistoryTrailMinDistance = 1.0;
@@ -301,11 +302,13 @@ void DataManager::applyFreshnessFilter(VisualizationSnapshot& snapshot, const Ch
     if (!isFresh(updateTimes.globalPath, now)) {
         snapshot.globalPath = model::Trajectory{};
         snapshot.runtimeStatus.hasGlobalPathData = false;
+        snapshot.globalPathStatus = model::PathRuntimeStatus{};
         snapshot.pathEndpointStatus = model::PathEndpointStatus{};
     }
     if (!isFresh(updateTimes.localPath, now)) {
         snapshot.localPath = model::Trajectory{};
         snapshot.runtimeStatus.hasLocalPathData = false;
+        snapshot.localPathStatus = model::PathRuntimeStatus{};
     }
     if (!isFresh(updateTimes.referenceLine, now)) {
         snapshot.referenceLine = model::ReferenceLine{};

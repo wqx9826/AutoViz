@@ -34,19 +34,15 @@ if(AUTOVIZ_ENABLE_ROS2)
     find_package(nav_msgs REQUIRED)
     find_package(geometry_msgs REQUIRED)
     find_package(std_msgs REQUIRED)
+    find_package(custom_msgs REQUIRED)
 
-    # 1. 包含头文件路径
+    # custom_msgs 必须由已 source 的 ROS2 工作区提供，避免工程内副本与发布端不一致。
     include_directories(
         ${rclcpp_INCLUDE_DIRS}
         ${nav_msgs_INCLUDE_DIRS}
         ${geometry_msgs_INCLUDE_DIRS}
         ${std_msgs_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/message/ros2/custom_msgs/include/custom_msgs/ 
-    )
-
-    # 2. 链接库路径
-    link_directories(
-        ${CMAKE_SOURCE_DIR}/message/ros2/custom_msgs/lib        
+        ${custom_msgs_INCLUDE_DIRS}
     )
 endif()
 
@@ -141,6 +137,6 @@ if( AUTOVIZ_ENABLE_ROS2)
     )
     target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        custom_msgs__rosidl_typesupport_cpp
+        custom_msgs::custom_msgs__rosidl_typesupport_cpp
     )
 endif()

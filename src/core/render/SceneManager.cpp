@@ -561,7 +561,30 @@ void SceneManager::autoFitAndCenter()
         targetRegion.adjust(-4.0, -4.0, 4.0, 4.0);
     }
 
+    // QGraphicsView 无法将场景边缘上的点真正置于视口中心。每帧依据图元范围
+    // 重建带足够边距的 sceneRect，保证远距离车辆和路径端点都可被居中、平移。
+    QRectF sceneRegion = m_scene->itemsBoundingRect();
+    if (sceneRegion.isEmpty()) {
+        sceneRegion = targetRegion;
+    }
+    const QRectF visibleRegion = m_view->mapToScene(m_view->viewport()->rect()).boundingRect();
+    const qreal horizontalMargin = std::max<qreal>(100.0, visibleRegion.width());
+    const qreal verticalMargin = std::max<qreal>(100.0, visibleRegion.height());
+    sceneRegion.adjust(-horizontalMargin, -verticalMargin, horizontalMargin, verticalMargin);
+    if (canCenterOnVehicle) {
+        sceneRegion = sceneRegion.united(QRectF(vehicleCenter.x() - horizontalMargin,
+                                                 vehicleCenter.y() - verticalMargin,
+                                                 horizontalMargin * 2.0,
+                                                 verticalMargin * 2.0));
+    }
+    m_scene->setSceneRect(sceneRegion);
+
     m_view->fitToRegion(targetRegion);
+    // 手动缩放会关闭自动适配，但不应关闭“车辆居中显示”。开启该模式后，
+    // 仍持续跟随车辆；需要自由平移时由用户关闭车辆居中开关。
+    if (canCenterOnVehicle) {
+        m_view->centerOn(vehicleCenter);
+    }
 }
 
 QPointF SceneManager::toScenePoint(const autoviz::model::Point2D& point) const

@@ -8,6 +8,7 @@
 
 #if AUTOVIZ_ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <nav_msgs/msg/path.hpp>
 
 #include "custom_msgs/msg/chassis_command.hpp"
@@ -59,6 +60,7 @@ private:
 
 private:
     rclcpp::Node::SharedPtr m_node;
+    std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> m_executor;
     rclcpp::Subscription<custom_msgs::msg::Location>::SharedPtr m_sub_location;
     rclcpp::Subscription<custom_msgs::msg::Scene>::SharedPtr m_sub_scene;
     rclcpp::Subscription<custom_msgs::msg::FinalTargetArray>::SharedPtr m_sub_final_targets;

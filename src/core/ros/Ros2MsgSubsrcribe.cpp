@@ -14,8 +14,9 @@
 namespace autoviz::ros {
 
 namespace {
-constexpr qint64 kDefaultTopicTimeoutMs = 1000;
-constexpr qint64 kPathTopicTimeoutMs = 3000;
+// 回放和低频发布都可能出现短暂空档；5 秒后才视为订阅链路异常。
+constexpr qint64 kDefaultTopicTimeoutMs = 5000;
+constexpr qint64 kPathTopicTimeoutMs = 5000;
 
 qint64 currentTimestampMs()
 {
@@ -149,12 +150,18 @@ bool Ros2MsgSubsrcribe::start(QString* errorMessage)
     m_sub_path = m_node->create_subscription<nav_msgs::msg::Path>(
         "/global_path", 10, std::bind(&Ros2MsgSubsrcribe::callbackGlobalPathMsg, this, std::placeholders::_1));
 
-    // 开线程 spin
+    // 使用长期存活的执行器。rclcpp::spin_some(node) 每次调用都会临时创建并
+    // 销毁执行器；在 Fast DDS 下高频重复挂接 WaitSet 会造成堆损坏。
+    m_executor = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
+    m_executor->add_node(m_node);
+
     m_running.store(true);
     m_spinThread = std::thread([this]() {
-        while (m_running.load() && rclcpp::ok()) {
-            rclcpp::spin_some(m_node);
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        try {
+            m_executor->spin();
+        } catch (const std::exception& exception) {
+            Logger::instance().error(
+                QStringLiteral("[ROS2] 执行器异常退出：%1").arg(QString::fromLocal8Bit(exception.what())));
         }
     });
 
@@ -172,9 +179,16 @@ void Ros2MsgSubsrcribe::stop()
     }
 
     m_running.store(false);
+    if (m_executor) {
+        m_executor->cancel();
+    }
     if (m_spinThread.joinable()) {
         m_spinThread.join();
     }
+    if (m_executor && m_node) {
+        m_executor->remove_node(m_node);
+    }
+    m_executor.reset();
     m_sub_location.reset();
     m_sub_scene.reset();
     m_sub_final_targets.reset();
