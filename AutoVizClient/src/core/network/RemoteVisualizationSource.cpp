@@ -11,7 +11,7 @@
 
 namespace autoviz::network {
 
-namespace v1 = autoviz::protocol::v1;
+namespace wire = ::autoviz;
 
 RemoteVisualizationSource::RemoteVisualizationSource(datacenter::DataManager* dataManager,
                                                      QObject* parent)
@@ -37,7 +37,7 @@ RemoteVisualizationSource::RemoteVisualizationSource(datacenter::DataManager* da
     });
     connect(m_socket, &QTcpSocket::readyRead, this, [this]() {
         const QByteArray bytes = m_socket->readAll();
-        std::vector<v1::Envelope> envelopes;
+        std::vector<wire::Envelope> envelopes;
         std::string error;
         if (!m_decoder.append(bytes.constData(),
                               static_cast<std::size_t>(bytes.size()),
@@ -139,12 +139,12 @@ void RemoteVisualizationSource::disconnectFromServer()
     }
 }
 
-void RemoteVisualizationSource::sendEnvelope(const v1::Envelope& envelope)
+void RemoteVisualizationSource::sendEnvelope(const wire::Envelope& envelope)
 {
     if (m_socket->state() != QAbstractSocket::ConnectedState) {
         return;
     }
-    const std::string frame = protocol::encodeFrame(envelope);
+    const std::string frame = wire::encodeFrame(envelope);
     if (!frame.empty()) {
         m_socket->write(frame.data(), static_cast<qint64>(frame.size()));
     }
@@ -152,7 +152,7 @@ void RemoteVisualizationSource::sendEnvelope(const v1::Envelope& envelope)
 
 void RemoteVisualizationSource::sendHello()
 {
-    v1::Envelope envelope;
+    wire::Envelope envelope;
     auto* hello = envelope.mutable_client_hello();
     hello->set_client_name("AutoViz Qt Client");
     hello->set_client_version("0.3.0");
@@ -163,14 +163,14 @@ void RemoteVisualizationSource::sendHello()
 
 void RemoteVisualizationSource::sendSubscribe()
 {
-    v1::Envelope envelope;
+    wire::Envelope envelope;
     envelope.mutable_subscribe_request()->set_request_full_snapshot(true);
     sendEnvelope(envelope);
 }
 
 void RemoteVisualizationSource::sendHeartbeat()
 {
-    v1::Envelope envelope;
+    wire::Envelope envelope;
     auto* heartbeat = envelope.mutable_heartbeat();
     heartbeat->set_sequence(++m_heartbeatSequence);
     heartbeat->set_send_time_ns(
@@ -179,7 +179,7 @@ void RemoteVisualizationSource::sendHeartbeat()
     sendEnvelope(envelope);
 }
 
-void RemoteVisualizationSource::handleEnvelope(const v1::Envelope& envelope)
+void RemoteVisualizationSource::handleEnvelope(const wire::Envelope& envelope)
 {
     if (envelope.has_server_hello()) {
         const auto& hello = envelope.server_hello();

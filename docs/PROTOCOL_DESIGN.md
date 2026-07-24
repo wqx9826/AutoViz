@@ -1,59 +1,49 @@
 # AutoViz Protocol v1
 
-本文同时记录已实现协议和后续演进约束。schema 分别位于
-`AutoVizClient/proto/autoviz/*.proto` 和
-`AutoVizServer/src/autoviz_server/proto/autoviz/*.proto`。两份 schema 必须完全
-一致，由各自工程直接编译，并通过
-`cmake -P tools/verify_proto_sync.cmake` 校验。
+唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`。Client 和 Server 不保存副本，
+而是链接安装后的 `AutoVizProto::AutoVizProto`。
 
-## 通信目标
+## protobuf 与 TCP 为什么能一起工作
 
-- Linux Server 接入 ROS2，Linux/Windows/后续平台运行相同 Client。
-- Client 不安装 ROS2，不接触 custom_msgs。
-- 同一协议未来可承载 ROS Adapter、Simulation Adapter 和 Log Adapter。
-- 第一阶段只读、可信局域网、多 Client。
-
-## protobuf 与 TCP 各自解决什么
-
-TCP 只保证一串字节可靠、有序地到达，不知道字节的业务含义，也不保留应用消息边界。
-protobuf 把 VehicleState、Trajectory、Heartbeat 等结构化对象序列化为跨平台字节，
-但不负责建立连接或发送数据。因此本项目把两者组合：
+如果你已经会直接使用 TCP，可以把 protobuf 理解为“替你定义并编码结构体”的工具。
+TCP 只传递可靠、有序的字节流，它不知道这些字节表示车辆速度还是轨迹，也不保留
+`send()` 的消息边界。protobuf 正好负责把结构化对象变成字节并还原，但它不负责联网。
 
 ```text
-业务对象 --protobuf 序列化--> payload --长度前缀--> TCP 字节流
-TCP 字节流 --按长度拆帧--> payload --protobuf 解析--> 业务对象
+Envelope 对象
+  -> protobuf SerializeToString()
+  -> payload 字节
+  -> 前置 4 字节长度
+  -> TCP
+  -> 按长度取出完整 payload
+  -> protobuf ParseFromArray()
+  -> Envelope 对象
 ```
 
-`.proto` 在构建时由 `protoc` 生成 `.pb.h/.pb.cc`。运行时双方不会交换 `.proto`
-文件，而是使用各自编译好的代码按照相同 field number 读写 wire format。源码目录
-`proto/autoviz/transport.proto` 决定生成头路径 `autoviz/transport.pb.h`；
-`package autoviz.protocol.v1` 独立决定 C++ namespace
-`autoviz::protocol::v1`。
+例如发送方调用一次 `send()`，接收方可能分三次 `read()` 才收到全部内容；两次发送也
+可能在一次读取里粘在一起。`FrameCodec` 先读取固定 4 字节的大端长度 N，再等待 N
+字节，解决拆包和粘包。得到完整 payload 后 protobuf 才负责解析字段。
 
-## 数据格式选择
+`.proto` 只在编译时由 `protoc` 生成 `.pb.h/.pb.cc`。运行时不发送 `.proto` 文件；
+双方依据相同 field number 解释 wire format。
 
-| 格式 | 结论 |
-| --- | --- |
-| JSON | 适合人工诊断，不作为高频主链路 |
-| protobuf | 已选用；有 schema、跨平台、字段演进明确 |
-| 自定义 binary | v1 不采用，除非性能测量证明必要 |
+## package、路径和版本
 
-已实现选择为 protobuf。schema 使用 `proto2`，允许 optional 字段表达“未提供”；
-禁止新增 `required`，以免阻断兼容演进。
+所有 schema 声明：
 
-设计借鉴 Apollo 的消息分域、统一 Header，以及 PathPoint 与 TrajectoryPoint 分离思路，
-但没有复制 Apollo 消息，也没有把 Apollo 的完整 Debug 对象作为 v1 契约。robot_ws
-消息只用于第一版 Adapter 映射，协议不镜像 custom_msgs。
+```proto
+package autoviz;
+```
 
-## 通信方式
+因此 C++ 类型直接是 `autoviz::Envelope`。文件路径
+`proto/autoviz/transport.proto` 让生成头位于 `autoviz/transport.pb.h`。路径和
+package 是两个概念，但本项目特意都使用简洁的 `autoviz`，不采用
+`autoviz.protocol.v1`。
 
-| 方式 | 结论 |
-| --- | --- |
-| TCP | v1 已采用，可靠有序，适合快照和状态流 |
-| UDP | 尚未采用；未来仅对可丢弃高频数据评估 |
-| WebSocket | 尚未采用；浏览器 Client 成为目标时再评估 |
+协议 v1 通过 `ClientHello.protocol_major` / `protocol_minor` 协商，不通过 namespace
+表达。这样源码命名保持稳定，wire 兼容性由明确的握手字段控制。
 
-### TCP framing
+## TCP framing
 
 ```text
 +----------------------+----------------------------+
@@ -62,9 +52,9 @@ TCP 字节流 --按长度拆帧--> payload --protobuf 解析--> 业务对象
 ```
 
 - 长度不包含 4 字节头。
-- `N` 必须为 `1..16 MiB`；无效长度立即断开。
-- TCP 粘包/拆包由 `FrameDecoder` 处理。
-- 当前不压缩，不加密。
+- N 必须为 1..16 MiB；无效长度立即断开。
+- 当前不压缩、不加密。
+- TCP 保证有序可靠；应用层 framing 保证消息边界；protobuf 保证结构化编码。
 
 ## 握手和同步
 
@@ -78,55 +68,42 @@ Client                         Server
   |<-----> Heartbeat ------------>|
 ```
 
-- 协议版本当前为 `1.0`；major 不一致视为不兼容。
-- Client 空 channel 列表表示订阅全部可用通道。
+- 当前协议版本为 1.0，major 不一致拒绝连接。
+- 空 channel 列表表示订阅全部可用通道。
 - 连接/重连先取全量快照，之后接收增量。
-- `session_id` 标识 Server 生命周期；session 变化必须清空 Client 旧数据。
-- 心跳周期 1 秒；5 秒未收到对端数据视为连接失效。
+- `session_id` 标识 Server 生命周期，变化时 Client 必须清空旧数据。
+- 心跳周期 1 秒；5 秒未收到数据视为连接失效。
 
-## 领域消息
+## schema 分域
 
-- `common.proto`：Header、几何、来源无关诊断键值树。
+- `common.proto`：Header、几何和来源无关诊断键值。
 - `vehicle.proto`：VehicleState、VerticalState、ChassisState、Actuator、Battery。
 - `planning.proto`：PathPoint、TrajectoryPoint、Trajectory、ReferenceLine。
 - `perception.proto`：Obstacle、ObstacleSet。
 - `control.proto`：ControlCommand、VerticalCommand、ActionState、TaskState。
-- `runtime.proto`：来源信息、topic/通道健康和 Server 诊断。
+- `runtime.proto`：来源、topic/通道健康和 Server 诊断。
 - `transport.proto`：channel、snapshot/update、握手、心跳和错误。
 
-通道更新有两种操作：
+通道操作：
 
 - `UPSERT`：替换该通道最新值。
 - `CLEAR`：明确删除该通道，Client 不得保留上一帧。
 
 ## 单位和坐标
 
-- 长度：米；速度：`m/s`；加速度：`m/s²`；jerk：`m/s³`。
-- 角度：弧度；角速度：`rad/s`。字段名包含 `_rad` / `_radps`。
-- heading：东向为 0、逆时针为正。
-- 垂向 `odom_z`、`depth`、`height_above_bottom` 是不同语义，不得互相覆盖。
-- 时间：Header 使用 Unix epoch 纳秒；轨迹相对时间使用秒。
-- UI 显示时把弧度转换为度，把 `rad/s` 转换为 `°/s`。
-
-## Server API 原则
-
-- Server 接口面向车辆、规划、控制、感知和运行状态，不面向 ROS msg。
-- Client 不关心数据来自 ROS2、simulation、middleware 或日志。
-- ROS/Simulation/Log Adapter 都应输出相同 schema。
-- 来源特有且 UI 仍需显示的硬件字段使用稳定 diagnostic key，不使用 ROS 字段路径。
-- 新的通用规控语义优先增加领域字段；不要把所有内容都塞进 diagnostic metric。
+- 长度 m；速度 m/s；加速度 m/s²；jerk m/s³。
+- 角度 rad；角速度 rad/s，字段名含 `_rad` / `_radps`。
+- heading 东向为 0、逆时针为正。
+- `odom_z`、`depth`、`height_above_bottom` 不混用。
+- Header 使用 Unix epoch ns；轨迹相对时间使用 s。
+- UI 显示层将 rad 转度、rad/s 转 `°/s`。
 
 ## 兼容规则
 
-1. 已发布字段号永不复用，删除字段应 `reserved`。
-2. 向后兼容新增使用 optional/repeated 新字段。
-3. 语义、单位或坐标方向变化不能静默复用旧字段号。
-4. Client 忽略未知字段和未知可选通道；未知 protocol major 拒绝连接。
-5. transport 变更必须补帧测试；消息映射变更必须补转换/回放测试。
+1. 已发布 field number 永不复用；删除字段使用 `reserved`。
+2. 向后兼容新增使用 optional/repeated，禁止 required。
+3. 语义、单位或方向变化不能静默复用旧字段号。
+4. Client 忽略未知字段/可选通道，未知 protocol major 拒绝连接。
+5. transport/framing 变化必须更新 AutoVizProto GTest 和本文档。
 
-## v1 不包含
-
-- Client 到机器人任务下发、控制指令或参数修改。
-- TLS、认证、权限和公网访问。
-- UDP/WebSocket、压缩、服务发现。
-- Apollo 全量 planning/control debug。
+v1 只读，不包含任务下发、控制写入、TLS、认证、UDP、WebSocket、压缩或服务发现。

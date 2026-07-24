@@ -12,7 +12,7 @@ namespace autoviz_server {
 
 class TcpServer {
 public:
-    using SnapshotProvider = std::function<autoviz::protocol::v1::VisualizationSnapshot()>;
+    using SnapshotProvider = std::function<::autoviz::VisualizationSnapshot()>;
 
     TcpServer();
     ~TcpServer();
@@ -25,7 +25,7 @@ public:
                std::size_t maxClients,
                SnapshotProvider snapshotProvider);
     void stop();
-    void broadcast(const autoviz::protocol::v1::Envelope& envelope);
+    void broadcast(const ::autoviz::Envelope& envelope);
     void broadcastHeartbeat(std::uint64_t sequence,
                             std::uint64_t sendTimeNs,
                             const std::string& sessionId);

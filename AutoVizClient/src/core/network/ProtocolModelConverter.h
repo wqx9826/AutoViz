@@ -8,8 +8,8 @@ namespace autoviz::network {
 class ProtocolModelConverter {
 public:
     static datacenter::VisualizationSnapshot toModelSnapshot(
-        const protocol::v1::VisualizationSnapshot& source);
-    static void applyUpdate(const protocol::v1::ChannelUpdate& update,
+        const ::autoviz::VisualizationSnapshot& source);
+    static void applyUpdate(const ::autoviz::ChannelUpdate& update,
                             datacenter::DataManager* dataManager);
 };
 

@@ -12,7 +12,7 @@
 
 namespace autoviz_server {
 
-namespace v1 = autoviz::protocol::v1;
+namespace wire = ::autoviz;
 
 namespace {
 constexpr double kDegreesToRadians = 0.017453292519943295769;
@@ -30,7 +30,7 @@ double yawFromQuaternion(const geometry_msgs::msg::Quaternion& value)
     return std::atan2(siny, cosy);
 }
 
-void fillHeader(v1::Header* header,
+void fillHeader(wire::Header* header,
                 std::uint64_t sourceTimeNs,
                 std::uint64_t receiveTimeNs,
                 const std::string& module,
@@ -44,7 +44,7 @@ void fillHeader(v1::Header* header,
     }
 }
 
-v1::DiagnosticMetric* addIntMetric(google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>* metrics,
+wire::DiagnosticMetric* addIntMetric(google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>* metrics,
                                    const std::string& key,
                                    std::int64_t value,
                                    const std::string& unit = {})
@@ -58,7 +58,7 @@ v1::DiagnosticMetric* addIntMetric(google::protobuf::RepeatedPtrField<v1::Diagno
     return metric;
 }
 
-v1::DiagnosticMetric* addDoubleMetric(google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>* metrics,
+wire::DiagnosticMetric* addDoubleMetric(google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>* metrics,
                                       const std::string& key,
                                       double value,
                                       const std::string& unit = {})
@@ -72,7 +72,7 @@ v1::DiagnosticMetric* addDoubleMetric(google::protobuf::RepeatedPtrField<v1::Dia
     return metric;
 }
 
-v1::DiagnosticMetric* addBoolMetric(google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>* metrics,
+wire::DiagnosticMetric* addBoolMetric(google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>* metrics,
                                     const std::string& key,
                                     bool value)
 {
@@ -82,7 +82,7 @@ v1::DiagnosticMetric* addBoolMetric(google::protobuf::RepeatedPtrField<v1::Diagn
     return metric;
 }
 
-void addMotorMetrics(v1::ActuatorState* actuator,
+void addMotorMetrics(wire::ActuatorState* actuator,
                      double speedRpm,
                      double torque,
                      int temperature,
@@ -112,7 +112,7 @@ void addMotorMetrics(v1::ActuatorState* actuator,
     addDoubleMetric(actuator->mutable_metric(), "command_torque_or_q_axis_current", commandTorque);
 }
 
-double polylineLength(const v1::Trajectory& trajectory)
+double polylineLength(const wire::Trajectory& trajectory)
 {
     double length = 0.0;
     for (int index = 1; index < trajectory.point_size(); ++index) {
@@ -152,20 +152,20 @@ AutoVizServerNode::AutoVizServerNode()
     auto addTopic = [this](const std::string& parameter,
                            const std::string& defaultName,
                            const std::string& type,
-                           v1::ChannelId channel) {
+                           wire::ChannelId channel) {
         const std::string name = declare_parameter<std::string>(parameter, defaultName);
         m_topics.emplace(name, TopicMonitor{name, type, channel});
         return name;
     };
 
-    addTopic("topics.location", "/location", "custom_msgs/msg/Location", v1::CHANNEL_VEHICLE_STATE);
-    addTopic("topics.obstacles", "/targets/final_objects", "custom_msgs/msg/FinalTargetArray", v1::CHANNEL_OBSTACLES);
-    addTopic("topics.control_command", "/chassis_command", "custom_msgs/msg/ChassisCommand", v1::CHANNEL_CONTROL_COMMAND);
-    addTopic("topics.chassis_state", "/chassis_states", "custom_msgs/msg/ChassisStates", v1::CHANNEL_CHASSIS_STATE);
-    addTopic("topics.action_state", "/system_run_states", "custom_msgs/msg/SystemRunStates", v1::CHANNEL_ACTION_STATE);
-    addTopic("topics.task_state", "/task_params", "custom_msgs/msg/TaskParams", v1::CHANNEL_TASK_STATE);
-    addTopic("topics.local_path", "/local_path", "custom_msgs/msg/TrajectoryMsg", v1::CHANNEL_LOCAL_TRAJECTORY);
-    addTopic("topics.global_path", "/global_path", "nav_msgs/msg/Path", v1::CHANNEL_GLOBAL_TRAJECTORY);
+    addTopic("topics.location", "/location", "custom_msgs/msg/Location", wire::CHANNEL_VEHICLE_STATE);
+    addTopic("topics.obstacles", "/targets/final_objects", "custom_msgs/msg/FinalTargetArray", wire::CHANNEL_OBSTACLES);
+    addTopic("topics.control_command", "/chassis_command", "custom_msgs/msg/ChassisCommand", wire::CHANNEL_CONTROL_COMMAND);
+    addTopic("topics.chassis_state", "/chassis_states", "custom_msgs/msg/ChassisStates", wire::CHANNEL_CHASSIS_STATE);
+    addTopic("topics.action_state", "/system_run_states", "custom_msgs/msg/SystemRunStates", wire::CHANNEL_ACTION_STATE);
+    addTopic("topics.task_state", "/task_params", "custom_msgs/msg/TaskParams", wire::CHANNEL_TASK_STATE);
+    addTopic("topics.local_path", "/local_path", "custom_msgs/msg/TrajectoryMsg", wire::CHANNEL_LOCAL_TRAJECTORY);
+    addTopic("topics.global_path", "/global_path", "nav_msgs/msg/Path", wire::CHANNEL_GLOBAL_TRAJECTORY);
 
     updateRuntimeState();
     createSubscriptions();
@@ -194,7 +194,7 @@ std::uint64_t AutoVizServerNode::nowNs() const
             .count());
 }
 
-v1::VisualizationSnapshot AutoVizServerNode::snapshot() const
+wire::VisualizationSnapshot AutoVizServerNode::snapshot() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto result = m_snapshot;
@@ -202,10 +202,10 @@ v1::VisualizationSnapshot AutoVizServerNode::snapshot() const
     return result;
 }
 
-v1::ChannelUpdate AutoVizServerNode::makeUpdate(v1::ChannelId channel)
+wire::ChannelUpdate AutoVizServerNode::makeUpdate(wire::ChannelId channel)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    v1::ChannelUpdate update;
+    wire::ChannelUpdate update;
     update.set_sequence(++m_sequence);
     update.set_server_time_ns(nowNs());
     update.set_session_id(m_sessionId);
@@ -214,9 +214,9 @@ v1::ChannelUpdate AutoVizServerNode::makeUpdate(v1::ChannelId channel)
     return update;
 }
 
-void AutoVizServerNode::publish(v1::ChannelUpdate update)
+void AutoVizServerNode::publish(wire::ChannelUpdate update)
 {
-    v1::Envelope envelope;
+    wire::Envelope envelope;
     envelope.mutable_channel_update()->Swap(&update);
     m_tcpServer.broadcast(envelope);
 }
@@ -242,7 +242,7 @@ void AutoVizServerNode::recordTopic(const std::string& topic)
     monitor.timedOut = false;
 }
 
-std::string AutoVizServerNode::topicName(v1::ChannelId channel) const
+std::string AutoVizServerNode::topicName(wire::ChannelId channel) const
 {
     for (const auto& item : m_topics) {
         if (item.second.channel == channel) {
@@ -254,7 +254,7 @@ std::string AutoVizServerNode::topicName(v1::ChannelId channel) const
 
 void AutoVizServerNode::onTimer()
 {
-    std::vector<v1::ChannelId> timedOutChannels;
+    std::vector<wire::ChannelId> timedOutChannels;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         const auto now = std::chrono::steady_clock::now();
@@ -281,36 +281,36 @@ void AutoVizServerNode::onTimer()
     m_tcpServer.broadcastHeartbeat(heartbeatSequence, nowNs(), m_sessionId);
 }
 
-void AutoVizServerNode::clearTimedOutChannel(v1::ChannelId channel)
+void AutoVizServerNode::clearTimedOutChannel(wire::ChannelId channel)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         switch (channel) {
-        case v1::CHANNEL_VEHICLE_STATE:
+        case wire::CHANNEL_VEHICLE_STATE:
             m_snapshot.clear_vehicle_state();
             break;
-        case v1::CHANNEL_CHASSIS_STATE:
+        case wire::CHANNEL_CHASSIS_STATE:
             m_snapshot.clear_chassis_state();
             break;
-        case v1::CHANNEL_CONTROL_COMMAND:
+        case wire::CHANNEL_CONTROL_COMMAND:
             m_snapshot.clear_control_command();
             break;
-        case v1::CHANNEL_GLOBAL_TRAJECTORY:
+        case wire::CHANNEL_GLOBAL_TRAJECTORY:
             m_snapshot.clear_global_trajectory();
             break;
-        case v1::CHANNEL_LOCAL_TRAJECTORY:
+        case wire::CHANNEL_LOCAL_TRAJECTORY:
             m_snapshot.clear_local_trajectory();
             break;
-        case v1::CHANNEL_REFERENCE_LINE:
+        case wire::CHANNEL_REFERENCE_LINE:
             m_snapshot.clear_reference_line();
             break;
-        case v1::CHANNEL_OBSTACLES:
+        case wire::CHANNEL_OBSTACLES:
             m_snapshot.clear_obstacles();
             break;
-        case v1::CHANNEL_ACTION_STATE:
+        case wire::CHANNEL_ACTION_STATE:
             m_snapshot.clear_action_state();
             break;
-        case v1::CHANNEL_TASK_STATE:
+        case wire::CHANNEL_TASK_STATE:
             m_snapshot.clear_task_state();
             break;
         default:
@@ -318,13 +318,13 @@ void AutoVizServerNode::clearTimedOutChannel(v1::ChannelId channel)
         }
     }
     auto update = makeUpdate(channel);
-    update.set_operation(v1::ChannelUpdate::OPERATION_CLEAR);
+    update.set_operation(wire::ChannelUpdate::OPERATION_CLEAR);
     publish(std::move(update));
 }
 
 void AutoVizServerNode::updateRuntimeState()
 {
-    v1::RuntimeState runtime;
+    wire::RuntimeState runtime;
     const auto currentNs = nowNs();
     fillHeader(runtime.mutable_header(), currentNs, currentNs, "autoviz_server");
     {
@@ -343,13 +343,13 @@ void AutoVizServerNode::updateRuntimeState()
         auto* diagnostics = runtime.mutable_diagnostics();
         diagnostics->set_id("autoviz_server");
         diagnostics->set_display_name("AutoViz Server");
-        diagnostics->set_level(v1::DiagnosticNode::LEVEL_OK);
+        diagnostics->set_level(wire::DiagnosticNode::LEVEL_OK);
         addIntMetric(diagnostics->mutable_metric(),
                      "connected_clients",
                      static_cast<std::int64_t>(m_tcpServer.clientCount()));
         m_snapshot.mutable_runtime_state()->CopyFrom(runtime);
     }
-    auto update = makeUpdate(v1::CHANNEL_RUNTIME_STATE);
+    auto update = makeUpdate(wire::CHANNEL_RUNTIME_STATE);
     update.mutable_runtime_state()->Swap(&runtime);
     publish(std::move(update));
 }
@@ -358,29 +358,29 @@ void AutoVizServerNode::createSubscriptions()
 {
     const auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
     m_locationSubscription = create_subscription<custom_msgs::msg::Location>(
-        topicName(v1::CHANNEL_VEHICLE_STATE), qos, std::bind(&AutoVizServerNode::onLocation, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_VEHICLE_STATE), qos, std::bind(&AutoVizServerNode::onLocation, this, std::placeholders::_1));
     m_obstacleSubscription = create_subscription<custom_msgs::msg::FinalTargetArray>(
-        topicName(v1::CHANNEL_OBSTACLES), qos, std::bind(&AutoVizServerNode::onObstacles, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_OBSTACLES), qos, std::bind(&AutoVizServerNode::onObstacles, this, std::placeholders::_1));
     m_controlSubscription = create_subscription<custom_msgs::msg::ChassisCommand>(
-        topicName(v1::CHANNEL_CONTROL_COMMAND), qos, std::bind(&AutoVizServerNode::onControl, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_CONTROL_COMMAND), qos, std::bind(&AutoVizServerNode::onControl, this, std::placeholders::_1));
     m_chassisSubscription = create_subscription<custom_msgs::msg::ChassisStates>(
-        topicName(v1::CHANNEL_CHASSIS_STATE), qos, std::bind(&AutoVizServerNode::onChassis, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_CHASSIS_STATE), qos, std::bind(&AutoVizServerNode::onChassis, this, std::placeholders::_1));
     m_actionSubscription = create_subscription<custom_msgs::msg::SystemRunStates>(
-        topicName(v1::CHANNEL_ACTION_STATE), qos, std::bind(&AutoVizServerNode::onAction, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_ACTION_STATE), qos, std::bind(&AutoVizServerNode::onAction, this, std::placeholders::_1));
     m_taskSubscription = create_subscription<custom_msgs::msg::TaskParams>(
-        topicName(v1::CHANNEL_TASK_STATE), qos, std::bind(&AutoVizServerNode::onTask, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_TASK_STATE), qos, std::bind(&AutoVizServerNode::onTask, this, std::placeholders::_1));
     m_localPathSubscription = create_subscription<custom_msgs::msg::TrajectoryMsg>(
-        topicName(v1::CHANNEL_LOCAL_TRAJECTORY), qos, std::bind(&AutoVizServerNode::onLocalPath, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_LOCAL_TRAJECTORY), qos, std::bind(&AutoVizServerNode::onLocalPath, this, std::placeholders::_1));
     m_globalPathSubscription = create_subscription<nav_msgs::msg::Path>(
-        topicName(v1::CHANNEL_GLOBAL_TRAJECTORY), qos, std::bind(&AutoVizServerNode::onGlobalPath, this, std::placeholders::_1));
+        topicName(wire::CHANNEL_GLOBAL_TRAJECTORY), qos, std::bind(&AutoVizServerNode::onGlobalPath, this, std::placeholders::_1));
 }
 
 void AutoVizServerNode::onLocation(custom_msgs::msg::Location::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_VEHICLE_STATE));
+    recordTopic(topicName(wire::CHANNEL_VEHICLE_STATE));
 
-    v1::VehicleState state;
+    wire::VehicleState state;
     fillHeader(state.mutable_header(), receiveNs, receiveNs, "robot_ws.location", "odom");
     state.mutable_position()->set_x_m(message->odom_x);
     state.mutable_position()->set_y_m(message->odom_y);
@@ -410,7 +410,7 @@ void AutoVizServerNode::onLocation(custom_msgs::msg::Location::ConstSharedPtr me
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_vehicle_state()->CopyFrom(state);
     }
-    auto update = makeUpdate(v1::CHANNEL_VEHICLE_STATE);
+    auto update = makeUpdate(wire::CHANNEL_VEHICLE_STATE);
     update.mutable_vehicle_state()->Swap(&state);
     publish(std::move(update));
 }
@@ -418,8 +418,8 @@ void AutoVizServerNode::onLocation(custom_msgs::msg::Location::ConstSharedPtr me
 void AutoVizServerNode::onObstacles(custom_msgs::msg::FinalTargetArray::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_OBSTACLES));
-    v1::ObstacleSet obstacles;
+    recordTopic(topicName(wire::CHANNEL_OBSTACLES));
+    wire::ObstacleSet obstacles;
     const auto sourceNs = rosStampNs(message->header.stamp);
     fillHeader(obstacles.mutable_header(), sourceNs, receiveNs, "robot_ws.final_targets", message->header.frame_id);
     for (const auto& target : message->targets) {
@@ -433,7 +433,7 @@ void AutoVizServerNode::onObstacles(custom_msgs::msg::FinalTargetArray::ConstSha
                    "robot_ws.final_target",
                    target.header.frame_id);
         obstacle->set_id(std::to_string(target.target_id));
-        obstacle->set_type(v1::Obstacle::TYPE_OTHER);
+        obstacle->set_type(wire::Obstacle::TYPE_OTHER);
         obstacle->set_source_class(target.final_class);
         obstacle->set_class_label(target.final_class_label);
         obstacle->set_source(target.source_chain);
@@ -457,7 +457,7 @@ void AutoVizServerNode::onObstacles(custom_msgs::msg::FinalTargetArray::ConstSha
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_obstacles()->CopyFrom(obstacles);
     }
-    auto update = makeUpdate(v1::CHANNEL_OBSTACLES);
+    auto update = makeUpdate(wire::CHANNEL_OBSTACLES);
     update.mutable_obstacles()->Swap(&obstacles);
     publish(std::move(update));
 }
@@ -465,13 +465,13 @@ void AutoVizServerNode::onObstacles(custom_msgs::msg::FinalTargetArray::ConstSha
 void AutoVizServerNode::onControl(custom_msgs::msg::ChassisCommand::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_CONTROL_COMMAND));
-    v1::ControlCommand command;
+    recordTopic(topicName(wire::CHANNEL_CONTROL_COMMAND));
+    wire::ControlCommand command;
     fillHeader(command.mutable_header(), receiveNs, receiveNs, "robot_ws.chassis_command");
     const bool crawl = message->mode == 6 || message->mode == 8 || message->mode == 11;
     const bool sailing = (message->mode >= 1 && message->mode <= 5) || message->mode == 7 || message->mode == 10;
-    command.set_mode(crawl ? v1::ControlCommand::MODE_CRAWL
-                           : (sailing ? v1::ControlCommand::MODE_SAILING : v1::ControlCommand::MODE_UNKNOWN));
+    command.set_mode(crawl ? wire::ControlCommand::MODE_CRAWL
+                           : (sailing ? wire::ControlCommand::MODE_SAILING : wire::ControlCommand::MODE_UNKNOWN));
     command.set_enabled(message->is_enable);
     command.set_target_speed_mps(message->speed);
     command.set_target_yaw_rate_radps(message->angular_velocity);
@@ -490,7 +490,7 @@ void AutoVizServerNode::onControl(custom_msgs::msg::ChassisCommand::ConstSharedP
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_control_command()->CopyFrom(command);
     }
-    auto update = makeUpdate(v1::CHANNEL_CONTROL_COMMAND);
+    auto update = makeUpdate(wire::CHANNEL_CONTROL_COMMAND);
     update.mutable_control_command()->Swap(&command);
     publish(std::move(update));
 }
@@ -498,8 +498,8 @@ void AutoVizServerNode::onControl(custom_msgs::msg::ChassisCommand::ConstSharedP
 void AutoVizServerNode::onChassis(custom_msgs::msg::ChassisStates::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_CHASSIS_STATE));
-    v1::ChassisState chassis;
+    recordTopic(topicName(wire::CHANNEL_CHASSIS_STATE));
+    wire::ChassisState chassis;
     fillHeader(chassis.mutable_header(), receiveNs, receiveNs, "robot_ws.chassis_states");
     chassis.set_speed_mps(message->current_speed);
     // robot_ws 的反馈为左负右正；协议统一为左正右负。
@@ -616,7 +616,7 @@ void AutoVizServerNode::onChassis(custom_msgs::msg::ChassisStates::ConstSharedPt
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_chassis_state()->CopyFrom(chassis);
     }
-    auto update = makeUpdate(v1::CHANNEL_CHASSIS_STATE);
+    auto update = makeUpdate(wire::CHANNEL_CHASSIS_STATE);
     update.mutable_chassis_state()->Swap(&chassis);
     publish(std::move(update));
 }
@@ -624,8 +624,8 @@ void AutoVizServerNode::onChassis(custom_msgs::msg::ChassisStates::ConstSharedPt
 void AutoVizServerNode::onAction(custom_msgs::msg::SystemRunStates::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_ACTION_STATE));
-    v1::ActionState state;
+    recordTopic(topicName(wire::CHANNEL_ACTION_STATE));
+    wire::ActionState state;
     fillHeader(state.mutable_header(), receiveNs, receiveNs, "robot_ws.system_run_states");
     state.set_owner(message->owner);
     state.set_state(message->state);
@@ -644,7 +644,7 @@ void AutoVizServerNode::onAction(custom_msgs::msg::SystemRunStates::ConstSharedP
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_action_state()->CopyFrom(state);
     }
-    auto update = makeUpdate(v1::CHANNEL_ACTION_STATE);
+    auto update = makeUpdate(wire::CHANNEL_ACTION_STATE);
     update.mutable_action_state()->Swap(&state);
     publish(std::move(update));
 }
@@ -652,8 +652,8 @@ void AutoVizServerNode::onAction(custom_msgs::msg::SystemRunStates::ConstSharedP
 void AutoVizServerNode::onTask(custom_msgs::msg::TaskParams::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_TASK_STATE));
-    v1::TaskState state;
+    recordTopic(topicName(wire::CHANNEL_TASK_STATE));
+    wire::TaskState state;
     fillHeader(state.mutable_header(), receiveNs, receiveNs, "robot_ws.task_params");
     state.set_task_type(message->task_type);
     state.set_task_id(message->task_id);
@@ -665,7 +665,7 @@ void AutoVizServerNode::onTask(custom_msgs::msg::TaskParams::ConstSharedPtr mess
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_task_state()->CopyFrom(state);
     }
-    auto update = makeUpdate(v1::CHANNEL_TASK_STATE);
+    auto update = makeUpdate(wire::CHANNEL_TASK_STATE);
     update.mutable_task_state()->Swap(&state);
     publish(std::move(update));
 }
@@ -673,11 +673,11 @@ void AutoVizServerNode::onTask(custom_msgs::msg::TaskParams::ConstSharedPtr mess
 void AutoVizServerNode::onLocalPath(custom_msgs::msg::TrajectoryMsg::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_LOCAL_TRAJECTORY));
-    v1::Trajectory trajectory;
+    recordTopic(topicName(wire::CHANNEL_LOCAL_TRAJECTORY));
+    wire::Trajectory trajectory;
     const auto sourceNs = rosStampNs(message->header.stamp);
     fillHeader(trajectory.mutable_header(), sourceNs, receiveNs, "robot_ws.local_path", message->header.frame_id);
-    trajectory.set_kind(v1::Trajectory::KIND_LOCAL);
+    trajectory.set_kind(wire::Trajectory::KIND_LOCAL);
     trajectory.set_goal_id(message->goal_uuid);
     for (const auto& sourcePoint : message->trajectory) {
         auto* point = trajectory.add_point();
@@ -701,7 +701,7 @@ void AutoVizServerNode::onLocalPath(custom_msgs::msg::TrajectoryMsg::ConstShared
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_local_trajectory()->CopyFrom(trajectory);
     }
-    auto update = makeUpdate(v1::CHANNEL_LOCAL_TRAJECTORY);
+    auto update = makeUpdate(wire::CHANNEL_LOCAL_TRAJECTORY);
     update.mutable_trajectory()->Swap(&trajectory);
     publish(std::move(update));
 }
@@ -709,11 +709,11 @@ void AutoVizServerNode::onLocalPath(custom_msgs::msg::TrajectoryMsg::ConstShared
 void AutoVizServerNode::onGlobalPath(nav_msgs::msg::Path::ConstSharedPtr message)
 {
     const auto receiveNs = nowNs();
-    recordTopic(topicName(v1::CHANNEL_GLOBAL_TRAJECTORY));
-    v1::Trajectory trajectory;
+    recordTopic(topicName(wire::CHANNEL_GLOBAL_TRAJECTORY));
+    wire::Trajectory trajectory;
     const auto sourceNs = rosStampNs(message->header.stamp);
     fillHeader(trajectory.mutable_header(), sourceNs, receiveNs, "robot_ws.global_path", message->header.frame_id);
-    trajectory.set_kind(v1::Trajectory::KIND_GLOBAL);
+    trajectory.set_kind(wire::Trajectory::KIND_GLOBAL);
     for (const auto& pose : message->poses) {
         auto* point = trajectory.add_point();
         auto* pathPoint = point->mutable_path_point();
@@ -727,7 +727,7 @@ void AutoVizServerNode::onGlobalPath(nav_msgs::msg::Path::ConstSharedPtr message
         std::lock_guard<std::mutex> lock(m_mutex);
         m_snapshot.mutable_global_trajectory()->CopyFrom(trajectory);
     }
-    auto update = makeUpdate(v1::CHANNEL_GLOBAL_TRAJECTORY);
+    auto update = makeUpdate(wire::CHANNEL_GLOBAL_TRAJECTORY);
     update.mutable_trajectory()->Swap(&trajectory);
     publish(std::move(update));
 }

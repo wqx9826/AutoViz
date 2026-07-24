@@ -4,26 +4,26 @@
 #include <string>
 #include <vector>
 
-#include "FrameCodec.h"
+#include "autoviz/FrameCodec.h"
 
 namespace {
 
-namespace v1 = autoviz::protocol::v1;
+namespace wire = autoviz;
 
-v1::Envelope heartbeatEnvelope(std::uint64_t sequence)
+wire::Envelope heartbeatEnvelope(std::uint64_t sequence)
 {
-    v1::Envelope envelope;
+    wire::Envelope envelope;
     envelope.mutable_heartbeat()->set_sequence(sequence);
     return envelope;
 }
 
 TEST(FrameCodecTest, RoundTripsSingleFrame)
 {
-    const std::string frame = autoviz::protocol::encodeFrame(heartbeatEnvelope(42));
+    const std::string frame = wire::encodeFrame(heartbeatEnvelope(42));
     ASSERT_FALSE(frame.empty());
 
-    autoviz::protocol::FrameDecoder decoder;
-    std::vector<v1::Envelope> decoded;
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
     std::string error;
     ASSERT_TRUE(decoder.append(frame.data(), frame.size(), &decoded, &error));
     ASSERT_EQ(decoded.size(), 1U);
@@ -33,11 +33,11 @@ TEST(FrameCodecTest, RoundTripsSingleFrame)
 
 TEST(FrameCodecTest, HandlesFragmentedFrame)
 {
-    const std::string frame = autoviz::protocol::encodeFrame(heartbeatEnvelope(7));
-    ASSERT_GT(frame.size(), autoviz::protocol::kFrameHeaderSize);
+    const std::string frame = wire::encodeFrame(heartbeatEnvelope(7));
+    ASSERT_GT(frame.size(), wire::kFrameHeaderSize);
 
-    autoviz::protocol::FrameDecoder decoder;
-    std::vector<v1::Envelope> decoded;
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
     std::string error;
     for (const char byte : frame) {
         ASSERT_TRUE(decoder.append(&byte, 1U, &decoded, &error));
@@ -49,25 +49,25 @@ TEST(FrameCodecTest, HandlesFragmentedFrame)
 
 TEST(FrameCodecTest, HandlesCoalescedFramesAndClearUpdate)
 {
-    v1::Envelope clear;
+    wire::Envelope clear;
     auto* update = clear.mutable_channel_update();
-    update->set_channel(v1::CHANNEL_LOCAL_TRAJECTORY);
-    update->set_operation(v1::ChannelUpdate::OPERATION_CLEAR);
+    update->set_channel(wire::CHANNEL_LOCAL_TRAJECTORY);
+    update->set_operation(wire::ChannelUpdate::OPERATION_CLEAR);
 
     const std::string stream =
-        autoviz::protocol::encodeFrame(heartbeatEnvelope(1))
-        + autoviz::protocol::encodeFrame(clear)
-        + autoviz::protocol::encodeFrame(heartbeatEnvelope(2));
+        wire::encodeFrame(heartbeatEnvelope(1))
+        + wire::encodeFrame(clear)
+        + wire::encodeFrame(heartbeatEnvelope(2));
 
-    autoviz::protocol::FrameDecoder decoder;
-    std::vector<v1::Envelope> decoded;
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
     std::string error;
     ASSERT_TRUE(decoder.append(stream.data(), stream.size(), &decoded, &error));
     ASSERT_EQ(decoded.size(), 3U);
     EXPECT_EQ(decoded[0].heartbeat().sequence(), 1U);
-    EXPECT_EQ(decoded[1].channel_update().channel(), v1::CHANNEL_LOCAL_TRAJECTORY);
+    EXPECT_EQ(decoded[1].channel_update().channel(), wire::CHANNEL_LOCAL_TRAJECTORY);
     EXPECT_EQ(decoded[1].channel_update().operation(),
-              v1::ChannelUpdate::OPERATION_CLEAR);
+              wire::ChannelUpdate::OPERATION_CLEAR);
     EXPECT_EQ(decoded[2].heartbeat().sequence(), 2U);
 }
 
@@ -76,8 +76,8 @@ TEST(FrameCodecTest, RejectsZeroAndOversizedFrames)
     const std::array<char, 4> zeroLength = {0, 0, 0, 0};
     const std::array<char, 4> oversized = {0x01, 0, 0, 0x01};
 
-    autoviz::protocol::FrameDecoder decoder;
-    std::vector<v1::Envelope> decoded;
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
     std::string error;
     EXPECT_FALSE(decoder.append(zeroLength.data(), zeroLength.size(), &decoded, &error));
     EXPECT_FALSE(error.empty());
@@ -91,13 +91,13 @@ TEST(FrameCodecTest, RejectsMalformedPayloadAndRecoversAfterReset)
 {
     const std::array<char, 5> malformed = {0, 0, 0, 1, 0};
 
-    autoviz::protocol::FrameDecoder decoder;
-    std::vector<v1::Envelope> decoded;
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
     std::string error;
     EXPECT_FALSE(decoder.append(malformed.data(), malformed.size(), &decoded, &error));
     EXPECT_FALSE(error.empty());
 
-    const std::string valid = autoviz::protocol::encodeFrame(heartbeatEnvelope(99));
+    const std::string valid = wire::encodeFrame(heartbeatEnvelope(99));
     error.clear();
     ASSERT_TRUE(decoder.append(valid.data(), valid.size(), &decoded, &error));
     ASSERT_EQ(decoded.size(), 1U);
@@ -106,7 +106,7 @@ TEST(FrameCodecTest, RejectsMalformedPayloadAndRecoversAfterReset)
 
 TEST(ProtocolEnvelopeTest, PreservesHandshakeSnapshotAndIncrementalMessages)
 {
-    std::vector<v1::Envelope> expected(4);
+    std::vector<wire::Envelope> expected(4);
     expected[0].mutable_client_hello()->set_protocol_major(1);
     expected[1].mutable_server_hello()->set_session_id("session-a");
     auto* snapshot = expected[2].mutable_snapshot();
@@ -114,17 +114,17 @@ TEST(ProtocolEnvelopeTest, PreservesHandshakeSnapshotAndIncrementalMessages)
     snapshot->mutable_vehicle_state()->set_speed_mps(1.5);
     auto* update = expected[3].mutable_channel_update();
     update->set_session_id("session-a");
-    update->set_channel(v1::CHANNEL_VEHICLE_STATE);
-    update->set_operation(v1::ChannelUpdate::OPERATION_UPSERT);
+    update->set_channel(wire::CHANNEL_VEHICLE_STATE);
+    update->set_operation(wire::ChannelUpdate::OPERATION_UPSERT);
     update->mutable_vehicle_state()->set_speed_mps(2.5);
 
     std::string stream;
     for (const auto& envelope : expected) {
-        stream += autoviz::protocol::encodeFrame(envelope);
+        stream += wire::encodeFrame(envelope);
     }
 
-    autoviz::protocol::FrameDecoder decoder;
-    std::vector<v1::Envelope> decoded;
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
     std::string error;
     ASSERT_TRUE(decoder.append(stream.data(), stream.size(), &decoded, &error));
     ASSERT_EQ(decoded.size(), expected.size());

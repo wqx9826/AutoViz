@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-package autoviz.protocol.v1;
+package autoviz;
 
 import "autoviz/common.proto";
 

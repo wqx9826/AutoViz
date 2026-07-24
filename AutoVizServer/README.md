@@ -1,117 +1,46 @@
 # AutoVizServer
 
-AutoVizServer 是一个独立的 ROS2 workspace。当前 `src/autoviz_server` 包负责：
+AutoVizServer 是独立 ROS2 workspace。`src/autoviz_server` 负责订阅 robot_ws topic，
+转换为来源无关的 AutoViz 消息，缓存最新状态，再通过 TCP 单向发送给 Client。它不
+向机器人写入任务或控制命令。
 
-1. 订阅 robot_ws 的 ROS2 topic。
-2. 把 `custom_msgs` 转换成来源无关的 AutoViz protobuf 消息。
-3. 缓存最新状态。
-4. 通过 TCP 把消息发送给一个或多个 AutoVizClient。
+## 先理解：protobuf + TCP 到底是什么
 
-它做的是单向可视化数据转发，不向机器人下发任务或控制命令。
+如果你已经会 TCP，只需把 protobuf 看成“结构体与字节之间的标准翻译器”。
 
-## 先理解：protobuf 和 TCP 不是二选一
+- TCP 负责连接、可靠传输和顺序，但它只认识连续字节。
+- protobuf 负责定义字段并把 C++ 对象编码成跨平台字节，但它不负责联网。
+- FrameCodec 给每个 protobuf payload 加长度，让接收方知道消息边界。
 
-如果已经知道怎样使用 TCP，可以把两者理解成不同层次的工具：
-
-- TCP 负责建立连接，并把一串字节可靠、有序地送到对方。
-- protobuf 负责规定这些字节代表什么，以及 C++ 对象怎样转换成这些字节。
-
-TCP 本身并不知道收到的字节是车辆位置、规划路径还是一句文本。直接使用 TCP 时，
-通常需要自己设计结构体字段、字段顺序、整数大小和版本兼容规则。protobuf 把这部分
-工作标准化了。
-
-可以把 TCP 想成快递运输，protobuf 想成双方统一使用的装箱单：
+发送过程：
 
 ```text
-ROS2 消息
-   ↓ 字段映射
-protobuf C++ 对象
-   ↓ SerializeToString()
-protobuf payload 字节
-   ↓ 添加 4 字节长度
-TCP frame
-   ↓ Boost.Asio 发送
-网络
+ROS2 message
+  -> Server 做字段映射和单位归一化
+  -> autoviz::VehicleState / Trajectory 等 C++ 对象
+  -> 放入 autoviz::Envelope
+  -> protobuf SerializeToString() 得到 payload
+  -> FrameCodec 加 4 字节长度
+  -> Boost.Asio 通过 TCP 发送
 ```
 
-Client 做完全相反的过程：
+Client 反向执行：
 
 ```text
 TCP 字节流
-   ↓ 根据 4 字节长度拆出一帧
-protobuf payload
-   ↓ ParseFromArray()
-protobuf C++ 对象
-   ↓ ProtocolModelConverter
-Client 内部模型与 UI
+  -> FrameCodec 依据长度拆出完整 payload
+  -> protobuf ParseFromArray() 得到 Envelope
+  -> 转为 Client 内部模型
+  -> UI
 ```
 
-protobuf 不代替 TCP，也不负责连接、重传或端口监听；TCP 也不会自动理解 protobuf。
-两者组合后，TCP 解决“怎么送到”，protobuf 解决“送的是什么”。
+所以它们不是二选一：TCP 解决“怎么送”，protobuf 解决“送的是什么”，FrameCodec
+解决“这一条消息从哪里开始、到哪里结束”。
 
-## `.proto` 为什么可以直接在 C++ 中使用
+## 为什么 TCP 还需要 4 字节长度
 
-协议文件位于：
-
-```text
-src/autoviz_server/proto/autoviz/
-  common.proto
-  vehicle.proto
-  planning.proto
-  perception.proto
-  control.proto
-  runtime.proto
-  transport.proto
-```
-
-`.proto` 不是运行时直接读取的配置文件。构建时，CMake 调用 protobuf 编译器
-`protoc`：
-
-```text
-proto/autoviz/transport.proto
-        ↓ protoc --cpp_out
-build/.../generated/autoviz/transport.pb.h
-build/.../generated/autoviz/transport.pb.cc
-```
-
-生成的 `.pb.h/.pb.cc` 提供普通 C++ 类，例如：
-
-```cpp
-autoviz::protocol::v1::Envelope envelope;
-auto* heartbeat = envelope.mutable_heartbeat();
-heartbeat->set_sequence(1);
-```
-
-`package autoviz.protocol.v1;` 决定生成类的 C++ namespace；文件位于
-`proto/autoviz/transport.proto`，因此生成头文件使用：
-
-```cpp
-#include "autoviz/transport.pb.h"
-```
-
-Server 和 Client 各保存、各编译一份相同的 `.proto`。两边不共享生成文件，也不需要
-使用相同编译器或操作系统；它们只需要遵守相同的字段号和 wire format。
-
-## 为什么不能直接发送 C++ struct
-
-直接把结构体内存交给 TCP 会遇到很多问题：
-
-- Linux 和 Windows 的编译器、对齐方式可能不同。
-- `std::string`、`std::vector` 内部保存的是指针，不能直接传到另一台机器。
-- 新增字段后，旧 Client 不知道结构体大小发生了变化。
-- 字节序和不同整数宽度需要自行处理。
-
-protobuf 只序列化字段值，不发送 C++ 内存布局。字段由稳定的 field number 标识，
-所以旧程序通常可以忽略自己不认识的新 optional 字段。
-
-## 为什么还需要 4 字节长度
-
-TCP 是字节流，不保留“发送次数”。Server 调用两次 `send()`，Client 可能：
-
-- 一次 `read()` 只收到半条消息，这叫拆包。
-- 一次 `read()` 同时收到两条消息，这叫粘包。
-
-所以每个 AutoViz 消息都使用下面的帧格式：
+TCP 不保留 `send()` 次数。Server 发送两条消息，Client 可能一次只读到半条（拆包），
+也可能一次读到两条（粘包）。每帧因此采用：
 
 ```text
 +----------------------+----------------------------+
@@ -119,14 +48,43 @@ TCP 是字节流，不保留“发送次数”。Server 调用两次 `send()`，
 +----------------------+----------------------------+
 ```
 
-接收方先凑齐 4 字节，得到 payload 长度，再等待完整的 N 字节，最后才调用 protobuf
-解析。单帧最大 16 MiB，长度为 0 或超过上限都会断开连接。
+接收方先凑齐 4 字节，再等待 N 字节，最后交给 protobuf。N 必须在 1..16 MiB；非法
+长度会终止连接。
 
-`FrameCodec` 负责的就是这层 framing；protobuf 只负责 Envelope payload。
+## `.proto` 在哪里、怎样变成 C++
 
-## `Envelope` 是什么
+唯一 schema 不在 Server 内，而在独立工程：
 
-一条 TCP 连接上会传输多种消息。`transport.proto` 用 `Envelope` 作为统一外包装：
+```text
+AutoVizProto/proto/autoviz/*.proto
+```
+
+构建 AutoVizProto 时，CMake 调用 protoc 生成 `autoviz/*.pb.h/.pb.cc`，再把生成代码
+和 FrameCodec 做成可安装库 `AutoVizProto::AutoVizProto`。Server 通过
+`find_package(AutoVizProto)` 链接安装包，不复制 `.proto`，也不引用 Client。
+
+所有 schema 使用：
+
+```proto
+package autoviz;
+```
+
+所以生成 C++ 类型直接是：
+
+```cpp
+#include "autoviz/transport.pb.h"
+
+autoviz::Envelope envelope;
+envelope.mutable_heartbeat()->set_sequence(1);
+```
+
+运行时不会把 `.proto` 发给 Client。双方已经链接同一协议定义，按稳定 field number
+解释 wire format。protobuf 序列化的是字段值，不是 C++ struct 内存，因此 Linux 与
+Windows 的对象布局、指针和 padding 差异不会进入网络。
+
+## Envelope、握手、快照和增量
+
+一条连接要承载多类消息，Envelope 是统一外包装：
 
 ```text
 Envelope
@@ -139,10 +97,7 @@ Envelope
   └── ProtocolError
 ```
 
-protobuf 的 `oneof` 保证一个 Envelope 在同一时刻只装其中一种消息。接收方解析后，
-通过 `has_client_hello()`、`has_snapshot()` 等方法判断类型。
-
-## 一次连接实际发生什么
+连接流程：
 
 ```text
 Client                                      Server
@@ -155,19 +110,10 @@ Client                                      Server
   |<---> Heartbeat -------------------------->|
 ```
 
-步骤解释：
-
-1. Client 建立普通 TCP 连接。
-2. ClientHello 告诉 Server 自己支持的协议版本。
-3. ServerHello 返回版本、当前 `session_id` 和可用通道。
-4. Client 请求订阅；当前空通道列表表示订阅全部。
-5. Server 先发送全量 snapshot，让新 Client 立即拿到完整当前状态。
-6. 后续某个 ROS topic 更新时，只发送对应 `ChannelUpdate(UPSERT)`。
-7. topic 超时或数据变空时发送 `ChannelUpdate(CLEAR)`，避免 Client 继续显示旧数据。
-8. 双方通过 heartbeat 判断连接是否仍然有效。
-
-`session_id` 代表一次 Server 生命周期。Server 重启后 session 会变化，Client 必须
-清空旧轨迹，不能把两次运行的数据拼在一起。
+新 Client 先得到完整 snapshot，以后只有相应 ROS topic 变化时才收
+`ChannelUpdate(UPSERT)`。topic 超时或内容需要删除时发送
+`ChannelUpdate(CLEAR)`，防止 Client 永久显示旧数据。Server 重启会产生新
+`session_id`，Client 据此清空旧轨迹。
 
 ## Server 内部数据流
 
@@ -175,74 +121,67 @@ Client                                      Server
 
 ```text
 /location (custom_msgs::msg::Location)
-        ↓ AutoVizServerNode::onLocation()
-字段转换、单位和方向归一化
-        ↓
-protobuf VehicleState
-        ├── 更新 Server 内存中的 VisualizationSnapshot
-        └── 包装成 ChannelUpdate
-                  ↓
-          TcpServer::broadcast()
-                  ↓
-          FrameCodec::encodeFrame()
-                  ↓
-          Boost.Asio async_write()
+  -> AutoVizServerNode::onLocation()
+  -> 字段映射、单位/方向归一化
+  -> autoviz::VehicleState
+  -> 更新 VisualizationSnapshot 并生成 ChannelUpdate
+  -> TcpServer::broadcast()
+  -> autoviz::encodeFrame()
+  -> Boost.Asio async_write()
 ```
 
-重要文件：
+主要文件：
 
-- `src/autoviz_server/src/AutoVizServerNode.cpp`：ROS 订阅、字段映射、缓存和新鲜度。
-- `src/autoviz_server/src/TcpServer.cpp`：连接、握手、订阅、收发队列和心跳。
-- `src/autoviz_server/src/protocol/FrameCodec.cpp`：长度前缀与 protobuf 序列化。
-- `src/autoviz_server/proto/autoviz/transport.proto`：Envelope、握手、快照和更新。
+- `src/autoviz_server/src/AutoVizServerNode.cpp`：订阅、字段映射、缓存和新鲜度。
+- `src/autoviz_server/src/TcpServer.cpp`：连接、握手、订阅、队列和心跳。
 - `src/autoviz_server/config/robot_ws.yaml`：topic、端口、超时和车辆参数。
+- `../AutoVizProto/`：仓库中的独立协议工程；部署时也可以用其安装包。
 
 ## 构建
+
+先在仓库根目录构建安装 AutoVizProto：
+
+```bash
+cmake -S AutoVizProto -B build/proto \
+  -DCMAKE_INSTALL_PREFIX="$PWD/install/proto" \
+  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
+cmake --build build/proto -j4
+./build/proto/autoviz_proto_tests
+cmake --install build/proto
+```
+
+再构建 Server：
 
 ```bash
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
 
-colcon --log-base log build \
-  --base-paths src \
-  --build-base build \
-  --install-base install
+colcon --log-base AutoVizServer/log build \
+  --base-paths AutoVizServer/src \
+  --build-base AutoVizServer/build \
+  --install-base AutoVizServer/install \
+  --cmake-args \
+    -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
 ```
 
-构建过程会自动执行 `protoc`，不需要手工生成 `.pb.h/.pb.cc`，也不应把生成文件提交到
-源码目录。
-
-## 测试
-
-Server 使用 ROS2 的 `ament_cmake_gtest`：
-
-```bash
-colcon --log-base log test \
-  --base-paths src \
-  --build-base build \
-  --install-base install
-colcon test-result --test-result-base build --verbose
-```
-
-测试覆盖 protobuf Envelope 往返、TCP 拆包/粘包、非法长度、超长帧、坏 payload、
-全量快照、增量消息和 `CLEAR`。
+Server 不重复保存 FrameCodec GTest；协议测试在 AutoVizProto 中直接运行，不使用
+CTest。ROS 映射变化则必须重新编译 Server，并应增加字段级映射测试。
 
 ## 运行
 
 ```bash
-source install/setup.bash
+source AutoVizServer/install/setup.bash
 ros2 launch autoviz_server autoviz_server.launch.py
 ```
 
-默认监听 `0.0.0.0:39090`。Server 可以先于 Client 启动；Client 连接后会自动完成
-握手和全量同步。
+默认监听 `0.0.0.0:39090`。Server 可以先启动，Client 连接后会自动握手和全量同步。
 
 ## 常见误区
 
-- `.proto` 文件不会通过 TCP 发给 Client；两边在构建前就各自拥有 schema。
-- protobuf 不会处理粘包，长度前缀和 FrameCodec 才负责消息边界。
-- TCP 连接成功不等于协议兼容；还要检查 ClientHello/ServerHello 的 major 版本。
-- `SerializeToString()` 得到的是二进制，不适合直接当文本打印。
-- 修改 proto 文件路径后，必须同时修改 proto 内的 `import`、CMake 文件列表和生成头
-  文件的 `#include`。
-- 修改字段时不能复用已经发布的 field number；删除字段应保留为 `reserved`。
+- protobuf 不代替 TCP；它只编码/解析 payload。
+- protobuf 不处理粘包；长度前缀和 FrameCodec 负责消息边界。
+- `.proto` 不在运行时发送；它用于构建双方的代码。
+- TCP 连接成功不代表协议兼容；还必须检查 hello 中的 protocol major。
+- 不要直接发送 C++ struct 内存，里面可能包含指针、padding 和平台相关布局。
+- `package autoviz` 生成 `autoviz::...`，协议 v1 由握手字段表达，不在 namespace 中。
+- 已发布 field number 不得复用；删除字段使用 `reserved`。

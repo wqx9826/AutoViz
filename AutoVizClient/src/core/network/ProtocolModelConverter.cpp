@@ -7,12 +7,12 @@
 
 namespace autoviz::network {
 
-namespace v1 = autoviz::protocol::v1;
+namespace wire = ::autoviz;
 namespace model = autoviz::model;
 namespace datacenter = autoviz::datacenter;
 
 namespace {
-qint64 timestampMs(const v1::Header& header)
+qint64 timestampMs(const wire::Header& header)
 {
     const auto ns = header.has_source_time_ns() ? header.source_time_ns()
                                                 : header.server_receive_time_ns();
@@ -20,7 +20,7 @@ qint64 timestampMs(const v1::Header& header)
                   : QDateTime::currentMSecsSinceEpoch();
 }
 
-model::Header convertHeader(const v1::Header& source)
+model::Header convertHeader(const wire::Header& source)
 {
     model::Header target;
     target.timestamp = timestampMs(source);
@@ -28,8 +28,8 @@ model::Header convertHeader(const v1::Header& source)
     return target;
 }
 
-const v1::DiagnosticMetric* findMetric(
-    const google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>& metrics,
+const wire::DiagnosticMetric* findMetric(
+    const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
     const char* key)
 {
     for (const auto& metric : metrics) {
@@ -40,7 +40,7 @@ const v1::DiagnosticMetric* findMetric(
     return nullptr;
 }
 
-double metricDouble(const google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>& metrics,
+double metricDouble(const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
                     const char* key,
                     double fallback = 0.0)
 {
@@ -57,7 +57,7 @@ double metricDouble(const google::protobuf::RepeatedPtrField<v1::DiagnosticMetri
     return fallback;
 }
 
-int metricInt(const google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>& metrics,
+int metricInt(const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
               const std::string& key,
               int fallback = 0)
 {
@@ -74,7 +74,7 @@ int metricInt(const google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>& me
     return fallback;
 }
 
-bool metricBool(const google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>& metrics,
+bool metricBool(const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
                 const char* key,
                 bool fallback = false)
 {
@@ -91,7 +91,7 @@ bool metricBool(const google::protobuf::RepeatedPtrField<v1::DiagnosticMetric>& 
     return fallback;
 }
 
-model::VehicleLocation convertVehicle(const v1::VehicleState& source)
+model::VehicleLocation convertVehicle(const wire::VehicleState& source)
 {
     model::VehicleLocation target;
     if (source.has_header()) {
@@ -120,7 +120,7 @@ model::VehicleLocation convertVehicle(const v1::VehicleState& source)
     return target;
 }
 
-model::LocalizationStatus convertLocalization(const v1::VehicleState& source)
+model::LocalizationStatus convertLocalization(const wire::VehicleState& source)
 {
     model::LocalizationStatus target;
     target.valid = true;
@@ -153,7 +153,7 @@ model::LocalizationStatus convertLocalization(const v1::VehicleState& source)
     return target;
 }
 
-model::CrawlMotorRuntimeStatus convertMotor(const v1::ActuatorState& source)
+model::CrawlMotorRuntimeStatus convertMotor(const wire::ActuatorState& source)
 {
     model::CrawlMotorRuntimeStatus target;
     target.valid = true;
@@ -176,7 +176,7 @@ model::CrawlMotorRuntimeStatus convertMotor(const v1::ActuatorState& source)
     return target;
 }
 
-model::VehicleChassisInfo convertChassisInfo(const v1::ChassisState& source)
+model::VehicleChassisInfo convertChassisInfo(const wire::ChassisState& source)
 {
     model::VehicleChassisInfo target;
     if (source.has_header()) {
@@ -192,7 +192,7 @@ model::VehicleChassisInfo convertChassisInfo(const v1::ChassisState& source)
     return target;
 }
 
-model::ChassisRuntimeStatus convertChassisStatus(const v1::ChassisState& source)
+model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& source)
 {
     model::ChassisRuntimeStatus target;
     target.valid = true;
@@ -262,7 +262,7 @@ model::ChassisRuntimeStatus convertChassisStatus(const v1::ChassisState& source)
     return target;
 }
 
-model::TrajectoryPoint convertTrajectoryPoint(const v1::TrajectoryPoint& source)
+model::TrajectoryPoint convertTrajectoryPoint(const wire::TrajectoryPoint& source)
 {
     model::TrajectoryPoint target;
     if (source.has_path_point()) {
@@ -295,7 +295,7 @@ model::TrajectoryPoint convertTrajectoryPoint(const v1::TrajectoryPoint& source)
     return target;
 }
 
-model::Trajectory convertTrajectory(const v1::Trajectory& source)
+model::Trajectory convertTrajectory(const wire::Trajectory& source)
 {
     model::Trajectory target;
     if (source.has_header()) {
@@ -308,7 +308,7 @@ model::Trajectory convertTrajectory(const v1::Trajectory& source)
     return target;
 }
 
-model::ReferenceLine convertReferenceLine(const v1::ReferenceLine& source)
+model::ReferenceLine convertReferenceLine(const wire::ReferenceLine& source)
 {
     model::ReferenceLine target;
     if (source.has_header()) {
@@ -330,7 +330,7 @@ model::ReferenceLine convertReferenceLine(const v1::ReferenceLine& source)
     return target;
 }
 
-model::ObstacleList convertObstacles(const v1::ObstacleSet& source)
+model::ObstacleList convertObstacles(const wire::ObstacleSet& source)
 {
     model::ObstacleList target;
     target.reserve(source.obstacle_size());
@@ -372,18 +372,18 @@ model::ObstacleList convertObstacles(const v1::ObstacleSet& source)
     return target;
 }
 
-model::ControlMode convertControlMode(v1::ControlCommand::Mode mode)
+model::ControlMode convertControlMode(wire::ControlCommand::Mode mode)
 {
-    if (mode == v1::ControlCommand::MODE_CRAWL) {
+    if (mode == wire::ControlCommand::MODE_CRAWL) {
         return model::ControlMode::Crawl;
     }
-    if (mode == v1::ControlCommand::MODE_SAILING) {
+    if (mode == wire::ControlCommand::MODE_SAILING) {
         return model::ControlMode::Sailing;
     }
     return model::ControlMode::Unknown;
 }
 
-model::ControlCmd convertControl(const v1::ControlCommand& source)
+model::ControlCmd convertControl(const wire::ControlCommand& source)
 {
     model::ControlCmd target;
     if (!source.enabled()) {
@@ -403,15 +403,15 @@ model::ControlCmd convertControl(const v1::ControlCommand& source)
     return target;
 }
 
-model::ControlCommandStatus convertControlStatus(const v1::ControlCommand& source)
+model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& source)
 {
     model::ControlCommandStatus target;
     target.valid = true;
     target.timestampMs = source.has_header() ? timestampMs(source.header())
                                              : QDateTime::currentMSecsSinceEpoch();
-    target.mode = source.mode() == v1::ControlCommand::MODE_CRAWL
+    target.mode = source.mode() == wire::ControlCommand::MODE_CRAWL
                       ? 6
-                      : (source.mode() == v1::ControlCommand::MODE_SAILING ? 4 : 0);
+                      : (source.mode() == wire::ControlCommand::MODE_SAILING ? 4 : 0);
     target.isEnable = source.enabled();
     target.speed = source.target_speed_mps();
     target.angularVelocity = source.target_yaw_rate_radps();
@@ -431,7 +431,7 @@ model::ControlCommandStatus convertControlStatus(const v1::ControlCommand& sourc
     return target;
 }
 
-model::ActionRuntimeStatus convertAction(const v1::ActionState& source)
+model::ActionRuntimeStatus convertAction(const wire::ActionState& source)
 {
     model::ActionRuntimeStatus target;
     target.valid = true;
@@ -454,7 +454,7 @@ model::ActionRuntimeStatus convertAction(const v1::ActionState& source)
     return target;
 }
 
-model::TaskRuntimeStatus convertTask(const v1::TaskState& source)
+model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
 {
     model::TaskRuntimeStatus target;
     target.valid = true;
@@ -469,7 +469,7 @@ model::TaskRuntimeStatus convertTask(const v1::TaskState& source)
     return target;
 }
 
-model::TopicStatusList convertTopics(const v1::RuntimeState& source)
+model::TopicStatusList convertTopics(const wire::RuntimeState& source)
 {
     model::TopicStatusList target;
     target.reserve(source.topic_size());
@@ -489,7 +489,7 @@ model::TopicStatusList convertTopics(const v1::RuntimeState& source)
     return target;
 }
 
-model::PathRuntimeStatus makePathStatus(const v1::Trajectory& source)
+model::PathRuntimeStatus makePathStatus(const wire::Trajectory& source)
 {
     model::PathRuntimeStatus status;
     status.valid = source.point_size() > 0;
@@ -505,7 +505,7 @@ model::PathRuntimeStatus makePathStatus(const v1::Trajectory& source)
 }  // namespace
 
 datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
-    const v1::VisualizationSnapshot& source)
+    const wire::VisualizationSnapshot& source)
 {
     datacenter::VisualizationSnapshot target;
     target.runtimeStatus.inputSource = datacenter::VisualizationInputSource::Remote;
@@ -561,15 +561,15 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     return target;
 }
 
-void ProtocolModelConverter::applyUpdate(const v1::ChannelUpdate& update,
+void ProtocolModelConverter::applyUpdate(const wire::ChannelUpdate& update,
                                          datacenter::DataManager* dataManager)
 {
     if (dataManager == nullptr) {
         return;
     }
-    const bool clear = update.operation() == v1::ChannelUpdate::OPERATION_CLEAR;
+    const bool clear = update.operation() == wire::ChannelUpdate::OPERATION_CLEAR;
     switch (update.channel()) {
-    case v1::CHANNEL_VEHICLE_STATE:
+    case wire::CHANNEL_VEHICLE_STATE:
         dataManager->setVehicleLocation(clear || !update.has_vehicle_state()
                                             ? model::VehicleLocation{}
                                             : convertVehicle(update.vehicle_state()));
@@ -577,7 +577,7 @@ void ProtocolModelConverter::applyUpdate(const v1::ChannelUpdate& update,
                                                ? model::LocalizationStatus{}
                                                : convertLocalization(update.vehicle_state()));
         break;
-    case v1::CHANNEL_CHASSIS_STATE:
+    case wire::CHANNEL_CHASSIS_STATE:
         dataManager->setVehicleChassisInfo(clear || !update.has_chassis_state()
                                                ? model::VehicleChassisInfo{}
                                                : convertChassisInfo(update.chassis_state()));
@@ -585,7 +585,7 @@ void ProtocolModelConverter::applyUpdate(const v1::ChannelUpdate& update,
                                                  ? model::ChassisRuntimeStatus{}
                                                  : convertChassisStatus(update.chassis_state()));
         break;
-    case v1::CHANNEL_CONTROL_COMMAND:
+    case wire::CHANNEL_CONTROL_COMMAND:
         dataManager->setControlCmd(clear || !update.has_control_command()
                                        ? model::ControlCmd{}
                                        : convertControl(update.control_command()));
@@ -593,7 +593,7 @@ void ProtocolModelConverter::applyUpdate(const v1::ChannelUpdate& update,
                                                   ? model::ControlCommandStatus{}
                                                   : convertControlStatus(update.control_command()));
         break;
-    case v1::CHANNEL_GLOBAL_TRAJECTORY:
+    case wire::CHANNEL_GLOBAL_TRAJECTORY:
         dataManager->setGlobalPath(clear || !update.has_trajectory()
                                        ? model::Trajectory{}
                                        : convertTrajectory(update.trajectory()));
@@ -601,7 +601,7 @@ void ProtocolModelConverter::applyUpdate(const v1::ChannelUpdate& update,
                                              ? model::PathRuntimeStatus{}
                                              : makePathStatus(update.trajectory()));
         break;
-    case v1::CHANNEL_LOCAL_TRAJECTORY:
+    case wire::CHANNEL_LOCAL_TRAJECTORY:
         dataManager->setLocalPath(clear || !update.has_trajectory()
                                       ? model::Trajectory{}
                                       : convertTrajectory(update.trajectory()));
@@ -609,32 +609,32 @@ void ProtocolModelConverter::applyUpdate(const v1::ChannelUpdate& update,
                                             ? model::PathRuntimeStatus{}
                                             : makePathStatus(update.trajectory()));
         break;
-    case v1::CHANNEL_REFERENCE_LINE:
+    case wire::CHANNEL_REFERENCE_LINE:
         dataManager->setReferenceLine(clear || !update.has_reference_line()
                                           ? model::ReferenceLine{}
                                           : convertReferenceLine(update.reference_line()));
         break;
-    case v1::CHANNEL_OBSTACLES:
+    case wire::CHANNEL_OBSTACLES:
         dataManager->setObstacles(clear || !update.has_obstacles()
                                       ? model::ObstacleList{}
                                       : convertObstacles(update.obstacles()));
         break;
-    case v1::CHANNEL_ACTION_STATE:
+    case wire::CHANNEL_ACTION_STATE:
         dataManager->setActionRuntimeStatus(clear || !update.has_action_state()
                                                 ? model::ActionRuntimeStatus{}
                                                 : convertAction(update.action_state()));
         break;
-    case v1::CHANNEL_TASK_STATE:
+    case wire::CHANNEL_TASK_STATE:
         dataManager->setTaskRuntimeStatus(clear || !update.has_task_state()
                                               ? model::TaskRuntimeStatus{}
                                               : convertTask(update.task_state()));
         break;
-    case v1::CHANNEL_RUNTIME_STATE:
+    case wire::CHANNEL_RUNTIME_STATE:
         dataManager->setTopicStatuses(clear || !update.has_runtime_state()
                                           ? model::TopicStatusList{}
                                           : convertTopics(update.runtime_state()));
         break;
-    case v1::CHANNEL_VEHICLE_PARAMETERS:
+    case wire::CHANNEL_VEHICLE_PARAMETERS:
         if (!clear && update.has_vehicle_parameters()) {
             model::VehicleConfig config;
             config.vehicleLength = update.vehicle_parameters().length_m();

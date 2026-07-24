@@ -7,7 +7,7 @@
 #include <QObject>
 #include <QString>
 
-#include "FrameCodec.h"
+#include "autoviz/FrameCodec.h"
 
 class QTcpSocket;
 class QTimer;
@@ -39,11 +39,11 @@ signals:
     void serverIdentityChanged(const QString& sourceDescription);
 
 private:
-    void sendEnvelope(const protocol::v1::Envelope& envelope);
+    void sendEnvelope(const ::autoviz::Envelope& envelope);
     void sendHello();
     void sendSubscribe();
     void sendHeartbeat();
-    void handleEnvelope(const protocol::v1::Envelope& envelope);
+    void handleEnvelope(const ::autoviz::Envelope& envelope);
     void scheduleReconnect();
     void setState(const QString& text, bool connected);
 
@@ -52,7 +52,7 @@ private:
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
     QTimer* m_reconnectTimer = nullptr;
-    protocol::FrameDecoder m_decoder;
+    ::autoviz::FrameDecoder m_decoder;
     QElapsedTimer m_lastReceive;
     QString m_host = QStringLiteral("127.0.0.1");
     quint16 m_port = 39090;

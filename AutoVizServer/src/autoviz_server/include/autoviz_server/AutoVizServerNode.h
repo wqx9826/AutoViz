@@ -30,7 +30,7 @@ private:
     struct TopicMonitor {
         std::string name;
         std::string type;
-        autoviz::protocol::v1::ChannelId channel;
+        ::autoviz::ChannelId channel;
         std::chrono::steady_clock::time_point lastReceive;
         std::uint64_t lastReceiveNs = 0;
         std::uint64_t messageCount = 0;
@@ -39,13 +39,13 @@ private:
     };
 
     std::uint64_t nowNs() const;
-    autoviz::protocol::v1::VisualizationSnapshot snapshot() const;
-    autoviz::protocol::v1::ChannelUpdate makeUpdate(autoviz::protocol::v1::ChannelId channel);
-    void publish(autoviz::protocol::v1::ChannelUpdate update);
+    ::autoviz::VisualizationSnapshot snapshot() const;
+    ::autoviz::ChannelUpdate makeUpdate(::autoviz::ChannelId channel);
+    void publish(::autoviz::ChannelUpdate update);
     void recordTopic(const std::string& topic);
-    std::string topicName(autoviz::protocol::v1::ChannelId channel) const;
+    std::string topicName(::autoviz::ChannelId channel) const;
     void onTimer();
-    void clearTimedOutChannel(autoviz::protocol::v1::ChannelId channel);
+    void clearTimedOutChannel(::autoviz::ChannelId channel);
     void updateRuntimeState();
     void createSubscriptions();
 
@@ -59,7 +59,7 @@ private:
     void onGlobalPath(nav_msgs::msg::Path::ConstSharedPtr message);
 
     mutable std::mutex m_mutex;
-    autoviz::protocol::v1::VisualizationSnapshot m_snapshot;
+    ::autoviz::VisualizationSnapshot m_snapshot;
     std::unordered_map<std::string, TopicMonitor> m_topics;
     TcpServer m_tcpServer;
     std::string m_sessionId;

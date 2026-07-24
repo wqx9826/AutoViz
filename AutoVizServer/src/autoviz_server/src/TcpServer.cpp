@@ -13,14 +13,13 @@
 
 #include <boost/asio.hpp>
 
-#include "autoviz/protocol/FrameCodec.h"
+#include "autoviz/FrameCodec.h"
 
 namespace autoviz_server {
 
 namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
-namespace protocol = autoviz::protocol;
-namespace v1 = autoviz::protocol::v1;
+namespace wire = ::autoviz;
 
 class TcpServer::Impl {
 public:
@@ -46,9 +45,9 @@ public:
             m_socket.close(ignored);
         }
 
-        void send(const v1::Envelope& envelope)
+        void send(const wire::Envelope& envelope)
         {
-            auto frame = protocol::encodeFrame(envelope);
+            auto frame = wire::encodeFrame(envelope);
             if (frame.empty()) {
                 return;
             }
@@ -59,7 +58,7 @@ public:
             }
         }
 
-        bool accepts(v1::ChannelId channel) const
+        bool accepts(wire::ChannelId channel) const
         {
             return m_subscribeAll || m_channels.count(channel) != 0U;
         }
@@ -86,7 +85,7 @@ public:
                                                | (static_cast<std::uint32_t>(bytes[1]) << 16U)
                                                | (static_cast<std::uint32_t>(bytes[2]) << 8U)
                                                | static_cast<std::uint32_t>(bytes[3]);
-                    if (size == 0U || size > protocol::kMaxFrameSize) {
+                    if (size == 0U || size > wire::kMaxFrameSize) {
                         self->stop();
                         self->m_server->removeSession(self->m_id);
                         return;
@@ -107,7 +106,7 @@ public:
                         self->m_server->removeSession(self->m_id);
                         return;
                     }
-                    v1::Envelope envelope;
+                    wire::Envelope envelope;
                     if (!envelope.ParseFromArray(self->m_payload.data(),
                                                  static_cast<int>(self->m_payload.size()))) {
                         self->stop();
@@ -120,10 +119,10 @@ public:
                 });
         }
 
-        void handle(const v1::Envelope& envelope)
+        void handle(const wire::Envelope& envelope)
         {
             if (envelope.has_client_hello()) {
-                v1::Envelope response;
+                wire::Envelope response;
                 auto* hello = response.mutable_server_hello();
                 hello->set_server_name("AutoViz Server");
                 hello->set_server_version("0.3.0");
@@ -134,10 +133,10 @@ public:
                 if (snapshot.has_source()) {
                     hello->mutable_source()->CopyFrom(snapshot.source());
                 }
-                for (int channel = v1::CHANNEL_VEHICLE_STATE;
-                     channel <= v1::CHANNEL_VEHICLE_PARAMETERS;
+                for (int channel = wire::CHANNEL_VEHICLE_STATE;
+                     channel <= wire::CHANNEL_VEHICLE_PARAMETERS;
                      ++channel) {
-                    hello->add_available_channel(static_cast<v1::ChannelId>(channel));
+                    hello->add_available_channel(static_cast<wire::ChannelId>(channel));
                 }
                 send(response);
                 return;
@@ -147,10 +146,10 @@ public:
                 m_channels.clear();
                 m_subscribeAll = envelope.subscribe_request().channel_size() == 0;
                 for (const auto channel : envelope.subscribe_request().channel()) {
-                    m_channels.insert(static_cast<v1::ChannelId>(channel));
+                    m_channels.insert(static_cast<wire::ChannelId>(channel));
                 }
                 if (envelope.subscribe_request().request_full_snapshot()) {
-                    v1::Envelope response;
+                    wire::Envelope response;
                     response.mutable_snapshot()->CopyFrom(m_server->snapshot());
                     send(response);
                 }
@@ -179,10 +178,10 @@ public:
         tcp::socket m_socket;
         Impl* m_server;
         std::uint64_t m_id;
-        std::array<char, protocol::kFrameHeaderSize> m_header{};
+        std::array<char, wire::kFrameHeaderSize> m_header{};
         std::vector<char> m_payload;
         std::deque<std::string> m_writeQueue;
-        std::set<v1::ChannelId> m_channels;
+        std::set<wire::ChannelId> m_channels;
         bool m_subscribeAll = true;
         std::chrono::steady_clock::time_point m_lastReceive;
     };
@@ -228,21 +227,21 @@ public:
         }
     }
 
-    void broadcast(const v1::Envelope& envelope)
+    void broadcast(const wire::Envelope& envelope)
     {
         asio::post(m_context, [this, envelope]() {
             const auto channel = envelope.has_channel_update()
                                      ? envelope.channel_update().channel()
-                                     : v1::CHANNEL_UNKNOWN;
+                                     : wire::CHANNEL_UNKNOWN;
             for (auto& item : m_sessions) {
-                if (channel == v1::CHANNEL_UNKNOWN || item.second->accepts(channel)) {
+                if (channel == wire::CHANNEL_UNKNOWN || item.second->accepts(channel)) {
                     item.second->send(envelope);
                 }
             }
         });
     }
 
-    void pruneAndHeartbeat(const v1::Envelope& envelope)
+    void pruneAndHeartbeat(const wire::Envelope& envelope)
     {
         asio::post(m_context, [this, envelope]() {
             const auto now = std::chrono::steady_clock::now();
@@ -259,9 +258,9 @@ public:
         });
     }
 
-    v1::VisualizationSnapshot snapshot() const
+    wire::VisualizationSnapshot snapshot() const
     {
-        return m_snapshotProvider ? m_snapshotProvider() : v1::VisualizationSnapshot{};
+        return m_snapshotProvider ? m_snapshotProvider() : wire::VisualizationSnapshot{};
     }
 
     std::size_t clientCount() const
@@ -333,7 +332,7 @@ void TcpServer::stop()
     m_impl->stop();
 }
 
-void TcpServer::broadcast(const v1::Envelope& envelope)
+void TcpServer::broadcast(const wire::Envelope& envelope)
 {
     m_impl->broadcast(envelope);
 }
@@ -342,7 +341,7 @@ void TcpServer::broadcastHeartbeat(std::uint64_t sequence,
                                    std::uint64_t sendTimeNs,
                                    const std::string& sessionId)
 {
-    v1::Envelope envelope;
+    wire::Envelope envelope;
     auto* heartbeat = envelope.mutable_heartbeat();
     heartbeat->set_sequence(sequence);
     heartbeat->set_send_time_ns(sendTimeNs);

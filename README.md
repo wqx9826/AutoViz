@@ -1,63 +1,75 @@
 # AutoViz
 
-AutoViz 是面向机器人规划控制链路的可视化调试工具。`feature/client-server` 由两个
-完全独立的工程组成：
+AutoViz 是面向机器人规划控制链路的可视化调试工具。`feature/client-server` 由三个
+边界清晰、可独立构建的工程组成：
 
 ```text
-robot_ws ROS2 topics
-        |
-        v
-AutoVizServer (Linux / ROS2)
-        |
-        | protobuf + TCP
-        v
-AutoVizClient (Linux / Windows / Qt5)
-        |
-        v
-DataManager -> SceneManager -> UI
+ROS2 topics
+    -> AutoVizServer (Linux / ROS2)
+    -> protobuf Envelope + TCP
+    -> AutoVizClient (Linux / Windows / Qt5)
+
+AutoVizProto
+    -> 为 Client 和 Server 提供唯一 schema、生成代码与 TCP FrameCodec
 ```
 
-`main` 分支仍是经过现场测试的 ROS2 单体版本；本分支的目录重排不会修改 main。
+`main` 仍是经过现场测试的 ROS2 单体版本；本分支的修改不会改写 main。
 
 ## 工程目录
 
 ```text
-AutoVizClient/                         # 独立 Qt Client 工程
+AutoVizProto/                         # 纯 C++/protobuf、可安装的协议工程
+  proto/autoviz/*.proto               # 唯一 schema
+  include/autoviz/FrameCodec.h
+  src/ tests/
+
+AutoVizClient/                        # 纯 Qt Client，不含 ROS
   CMakeLists.txt
-  proto/autoviz/*.proto               # Client 自己编译的协议副本
-  include/ src/ configs/ tests/
+  src/ configs/
 
-AutoVizServer/                         # 独立 ROS2 workspace
+AutoVizServer/                        # 独立 ROS2 workspace
   src/autoviz_server/
-    CMakeLists.txt
-    package.xml
-    proto/autoviz/*.proto             # Server 自己编译的协议副本
-    include/ src/ config/ launch/ test/
+    CMakeLists.txt package.xml
+    include/ src/ config/ launch/
 
-tools/verify_proto_sync.cmake         # 仓库内两份 proto 一致性检查
 docs/                                 # 架构、协议和演进文档
 ```
 
-两个工程不通过 CMake、源码路径或生成文件互相引用。复制 `AutoVizClient/` 到 Windows
-时无需携带 Server、ROS2 或仓库其他目录；复制 `AutoVizServer/` 也可以作为独立
-colcon workspace 构建。
+proto 声明为 `package autoviz;`，所以生成的 C++ 类型直接位于 `autoviz` namespace，
+例如 `autoviz::Envelope`。目录名只决定生成头文件路径
+`autoviz/transport.pb.h`，不再出现 `autoviz::protocol::v1`。
 
-## 构建 Client
+## 1. 构建并安装 AutoVizProto
 
-依赖 CMake 3.16+、C++17、Qt5 Widgets/Network 和 protobuf 3。
+Client 和 Server 都消费安装后的 CMake package，不引用 `AutoVizProto` 源码相对路径：
 
 ```bash
-cmake -S AutoVizClient -B build/client
+cmake -S AutoVizProto -B build/proto \
+  -DCMAKE_INSTALL_PREFIX="$PWD/install/proto" \
+  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
+cmake --build build/proto -j4
+./build/proto/autoviz_proto_tests
+cmake --install build/proto
+```
+
+测试使用 GTest，但不注册 CTest。schema、FrameCodec 或 framing 变化应在此工程验证。
+
+## 2. 构建 Client
+
+依赖 CMake 3.16+、C++17、Qt5 Widgets/Network，以及已安装的 AutoVizProto：
+
+```bash
+cmake -S AutoVizClient -B build/client \
+  -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
 cmake --build build/client -j4
 ./build/client/AutoViz
 ```
 
-Client 不使用 CTest。需要 GTest 时增加 `-DAUTOVIZ_BUILD_TESTS=ON`，构建后直接运行
-`./build/client/autoviz_client_protocol_tests`。
+Client 没有 CTest/GTest，也不需要 ROS。迁移到 Windows 时复制
+`AutoVizClient/` 和一个可独立获取的 `AutoVizProto/`（或其预编译安装包）即可，无需
+携带 Server。
 
-详细的 Linux/Windows 说明见 `AutoVizClient/README.md`。
-
-## 构建和运行 Server
+## 3. 构建和运行 Server
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -66,33 +78,22 @@ source /home/wqx/LZBK/robot_ws/install/setup.bash
 colcon --log-base AutoVizServer/log build \
   --base-paths AutoVizServer/src \
   --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install
+  --install-base AutoVizServer/install \
+  --cmake-args \
+    -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
 
 source AutoVizServer/install/setup.bash
 ros2 launch autoviz_server autoviz_server.launch.py
 ```
 
-默认监听 `0.0.0.0:39090`，参数位于
-`AutoVizServer/src/autoviz_server/config/robot_ws.yaml`。详细说明见
-`AutoVizServer/README.md`。
+默认监听 `0.0.0.0:39090`。参数位于
+`AutoVizServer/src/autoviz_server/config/robot_ws.yaml`。
 
-## 测试与协议同步
+详细说明见：
 
-Client 使用独立 GTest 可执行文件，Server 使用 `ament_cmake_gtest`：
-
-```bash
-colcon --log-base AutoVizServer/log test \
-  --base-paths AutoVizServer/src \
-  --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install
-colcon test-result --test-result-base AutoVizServer/build --verbose
-```
-
-两份 proto 必须同步修改。提交协议变更前运行：
-
-```bash
-cmake -P tools/verify_proto_sync.cmake
-```
-
-详细上下文见 `docs/PROJECT_CONTEXT.md`、`docs/ARCHITECTURE.md`、
-`docs/PROTOCOL_DESIGN.md` 和 `docs/TODO.md`。
+- `AutoVizProto/README.md`
+- `AutoVizClient/README.md`
+- `AutoVizServer/README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/PROTOCOL_DESIGN.md`
+- `docs/PROJECT_CONTEXT.md`

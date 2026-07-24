@@ -1,8 +1,8 @@
-#include "FrameCodec.h"
+#include "autoviz/FrameCodec.h"
 
-namespace autoviz::protocol {
+namespace autoviz {
 
-std::string encodeFrame(const v1::Envelope& envelope)
+std::string encodeFrame(const Envelope& envelope)
 {
     std::string payload;
     if (!envelope.SerializeToString(&payload) || payload.size() > kMaxFrameSize) {
@@ -21,7 +21,7 @@ std::string encodeFrame(const v1::Envelope& envelope)
 
 bool FrameDecoder::append(const char* data,
                           std::size_t size,
-                          std::vector<v1::Envelope>* envelopes,
+                          std::vector<Envelope>* envelopes,
                           std::string* errorMessage)
 {
     if (envelopes == nullptr || (data == nullptr && size != 0U)) {
@@ -53,7 +53,7 @@ bool FrameDecoder::append(const char* data,
             return true;
         }
 
-        v1::Envelope envelope;
+        Envelope envelope;
         if (!envelope.ParseFromArray(m_buffer.data() + kFrameHeaderSize,
                                      static_cast<int>(payloadSize))) {
             if (errorMessage != nullptr) {
@@ -72,4 +72,4 @@ void FrameDecoder::reset()
     m_buffer.clear();
 }
 
-}  // namespace autoviz::protocol
+}  // namespace autoviz

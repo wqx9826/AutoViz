@@ -1,126 +1,81 @@
 # AutoVizClient
 
-AutoVizClient 是独立的 Qt 可视化客户端。整个目录可以单独复制、构建和部署，不依赖
-AutoVizServer、ROS2、custom_msgs 或仓库父目录。
+AutoVizClient 是纯 Qt 可视化客户端，不依赖 AutoVizServer、ROS2 或 custom_msgs。它只
+消费安装后的 AutoVizProto CMake package。
 
-Client 只认识 AutoViz protobuf 协议，不知道 Server 内部订阅了哪些 ROS 消息。
-
-## Client 怎样接收 Server 数据
-
-如果已经熟悉 TCP，可以把 Client 的处理分成四步：
+## 数据怎样进入 UI
 
 ```text
-QTcpSocket 收到任意长度的一段字节
-        ↓
-FrameDecoder 缓存字节，并按 4 字节长度前缀拆帧
-        ↓
-protobuf 把 payload 解析成 Envelope C++ 对象
-        ↓
-ProtocolModelConverter 转换成 Client 内部模型
-        ↓
-DataManager -> SceneManager -> Qt UI
+QTcpSocket 字节流
+  -> autoviz::FrameDecoder 按 4 字节长度拆帧
+  -> protobuf 解析 autoviz::Envelope
+  -> ProtocolModelConverter 转为内部 VisualizationSnapshot
+  -> DataManager -> SceneManager / Qt UI
 ```
 
-TCP 只提供字节流，因此一次 `readyRead` 不保证恰好是一条消息。FrameDecoder 会保留
-不完整的半帧，也能从一次读取中拆出多帧。protobuf 在拿到完整 payload 后，负责把
-二进制字段还原成 `VehicleState`、`Trajectory`、`ChannelUpdate` 等对象。
+TCP 一次读取可能只有半帧，也可能包含多帧；FrameDecoder 解决拆包/粘包。protobuf
+负责把完整 payload 还原为车辆、轨迹、障碍物和状态对象。
 
-Client 的协议源码在：
+## 依赖与边界
 
-```text
-proto/autoviz/*.proto
-```
+- CMake 3.16+、C++17。
+- Qt5 Widgets、Network。
+- 已构建安装的 AutoVizProto。
 
-CMake 在构建目录中生成：
+Client 不保存 `.proto`，不调用 protoc，不包含 FrameCodec 的重复实现，也没有
+CTest/GTest。协议与 framing 测试统一位于 AutoVizProto。
 
-```text
-generated/autoviz/*.pb.h
-generated/autoviz/*.pb.cc
-```
+主要代码：
 
-例如 `transport.proto` 对应：
-
-```cpp
-#include "autoviz/transport.pb.h"
-```
-
-生成文件不提交到源码仓库。Client 与 Server 各自编译自己的 proto 副本，所以复制
-AutoVizClient 到 Windows 时不需要携带 Server 工程。
-
-## 主要文件
-
-- `proto/autoviz/`：来源无关的协议定义。
-- `src/protocol/FrameCodec.h`：TCP 帧接口。
-- `src/protocol/FrameCodec.cpp`：4 字节长度前缀和 Envelope 编解码。
-- `src/core/network/RemoteVisualizationSource.cpp`：连接、握手、心跳和重连。
-- `src/core/network/ProtocolModelConverter.cpp`：protobuf 到 UI 内部模型的唯一入口。
-- `src/core/datacenter/DataManager.cpp`：线程安全快照、历史轨迹和旧数据清理。
-
-## 依赖
-
-- CMake 3.16+
-- C++17 编译器
-- Qt5 Widgets、Network
-- protobuf 3
-- GTest（仅构建测试可执行文件时需要）
-
-Client 不使用 CTest。GTest 通过独立开关构建，并直接运行测试程序。
+- `src/core/network/RemoteVisualizationSource.cpp`：连接、握手、心跳、session 和重连。
+- `src/core/network/ProtocolModelConverter.cpp`：protobuf 到内部模型的唯一入口。
+- `src/core/datacenter/DataManager.cpp`：快照、历史轨迹和旧数据清理。
+- `src/core/render/`、`src/ui/`：渲染和界面，不 include protobuf。
 
 ## Linux 构建
 
-只构建应用：
+先安装 AutoVizProto，再配置 Client：
 
 ```bash
-cmake -S . -B build
+cmake -S ../AutoVizProto -B ../build/proto \
+  -DCMAKE_INSTALL_PREFIX="$PWD/../install/proto"
+cmake --build ../build/proto -j4
+cmake --install ../build/proto
+
+cmake -S . -B build \
+  -DAutoVizProto_DIR="$PWD/../install/proto/lib/cmake/AutoVizProto"
 cmake --build build -j4
 ./build/AutoViz
 ```
 
-同时构建并运行 GTest：
-
-```bash
-cmake -S . -B build -DAUTOVIZ_BUILD_TESTS=ON
-cmake --build build -j4
-./build/autoviz_client_protocol_tests
-```
-
-`configs/` 会在构建后复制到可执行文件旁。
+也可把协议安装前缀放进 `CMAKE_PREFIX_PATH`。`configs/` 会复制到可执行文件旁。
 
 ## Windows 构建
 
-在已安装 Qt5 和 protobuf 的 Developer Command Prompt 中执行：
+先用同一编译器/架构构建并安装 AutoVizProto，再构建 Client：
 
 ```powershell
-cmake -S . -B build -DCMAKE_PREFIX_PATH=C:\Qt\5.15.2\msvc2019_64
+cmake -S ..\AutoVizProto -B ..\build\proto `
+  -DCMAKE_INSTALL_PREFIX=C:\AutoVizSDK
+cmake --build ..\build\proto --config Release
+cmake --install ..\build\proto --config Release
+
+cmake -S . -B build `
+  -DCMAKE_PREFIX_PATH=C:\Qt\5.15.2\msvc2019_64 `
+  -DAutoVizProto_DIR=C:\AutoVizSDK\lib\cmake\AutoVizProto
 cmake --build build --config Release
 .\build\Release\AutoViz.exe
 ```
 
-需要测试时，确保 CMake 能找到 GTest，并增加：
-
-```powershell
--DAUTOVIZ_BUILD_TESTS=ON
-```
-
-然后直接运行：
-
-```powershell
-.\build\Release\autoviz_client_protocol_tests.exe
-```
-
-实际 Qt 路径和生成器按本机安装调整。
+迁移 Client 时不需要 Server 或 ROS workspace。可以复制 AutoVizClient 与
+AutoVizProto 源码，也可以分发已经安装好的 AutoVizProto SDK。
 
 ## 连接过程
 
-Client 默认连接 `127.0.0.1:39090`，也可以在“连接 -> 连接 Server...”中修改。
+默认连接 `127.0.0.1:39090`，可在“连接 -> 连接 Server...”修改：
 
-连接后会自动执行：
-
-1. 发送 ClientHello。
-2. 检查 ServerHello 的 protocol major。
-3. 保存 Server 的 `session_id`。
-4. 请求全量 snapshot。
-5. 持续接收 channel update 和 heartbeat。
-
-断线、Server session 变化或收到 `CLEAR` 时，Client 会清理对应旧数据，避免显示上次
-连接留下的轨迹或状态。
+1. Client 发送 ClientHello。
+2. 检查 ServerHello 的 protocol major 并保存 `session_id`。
+3. 发送订阅请求并接收全量 snapshot。
+4. 持续接收 ChannelUpdate 和 Heartbeat。
+5. 断线、新 session 或 CLEAR 时清理旧数据。

@@ -10,64 +10,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-option(AUTOVIZ_BUILD_TESTS "Build AutoVizClient GTest executable" OFF)
-
-find_package(Protobuf REQUIRED)
+find_package(AutoVizProto CONFIG REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Network Widgets)
-
-set(AUTOVIZ_PROTOCOL_PROTO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/proto")
-set(AUTOVIZ_PROTOCOL_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(AUTOVIZ_PROTOCOL_FILES
-    autoviz/common.proto
-    autoviz/vehicle.proto
-    autoviz/planning.proto
-    autoviz/perception.proto
-    autoviz/control.proto
-    autoviz/runtime.proto
-    autoviz/transport.proto
-)
-
-set(AUTOVIZ_PROTOCOL_GENERATED_SOURCES)
-set(AUTOVIZ_PROTOCOL_GENERATED_HEADERS)
-set(AUTOVIZ_PROTOCOL_ABSOLUTE_FILES)
-foreach(proto_file IN LISTS AUTOVIZ_PROTOCOL_FILES)
-    string(REPLACE ".proto" ".pb.cc" generated_source "${proto_file}")
-    string(REPLACE ".proto" ".pb.h" generated_header "${proto_file}")
-    list(APPEND AUTOVIZ_PROTOCOL_GENERATED_SOURCES
-         "${AUTOVIZ_PROTOCOL_GENERATED_DIR}/${generated_source}")
-    list(APPEND AUTOVIZ_PROTOCOL_GENERATED_HEADERS
-         "${AUTOVIZ_PROTOCOL_GENERATED_DIR}/${generated_header}")
-    list(APPEND AUTOVIZ_PROTOCOL_ABSOLUTE_FILES
-         "${AUTOVIZ_PROTOCOL_PROTO_ROOT}/${proto_file}")
-endforeach()
-
-add_custom_command(
-    OUTPUT ${AUTOVIZ_PROTOCOL_GENERATED_SOURCES} ${AUTOVIZ_PROTOCOL_GENERATED_HEADERS}
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${AUTOVIZ_PROTOCOL_GENERATED_DIR}"
-    COMMAND protobuf::protoc
-            --cpp_out=${AUTOVIZ_PROTOCOL_GENERATED_DIR}
-            --proto_path=${AUTOVIZ_PROTOCOL_PROTO_ROOT}
-            ${AUTOVIZ_PROTOCOL_ABSOLUTE_FILES}
-    DEPENDS ${AUTOVIZ_PROTOCOL_ABSOLUTE_FILES}
-    COMMENT "Generating AutoVizClient protobuf sources"
-    VERBATIM
-)
-
-add_library(autoviz_client_protocol STATIC
-    ${AUTOVIZ_PROTOCOL_GENERATED_SOURCES}
-    ${AUTOVIZ_PROTOCOL_GENERATED_HEADERS}
-    src/protocol/FrameCodec.h
-    src/protocol/FrameCodec.cpp
-)
-add_library(AutoVizClient::Protocol ALIAS autoviz_client_protocol)
-
-target_include_directories(autoviz_client_protocol
-    PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/protocol"
-        "${AUTOVIZ_PROTOCOL_GENERATED_DIR}"
-)
-target_link_libraries(autoviz_client_protocol PUBLIC protobuf::libprotobuf)
-target_compile_features(autoviz_client_protocol PUBLIC cxx_std_17)
 
 set(AUTOVIZ_CLIENT_SOURCES
     src/main.cpp
@@ -129,7 +73,7 @@ add_executable(AutoViz ${AUTOVIZ_CLIENT_SOURCES})
 target_include_directories(AutoViz PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(AutoViz
     PRIVATE
-        AutoVizClient::Protocol
+        AutoVizProto::AutoVizProto
         Qt5::Network
         Qt5::Widgets
 )
@@ -141,14 +85,3 @@ add_custom_command(
             "$<TARGET_FILE_DIR:AutoViz>/configs"
     COMMENT "Copying AutoVizClient runtime configuration"
 )
-
-if(AUTOVIZ_BUILD_TESTS)
-    find_package(GTest REQUIRED)
-
-    add_executable(autoviz_client_protocol_tests tests/FrameCodecTest.cpp)
-    target_link_libraries(autoviz_client_protocol_tests
-        PRIVATE
-            AutoVizClient::Protocol
-            GTest::gtest_main
-    )
-endif()
