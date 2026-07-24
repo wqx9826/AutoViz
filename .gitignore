@@ -1,5 +1,7 @@
 # Build outputs
 build/
+install/
+log/
 runtime/
 CMakeFiles/
 CMakeCache.txt
@@ -9,6 +11,7 @@ compile_commands.json
 
 # CMake generated files
 *.cmake
+!tools/verify_proto_sync.cmake
 */CMakeFiles/
 
 # Binary and object files
@@ -18,6 +21,9 @@ compile_commands.json
 *.so
 *.so.*
 *.out
+*.exe
+*.dll
+*.pdb
 
 # Qt user files
 *.user

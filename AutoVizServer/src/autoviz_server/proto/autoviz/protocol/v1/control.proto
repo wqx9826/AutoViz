@@ -1,0 +1,60 @@
+syntax = "proto2";
+
+package autoviz.protocol.v1;
+
+import "autoviz/protocol/v1/common.proto";
+
+message VerticalCommand {
+  optional double target_depth_m = 1;
+  optional double target_height_above_bottom_m = 2;
+  optional double dive_speed_mps = 3;
+  optional sint32 buoyancy_adjust = 4;
+  optional sint32 left_thruster_command = 5;
+  optional sint32 right_thruster_command = 6;
+}
+
+message ControlCommand {
+  enum Mode {
+    MODE_UNKNOWN = 0;
+    MODE_CRAWL = 1;
+    MODE_SAILING = 2;
+  }
+
+  optional Header header = 1;
+  optional Mode mode = 2 [default = MODE_UNKNOWN];
+  optional bool enabled = 3;
+  optional double target_speed_mps = 4;
+  optional double target_yaw_rate_radps = 5;
+  optional double target_heading_rad = 6;
+  optional sint32 target_gear = 7;
+  optional double target_throttle_percent = 8;
+  optional double target_brake_percent = 9;
+  optional bool hand_brake = 10;
+  optional VerticalCommand vertical = 11;
+  optional sint32 navigation_mode = 12;
+  optional bool sonar_power_enabled = 13;
+}
+
+message ActionState {
+  optional Header header = 1;
+  optional sint32 owner = 2;
+  optional sint32 state = 3;
+  optional string goal_id = 4;
+  optional sint32 chassis_mode = 5;
+  optional bool enabled = 6;
+  optional sint32 navigation_mode = 7;
+  optional double target_speed_mps = 8;
+  optional double target_heading_rad = 9;
+  optional double target_yaw_rate_radps = 10;
+  optional VerticalCommand vertical = 11;
+}
+
+message TaskState {
+  optional Header header = 1;
+  optional sint32 task_type = 2;
+  optional sint32 task_id = 3;
+  optional bool enabled = 4;
+  optional bool emergency_stop = 5;
+  optional sint32 remote_mode = 6;
+  optional sint32 power_enable = 7;
+}

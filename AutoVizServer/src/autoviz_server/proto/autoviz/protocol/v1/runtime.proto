@@ -1,0 +1,28 @@
+syntax = "proto2";
+
+package autoviz.protocol.v1;
+
+import "autoviz/protocol/v1/common.proto";
+
+message TopicStatus {
+  optional string name = 1;
+  optional string type = 2;
+  optional uint64 last_update_time_ns = 3;
+  optional uint64 timeout_ns = 4;
+  optional double frequency_hz = 5;
+  optional uint64 message_count = 6;
+  optional bool timed_out = 7;
+}
+
+message SourceInfo {
+  optional string source_id = 1;
+  optional string adapter_type = 2;
+  optional string adapter_version = 3;
+  optional string description = 4;
+}
+
+message RuntimeState {
+  optional Header header = 1;
+  repeated TopicStatus topic = 2;
+  optional DiagnosticNode diagnostics = 3;
+}

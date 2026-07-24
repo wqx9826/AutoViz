@@ -1,0 +1,51 @@
+syntax = "proto2";
+
+package autoviz.protocol.v1;
+
+import "autoviz/protocol/v1/common.proto";
+
+message PathPoint {
+  optional Point3D position = 1;
+  optional double heading_rad = 2;
+  optional double curvature_per_m = 3;
+  optional double curvature_derivative_per_m2 = 4;
+  optional double accumulated_s_m = 5;
+  optional double depth_m = 6;
+  optional double height_above_bottom_m = 7;
+}
+
+// PathPoint 描述几何；TrajectoryPoint 叠加时间与运动学信息。
+message TrajectoryPoint {
+  optional PathPoint path_point = 1;
+  optional double speed_mps = 2;
+  optional double acceleration_mps2 = 3;
+  optional double jerk_mps3 = 4;
+  optional double relative_time_s = 5;
+  optional double absolute_time_s = 6;
+  optional double lateral_offset_m = 7;
+  optional double lateral_speed_mps = 8;
+  optional double lateral_acceleration_mps2 = 9;
+}
+
+message Trajectory {
+  enum Kind {
+    KIND_UNKNOWN = 0;
+    KIND_GLOBAL = 1;
+    KIND_LOCAL = 2;
+    KIND_HISTORY = 3;
+  }
+
+  optional Header header = 1;
+  optional Kind kind = 2 [default = KIND_UNKNOWN];
+  optional string trajectory_id = 3;
+  optional string goal_id = 4;
+  repeated TrajectoryPoint point = 5;
+  optional double total_length_m = 6;
+  optional double total_time_s = 7;
+}
+
+message ReferenceLine {
+  optional Header header = 1;
+  optional string id = 2;
+  repeated PathPoint point = 3;
+}

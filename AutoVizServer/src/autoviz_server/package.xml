@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autoviz_server</name>
+  <version>0.3.0</version>
+  <description>AutoViz robot_ws ROS2 adapter and protobuf/TCP visualization server.</description>
+  <maintainer email="maintainer@example.com">AutoViz Maintainer</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>boost</depend>
+  <depend>custom_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>protobuf</depend>
+  <depend>rclcpp</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,68 @@
+syntax = "proto2";
+
+package autoviz.protocol.v1;
+
+import "autoviz/protocol/v1/common.proto";
+
+message VerticalState {
+  optional double odom_z_m = 1;
+  optional double depth_m = 2;
+  optional double height_above_bottom_m = 3;
+  optional double vertical_velocity_mps = 4;
+}
+
+message VehicleState {
+  optional Header header = 1;
+  optional Point3D position = 2;
+  optional double heading_rad = 3;
+  optional double pitch_rad = 4;
+  optional double roll_rad = 5;
+  optional Vector3D linear_velocity_mps = 6;
+  optional Vector3D linear_acceleration_mps2 = 7;
+  optional double speed_mps = 8;
+  optional double yaw_rate_radps = 9;
+  optional double longitudinal_acceleration_mps2 = 10;
+  optional VerticalState vertical = 11;
+  optional sint64 localization_status = 12;
+  optional sint64 localization_error = 13;
+  optional uint64 gps_time = 14;
+}
+
+message ActuatorState {
+  optional string id = 1;
+  optional string display_name = 2;
+  optional bool enabled = 3;
+  optional bool fault = 4;
+  optional sint32 fault_code = 5;
+  repeated DiagnosticMetric metric = 6;
+}
+
+message BatteryState {
+  optional bool valid = 1;
+  optional double state_of_charge_percent = 2;
+  optional double pack_voltage_v = 3;
+  optional double pack_current_a = 4;
+  optional sint32 alarm_level = 5;
+  repeated DiagnosticMetric metric = 6;
+}
+
+message ChassisState {
+  optional Header header = 1;
+  optional double speed_mps = 2;
+  // 协议统一为逆时针/左转为正。
+  optional double yaw_rate_radps = 3;
+  optional sint32 gear = 4;
+  optional double throttle_percent = 5;
+  optional double brake_percent = 6;
+  optional bool hand_brake = 7;
+  optional double energy_percent = 8;
+  repeated ActuatorState actuator = 9;
+  optional BatteryState battery = 10;
+  repeated DiagnosticMetric metric = 11;
+}
+
+message VehicleParameters {
+  optional double length_m = 1;
+  optional double width_m = 2;
+  optional double wheel_base_m = 3;
+}
