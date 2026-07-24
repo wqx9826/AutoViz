@@ -30,11 +30,12 @@ struct ControlDebugData {
     double cmdSpeed = 0.0;
     double feedbackSpeed = 0.0;
     double speedError = 0.0;
+    // Yaw values are stored in degrees for chart and status-panel display.
     double cmdYaw = 0.0;
     double feedbackYaw = 0.0;
     double yawError = 0.0;
     double lateralError = 0.0;
-    double pathYawError = 0.0;
+    double pathYawError = 0.0;  // degrees
 };
 
 }  // namespace autoviz::ui::charts

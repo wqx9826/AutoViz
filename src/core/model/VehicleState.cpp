@@ -10,11 +10,11 @@ VehicleLocation createMockVehicleLocation()
     location.position = {0.0, 0.0};
     location.heading = 0.18;
     location.curvature = 0.012;
-    location.speed = 8.2;
-    location.yawRate = 0.08;
-    location.acceleration = 0.45;
-    location.Velocity = {8.2, 0.15, 0.0};
-    location.Acceleration = {0.45, 0.02, 0.0};
+    location.speed = 0.35;
+    location.yawRate = 0.04;
+    location.acceleration = 0.03;
+    location.Velocity = {0.35, 0.02, 0.0};
+    location.Acceleration = {0.03, 0.01, 0.0};
     return location;
 }
 
@@ -22,15 +22,16 @@ VehicleChassisInfo createMockVehicleChassisInfo()
 {
     VehicleChassisInfo chassis;
     chassis.header = createMockVehicleLocation().header;
-    chassis.currentSpeed = 8.05;
-    chassis.currentWheelAngle = 2.4;
-    chassis.currentSteerWheelAngle = 18.6;
-    chassis.throttleRatio = 0.24;
+    chassis.currentSpeed = 0.34;
+    chassis.currentAngularVelocity = 0.04;
+    chassis.currentWheelAngle = 0.0;
+    chassis.currentSteerWheelAngle = 0.0;
+    chassis.throttleRatio = 0.18;
     chassis.brakeRatio = 0.0;
     chassis.currentGearPosition = static_cast<uint8_t>(GearPosition::Drive);
     chassis.energyRatio = 0.78;
-    chassis.leftWheelSpeed = 8.0;
-    chassis.rightWheelSpeed = 8.1;
+    chassis.leftWheelSpeed = 0.34;
+    chassis.rightWheelSpeed = 0.35;
     return chassis;
 }
 

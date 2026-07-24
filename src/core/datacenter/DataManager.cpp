@@ -34,6 +34,7 @@ DataManager::DataManager()
 void DataManager::initializeMockData()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+    const qint64 mockTimestamp = QDateTime::currentMSecsSinceEpoch();
     m_snapshot.vehicleLocation = model::createMockVehicleLocation();
     m_snapshot.vehicleChassisInfo = model::createMockVehicleChassisInfo();
     m_snapshot.vehicleConfig = model::createDefaultVehicleConfig();
@@ -45,16 +46,163 @@ void DataManager::initializeMockData()
     m_snapshot.referenceLine = model::createMockReferenceLine();
     m_snapshot.obstacles = model::createMockObstacles();
     m_snapshot.controlCmd = model::createMockControlCmd();
-    m_snapshot.topicStatuses = model::TopicStatusList{};
-    m_snapshot.localizationStatus = model::LocalizationStatus{};
-    m_snapshot.chassisRuntimeStatus = model::ChassisRuntimeStatus{};
-    m_snapshot.controlCommandStatus = model::ControlCommandStatus{};
-    m_snapshot.globalPathStatus = model::PathRuntimeStatus{};
-    m_snapshot.localPathStatus = model::PathRuntimeStatus{};
+
+    m_snapshot.vehicleLocation.header.timestamp = mockTimestamp;
+    m_snapshot.vehicleChassisInfo.header.timestamp = mockTimestamp;
+    m_snapshot.globalPath.header.timestamp = mockTimestamp;
+    m_snapshot.localPath.header.timestamp = mockTimestamp;
+    m_snapshot.referenceLine.header.timestamp = mockTimestamp;
+    m_snapshot.controlCmd.header.timestamp = mockTimestamp;
+
+    auto& localization = m_snapshot.localizationStatus;
+    localization.valid = true;
+    localization.timestampMs = mockTimestamp;
+    localization.gpsTime = mockTimestamp / 1000;
+    localization.status = 0;
+    localization.error = 0;
+    localization.odomX = m_snapshot.vehicleLocation.position.x;
+    localization.odomY = m_snapshot.vehicleLocation.position.y;
+    localization.odomZ = 0.0;
+    localization.heading = m_snapshot.vehicleLocation.heading;
+    localization.pitch = 0.02;
+    localization.roll = -0.01;
+    localization.velocityX = m_snapshot.vehicleLocation.Velocity.x;
+    localization.velocityY = m_snapshot.vehicleLocation.Velocity.y;
+    localization.velocityZ = m_snapshot.vehicleLocation.Velocity.z;
+    localization.velocity = m_snapshot.vehicleLocation.speed;
+    localization.omegaZ = m_snapshot.vehicleLocation.yawRate;
+    localization.acc = m_snapshot.vehicleLocation.acceleration;
+    localization.depth = 6.4;
+    localization.height = 1.8;
+
+    auto& chassis = m_snapshot.chassisRuntimeStatus;
+    chassis.valid = true;
+    chassis.timestampMs = mockTimestamp;
+    chassis.currentSpeed = m_snapshot.vehicleChassisInfo.currentSpeed;
+    chassis.currentAngularVelocity = m_snapshot.vehicleChassisInfo.currentAngularVelocity;
+    chassis.gearStatus = m_snapshot.vehicleChassisInfo.currentGearPosition;
+    chassis.waterTankLevelStatus = 62;
+    chassis.waterTankLevelIsRaw = false;
+    chassis.waterTankStatus = 0;
+    chassis.waterHeartbeat = 42;
+    chassis.crawlHeartbeat = 17;
+    chassis.leftTailActuatorStatus = 0;
+    chassis.rightTailActuatorStatus = 0;
+    chassis.leftVerticalActuatorStatus = 0;
+    chassis.rightVerticalActuatorStatus = 0;
+    chassis.backVerticalActuatorStatus = 0;
+    chassis.leftCrawlActuatorFaultCode = 0;
+    chassis.rightCrawlActuatorFaultCode = 0;
+    chassis.highVoltageBmsStatus = 0;
+    chassis.dccdcStatus = true;
+    chassis.highVoltageBmsSocStatus = 78;
+    chassis.smartPowerInputVoltageStatus = 24.2;
+
+    chassis.leftCrawlMotor = model::CrawlMotorRuntimeStatus{};
+    chassis.leftCrawlMotor.valid = true;
+    chassis.leftCrawlMotor.speedRpm = 42.0;
+    chassis.leftCrawlMotor.temperature = 31;
+    chassis.leftCrawlMotor.busVoltage = 24.1;
+    chassis.leftCrawlMotor.controllerReady = true;
+    chassis.leftCrawlMotor.outputEnabled = true;
+    chassis.leftCrawlMotor.commandEnable = true;
+    chassis.leftCrawlMotor.commandSpeedMode = true;
+    chassis.leftCrawlMotor.commandSpeedRpm = 43.0;
+    chassis.rightCrawlMotor = chassis.leftCrawlMotor;
+    chassis.rightCrawlMotor.speedRpm = 43.0;
+    chassis.rightCrawlMotor.commandSpeedRpm = 44.0;
+
+    chassis.bms = model::BmsRuntimeStatus{};
+    chassis.bms.valid = true;
+    chassis.bms.selfCheckStatus = 0;
+    chassis.bms.heartbeat = 128;
+    chassis.bms.alarmLevel = 0;
+    chassis.bms.currentStatus = 1;
+    chassis.bms.packVoltage = 48.6;
+    chassis.bms.packCurrent = 6.2;
+    chassis.bms.maxCellVoltageIndex = 3;
+    chassis.bms.maxCellVoltage = 4.08;
+    chassis.bms.minCellVoltageIndex = 11;
+    chassis.bms.minCellVoltage = 4.03;
+    chassis.bms.maxTemperatureIndex = 2;
+    chassis.bms.maxTemperature = 34;
+    chassis.bms.minTemperatureIndex = 5;
+    chassis.bms.minTemperature = 29;
+    chassis.bms.soc = 78;
+    chassis.bms.warningCodes = QVector<int>(12, 0);
+    chassis.powerSupplyStatuses = QVector<int>(16, 1);
+
+    auto& control = m_snapshot.controlCommandStatus;
+    control.valid = true;
+    control.timestampMs = mockTimestamp;
+    control.mode = 6;
+    control.isEnable = true;
+    control.speed = m_snapshot.controlCmd.desiredVelocity;
+    control.angularVelocity = m_snapshot.controlCmd.desiredAngularVelocity;
+    control.expectedGear = m_snapshot.controlCmd.desiredGear;
+
+    auto& action = m_snapshot.actionRuntimeStatus;
+    action.valid = true;
+    action.timestampMs = mockTimestamp;
+    action.owner = 1;
+    action.state = 1;
+    action.goalUuid = QStringLiteral("mock-goal-crawl-001");
+    action.chassisMode = 6;
+    action.isEnable = true;
+    action.targetSpeed = m_snapshot.controlCmd.desiredVelocity;
+    action.targetHeading = m_snapshot.vehicleLocation.heading;
+    action.targetAngularVelocity = m_snapshot.controlCmd.desiredAngularVelocity;
+
+    auto& task = m_snapshot.taskRuntimeStatus;
+    task.valid = true;
+    task.timestampMs = mockTimestamp;
+    task.taskType = 2;
+    task.taskId = 1;
+    task.taskEnable = true;
+    task.emergencyStop = false;
+    task.remoteMode = 0;
+    task.powerEnable = 1;
+
+    m_snapshot.globalPathStatus.valid = !m_snapshot.globalPath.points.isEmpty();
+    m_snapshot.globalPathStatus.timestampMs = mockTimestamp;
+    m_snapshot.globalPathStatus.frameId = m_snapshot.globalPath.header.frameId;
+    m_snapshot.globalPathStatus.pointCount = m_snapshot.globalPath.points.size();
+    m_snapshot.globalPathStatus.length = m_snapshot.globalPath.points.isEmpty()
+                                             ? 0.0
+                                             : m_snapshot.globalPath.points.constLast().position.x;
+    m_snapshot.localPathStatus.valid = !m_snapshot.localPath.points.isEmpty();
+    m_snapshot.localPathStatus.timestampMs = mockTimestamp;
+    m_snapshot.localPathStatus.frameId = m_snapshot.localPath.header.frameId;
+    m_snapshot.localPathStatus.goalUuid = action.goalUuid;
+    m_snapshot.localPathStatus.pointCount = m_snapshot.localPath.points.size();
+    m_snapshot.localPathStatus.length = m_snapshot.localPath.points.isEmpty()
+                                            ? 0.0
+                                            : m_snapshot.localPath.points.constLast().position.x;
+
+    auto mockTopic = [mockTimestamp](const QString& name, const QString& type) {
+        model::TopicStatus status;
+        status.name = name;
+        status.type = type;
+        status.lastUpdateMs = mockTimestamp;
+        status.ageMs = 0;
+        status.timeoutMs = 5000;
+        status.frequencyHz = 20.0;
+        status.messageCount = 1;
+        status.timedOut = false;
+        return status;
+    };
+    m_snapshot.topicStatuses = model::TopicStatusList{
+        mockTopic(QStringLiteral("/location"), QStringLiteral("custom_msgs/msg/Location")),
+        mockTopic(QStringLiteral("/targets/final_objects"), QStringLiteral("custom_msgs/msg/FinalTargetArray")),
+        mockTopic(QStringLiteral("/chassis_command"), QStringLiteral("custom_msgs/msg/ChassisCommand")),
+        mockTopic(QStringLiteral("/chassis_states"), QStringLiteral("custom_msgs/msg/ChassisStates")),
+        mockTopic(QStringLiteral("/system_run_states"), QStringLiteral("custom_msgs/msg/SystemRunStates")),
+        mockTopic(QStringLiteral("/task_params"), QStringLiteral("custom_msgs/msg/TaskParams")),
+        mockTopic(QStringLiteral("/local_path"), QStringLiteral("custom_msgs/msg/TrajectoryMsg")),
+        mockTopic(QStringLiteral("/global_path"), QStringLiteral("nav_msgs/msg/Path"))};
+
     m_snapshot.pathEndpointStatus = model::PathEndpointStatus{};
-    m_snapshot.actionRuntimeStatus = model::ActionRuntimeStatus{};
-    m_snapshot.taskRuntimeStatus = model::TaskRuntimeStatus{};
-    m_snapshot.runVisualizationMode = model::RunVisualizationMode::Unknown;
+    m_snapshot.runVisualizationMode = model::RunVisualizationMode::HorizontalMotion;
     m_snapshot.runtimeStatus.inputSource = VisualizationInputSource::Mock;
     m_snapshot.runtimeStatus.hasVehicleLocationData = true;
     m_snapshot.runtimeStatus.hasVehicleChassisData = true;
@@ -64,6 +212,8 @@ void DataManager::initializeMockData()
     m_snapshot.runtimeStatus.hasObstacleData = !m_snapshot.obstacles.isEmpty();
     m_snapshot.runtimeStatus.hasControlCmdData = true;
     m_updateTimes = ChannelUpdateTimes{};
+    updatePathEndpointLocked();
+    appendHistoryTrailPointLocked();
 }
 
 void DataManager::resetVisualizationData(VisualizationInputSource inputSource)
@@ -191,6 +341,7 @@ void DataManager::setControlCommandStatus(const model::ControlCommandStatus& sta
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_snapshot.controlCommandStatus = status;
+    m_updateTimes.controlCommandStatus = timestampFor(status.valid);
 }
 
 void DataManager::setGlobalPathStatus(const model::PathRuntimeStatus& status)
@@ -209,6 +360,7 @@ void DataManager::setActionRuntimeStatus(const model::ActionRuntimeStatus& statu
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_snapshot.actionRuntimeStatus = status;
+    m_updateTimes.actionRuntimeStatus = timestampFor(status.valid);
     updateRunVisualizationModeLocked();
 }
 
@@ -216,6 +368,7 @@ void DataManager::setTaskRuntimeStatus(const model::TaskRuntimeStatus& status)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_snapshot.taskRuntimeStatus = status;
+    m_updateTimes.taskRuntimeStatus = timestampFor(status.valid);
     updateRunVisualizationModeLocked();
 }
 
@@ -230,8 +383,13 @@ VisualizationSnapshot DataManager::getSnapshot() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto snapshot = m_snapshot;
-    updateTopicAges(snapshot.topicStatuses, QDateTime::currentMSecsSinceEpoch());
-    if (snapshot.runtimeStatus.inputSource != VisualizationInputSource::Mock) {
+    if (snapshot.runtimeStatus.inputSource == VisualizationInputSource::Mock) {
+        for (auto& status : snapshot.topicStatuses) {
+            status.ageMs = 0;
+            status.timedOut = false;
+        }
+    } else {
+        updateTopicAges(snapshot.topicStatuses, QDateTime::currentMSecsSinceEpoch());
         applyFreshnessFilter(snapshot, m_updateTimes, Clock::now());
     }
     return snapshot;
@@ -293,10 +451,12 @@ void DataManager::applyFreshnessFilter(VisualizationSnapshot& snapshot, const Ch
 {
     if (!isFresh(updateTimes.vehicleLocation, now)) {
         snapshot.vehicleLocation = model::VehicleLocation{};
+        snapshot.localizationStatus = model::LocalizationStatus{};
         snapshot.runtimeStatus.hasVehicleLocationData = false;
     }
     if (!isFresh(updateTimes.vehicleChassis, now)) {
         snapshot.vehicleChassisInfo = model::VehicleChassisInfo{};
+        snapshot.chassisRuntimeStatus = model::ChassisRuntimeStatus{};
         snapshot.runtimeStatus.hasVehicleChassisData = false;
     }
     if (!isFresh(updateTimes.globalPath, now)) {
@@ -322,6 +482,17 @@ void DataManager::applyFreshnessFilter(VisualizationSnapshot& snapshot, const Ch
         snapshot.controlCmd = model::ControlCmd{};
         snapshot.runtimeStatus.hasControlCmdData = false;
     }
+    if (!isFresh(updateTimes.controlCommandStatus, now)) {
+        snapshot.controlCommandStatus = model::ControlCommandStatus{};
+    }
+    if (!isFresh(updateTimes.actionRuntimeStatus, now)) {
+        snapshot.actionRuntimeStatus = model::ActionRuntimeStatus{};
+    }
+    if (!isFresh(updateTimes.taskRuntimeStatus, now)) {
+        snapshot.taskRuntimeStatus = model::TaskRuntimeStatus{};
+    }
+    snapshot.runVisualizationMode = model::inferRunVisualizationMode(snapshot.actionRuntimeStatus,
+                                                                       snapshot.taskRuntimeStatus);
 }
 
 void DataManager::updateTopicAges(model::TopicStatusList& topicStatuses, qint64 nowMs)

@@ -40,6 +40,48 @@ struct LocalizationStatus {
     double height = 0.0;
 };
 
+// ChassisStates carries a snapshot of the latest decoded CAN fields. These
+// flags describe fields present in the ROS message; they do not imply that
+// every underlying CAN frame has an independent freshness timestamp.
+struct CrawlMotorRuntimeStatus {
+    bool valid = false;
+    double speedRpm = 0.0;
+    double torqueOrQAxisCurrent = 0.0;
+    int temperature = 0;
+    double busVoltage = 0.0;
+    bool controllerReady = false;
+    bool outputEnabled = false;
+    int controllerUTemperature = 0;
+    int controllerVTemperature = 0;
+    bool fault = false;
+    int faultCode = 0;
+    bool commandEnable = false;
+    bool commandSpeedMode = false;
+    bool commandReverse = false;
+    double commandSpeedRpm = 0.0;
+    double commandTorqueOrQAxisCurrent = 0.0;
+};
+
+struct BmsRuntimeStatus {
+    bool valid = false;
+    int selfCheckStatus = 0;
+    int heartbeat = 0;
+    int alarmLevel = 0;
+    int currentStatus = 0;
+    double packVoltage = 0.0;
+    double packCurrent = 0.0;
+    int maxCellVoltageIndex = 0;
+    double maxCellVoltage = 0.0;
+    int minCellVoltageIndex = 0;
+    double minCellVoltage = 0.0;
+    int maxTemperatureIndex = 0;
+    int maxTemperature = 0;
+    int minTemperatureIndex = 0;
+    int minTemperature = 0;
+    int soc = 0;
+    QVector<int> warningCodes;
+};
+
 struct ChassisRuntimeStatus {
     bool valid = false;
     qint64 timestampMs = 0;
@@ -47,6 +89,7 @@ struct ChassisRuntimeStatus {
     double currentAngularVelocity = 0.0;
     int gearStatus = 0;
     int waterTankLevelStatus = 0;
+    bool waterTankLevelIsRaw = false;
     int waterTankStatus = 0;
     int waterHeartbeat = 0;
     int crawlHeartbeat = 0;
@@ -61,6 +104,10 @@ struct ChassisRuntimeStatus {
     bool dccdcStatus = false;
     int highVoltageBmsSocStatus = 0;
     double smartPowerInputVoltageStatus = 0.0;
+    CrawlMotorRuntimeStatus leftCrawlMotor;
+    CrawlMotorRuntimeStatus rightCrawlMotor;
+    BmsRuntimeStatus bms;
+    QVector<int> powerSupplyStatuses;
 };
 
 struct ControlCommandStatus {
@@ -68,14 +115,14 @@ struct ControlCommandStatus {
     qint64 timestampMs = 0;
     int mode = 0;
     bool isEnable = false;
-    double velocity = 0.0;
-    double angularVelocity = 0.0;
+    double speed = 0.0;
+    double angularVelocity = 0.0;  // rad/s
     int expectedGear = 0;
     bool isUseWaterActuator = false;
+    int naviMode = 0;
     double depth = 0.0;
     double height = 0.0;
     double heading = 0.0;
-    double speed = 0.0;
     double diveSpeed = 0.0;
     int leftWaterActuatorSpeed = 0;
     int rightWaterActuatorSpeed = 0;
@@ -87,6 +134,7 @@ struct PathRuntimeStatus {
     bool valid = false;
     qint64 timestampMs = 0;
     QString frameId;
+    QString goalUuid;
     int pointCount = 0;
     double length = 0.0;
 };
@@ -96,12 +144,16 @@ struct ActionRuntimeStatus {
     qint64 timestampMs = 0;
     int owner = 0;
     int state = 0;
+    QString goalUuid;
     int chassisMode = 0;
     bool isEnable = false;
+    int naviMode = 0;
     double targetDepth = 0.0;
     double targetHeight = 0.0;
     int buoyancyAdjust = 0;
     double targetSpeed = 0.0;
+    double targetHeading = 0.0;
+    double targetAngularVelocity = 0.0;  // normalized to rad/s
 };
 
 struct TaskRuntimeStatus {
@@ -131,6 +183,16 @@ struct PathEndpointStatus {
     double y = 0.0;
     QString label;
 };
+
+inline bool isCrawlChassisMode(int mode)
+{
+    return mode == 6 || mode == 8 || mode == 11;
+}
+
+inline bool isSailingChassisMode(int mode)
+{
+    return (mode >= 1 && mode <= 5) || mode == 7 || mode == 10;
+}
 
 inline QString toDisplayString(RunVisualizationMode mode)
 {
@@ -170,7 +232,9 @@ inline RunVisualizationMode inferRunVisualizationMode(const ActionRuntimeStatus&
         if (action.chassisMode == 3 || action.buoyancyAdjust == 1 || action.buoyancyAdjust == 2) {
             return RunVisualizationMode::BuoyancyAdjust;
         }
-        if (action.owner == 1 || action.chassisMode == 4 || action.chassisMode == 5 || action.chassisMode == 6) {
+        if (action.owner == 1 || action.chassisMode == 4 || action.chassisMode == 5
+            || action.chassisMode == 6 || action.chassisMode == 7 || action.chassisMode == 8
+            || action.chassisMode == 10 || action.chassisMode == 11) {
             return RunVisualizationMode::HorizontalMotion;
         }
         if (action.owner == 2 || action.chassisMode == 1 || action.chassisMode == 2) {

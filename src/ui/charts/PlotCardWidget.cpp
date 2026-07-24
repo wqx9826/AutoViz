@@ -234,7 +234,7 @@ QString PlotCardWidget::valueSuffix(ValueRole role)
     case ValueRole::FeedbackYaw:
     case ValueRole::YawError:
     case ValueRole::PathYawError:
-        return QStringLiteral(" rad");
+        return QStringLiteral(" °");
     }
     return {};
 }

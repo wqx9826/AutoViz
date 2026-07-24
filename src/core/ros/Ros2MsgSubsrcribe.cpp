@@ -17,6 +17,7 @@ namespace {
 // 回放和低频发布都可能出现短暂空档；5 秒后才视为订阅链路异常。
 constexpr qint64 kDefaultTopicTimeoutMs = 5000;
 constexpr qint64 kPathTopicTimeoutMs = 5000;
+constexpr double kDegreesToRadians = 0.017453292519943295769;
 
 qint64 currentTimestampMs()
 {
@@ -190,7 +191,6 @@ void Ros2MsgSubsrcribe::stop()
     }
     m_executor.reset();
     m_sub_location.reset();
-    m_sub_scene.reset();
     m_sub_final_targets.reset();
     m_sub_chassis_command.reset();
     m_sub_chassis_states.reset();
@@ -300,42 +300,6 @@ void Ros2MsgSubsrcribe::callbackLocationMsg(const custom_msgs::msg::Location::Co
     status.height = msg->height;
     dataManager()->setLocalizationStatus(status);
 }
-void Ros2MsgSubsrcribe::callbackSceneMsg(const custom_msgs::msg::Scene::ConstSharedPtr msg)
-{
-    if (dataManager() == nullptr || msg == nullptr) {
-        return;
-    }
-    recordTopicMessage(QStringLiteral("/scene"));
-
-    obstacles_.clear();
-    for (const auto& object : msg->objects) {
-        if (object.type == 0 || object.length <= 0.0 || object.width <= 0.0) {
-            continue;
-        }
-
-        autoviz::model::Obstacle obstacle;
-        obstacle.id = static_cast<int>(object.id);
-        obstacle.type = autoviz::model::ObstacleType::Unknown;
-        obstacle.shape = autoviz::model::ObstacleShapeType::Box;
-        obstacle.header.timestamp = currentTimestampMs();
-        obstacle.isStatic = true;
-        obstacle.isVirtual = false;
-        obstacle.position.position.x = object.real_center_point.x;
-        obstacle.position.position.y = object.real_center_point.y;
-        obstacle.position.theta = object.heading;
-        obstacle.length = object.length;
-        obstacle.width = object.width;
-        obstacle.boundingBox.center = obstacle.position.position;
-        obstacle.boundingBox.heading = object.heading;
-        obstacle.boundingBox.length = object.length;
-        obstacle.boundingBox.width = object.width;
-        obstacle.anchorPoint = obstacle.position.position;
-        obstacles_.push_back(obstacle);
-    }
-
-    dataManager()->setObstacles(obstacles_);
-}
-
 void Ros2MsgSubsrcribe::callbackFinalTargetArrayMsg(const custom_msgs::msg::FinalTargetArray::ConstSharedPtr msg)
 {
     if (dataManager() == nullptr || msg == nullptr) {
@@ -385,12 +349,12 @@ void Ros2MsgSubsrcribe::callbackChassisCommandMsg(const custom_msgs::msg::Chassi
     controlCmd_ = autoviz::model::ControlCmd{};
     if (msg->is_enable) {
         controlCmd_.header.timestamp = currentTimestampMs();
-        if (msg->mode == 6) { // 爬行
+        if (autoviz::model::isCrawlChassisMode(msg->mode)) {
             controlCmd_.mode = autoviz::model::ControlMode::Crawl;
-            controlCmd_.desiredVelocity = msg->velocity;
+            controlCmd_.desiredVelocity = msg->speed;
             controlCmd_.desiredAngularVelocity = msg->angular_velocity;
             controlCmd_.desiredGear = static_cast<int>(msg->expected_gear);
-        } else if (msg->mode == 4 || msg->mode == 5) { // 航行
+        } else if (autoviz::model::isSailingChassisMode(msg->mode)) {
             controlCmd_.mode = autoviz::model::ControlMode::Sailing;
             controlCmd_.desiredVelocity = msg->speed;
             controlCmd_.desiredHeading = msg->heading;
@@ -406,14 +370,14 @@ void Ros2MsgSubsrcribe::callbackChassisCommandMsg(const custom_msgs::msg::Chassi
     status.timestampMs = currentTimestampMs();
     status.mode = msg->mode;
     status.isEnable = msg->is_enable;
-    status.velocity = msg->velocity;
+    status.speed = msg->speed;
     status.angularVelocity = msg->angular_velocity;
     status.expectedGear = msg->expected_gear;
     status.isUseWaterActuator = msg->is_use_water_actuator;
+    status.naviMode = msg->navi_mode;
     status.depth = msg->depth;
     status.height = msg->height;
     status.heading = msg->heading;
-    status.speed = msg->speed;
     status.diveSpeed = msg->dive_speed;
     status.leftWaterActuatorSpeed = msg->left_water_actuator_speed;
     status.rightWaterActuatorSpeed = msg->right_water_actuator_speed;
@@ -443,6 +407,7 @@ void Ros2MsgSubsrcribe::callbackChassisStatesMsg(const custom_msgs::msg::Chassis
     status.currentAngularVelocity = msg->current_angular_velocity;
     status.gearStatus = msg->gear_status;
     status.waterTankLevelStatus = msg->water_tank_level_status;
+    status.waterTankLevelIsRaw = msg->water_tank_level_is_raw;
     status.waterTankStatus = msg->water_tank_status;
     status.waterHeartbeat = msg->water_heartbeat;
     status.crawlHeartbeat = msg->crawl_heartbeat;
@@ -457,6 +422,88 @@ void Ros2MsgSubsrcribe::callbackChassisStatesMsg(const custom_msgs::msg::Chassis
     status.dccdcStatus = msg->dccdc_status;
     status.highVoltageBmsSocStatus = msg->high_voltage_bms_soc_status;
     status.smartPowerInputVoltageStatus = msg->smart_power_input_voltage_status;
+
+    status.leftCrawlMotor.valid = true;
+    status.leftCrawlMotor.speedRpm = msg->left_crawl_motor_speed_rpm;
+    status.leftCrawlMotor.torqueOrQAxisCurrent = msg->left_crawl_motor_torque_or_q_axis_current;
+    status.leftCrawlMotor.temperature = msg->left_crawl_motor_temperature;
+    status.leftCrawlMotor.busVoltage = msg->left_crawl_motor_bus_voltage;
+    status.leftCrawlMotor.controllerReady = msg->left_crawl_motor_controller_ready;
+    status.leftCrawlMotor.outputEnabled = msg->left_crawl_motor_output_enabled;
+    status.leftCrawlMotor.controllerUTemperature = msg->left_crawl_motor_controller_u_temperature;
+    status.leftCrawlMotor.controllerVTemperature = msg->left_crawl_motor_controller_v_temperature;
+    status.leftCrawlMotor.fault = msg->left_crawl_motor_fault;
+    status.leftCrawlMotor.faultCode = msg->left_crawl_motor_fault_code;
+    status.leftCrawlMotor.commandEnable = msg->left_crawl_motor_command_enable;
+    status.leftCrawlMotor.commandSpeedMode = msg->left_crawl_motor_command_speed_mode;
+    status.leftCrawlMotor.commandReverse = msg->left_crawl_motor_command_reverse;
+    status.leftCrawlMotor.commandSpeedRpm = msg->left_crawl_motor_command_speed_rpm;
+    status.leftCrawlMotor.commandTorqueOrQAxisCurrent = msg->left_crawl_motor_command_torque_or_q_axis_current;
+
+    status.rightCrawlMotor.valid = true;
+    status.rightCrawlMotor.speedRpm = msg->right_crawl_motor_speed_rpm;
+    status.rightCrawlMotor.torqueOrQAxisCurrent = msg->right_crawl_motor_torque_or_q_axis_current;
+    status.rightCrawlMotor.temperature = msg->right_crawl_motor_temperature;
+    status.rightCrawlMotor.busVoltage = msg->right_crawl_motor_bus_voltage;
+    status.rightCrawlMotor.controllerReady = msg->right_crawl_motor_controller_ready;
+    status.rightCrawlMotor.outputEnabled = msg->right_crawl_motor_output_enabled;
+    status.rightCrawlMotor.controllerUTemperature = msg->right_crawl_motor_controller_u_temperature;
+    status.rightCrawlMotor.controllerVTemperature = msg->right_crawl_motor_controller_v_temperature;
+    status.rightCrawlMotor.fault = msg->right_crawl_motor_fault;
+    status.rightCrawlMotor.faultCode = msg->right_crawl_motor_fault_code;
+    status.rightCrawlMotor.commandEnable = msg->right_crawl_motor_command_enable;
+    status.rightCrawlMotor.commandSpeedMode = msg->right_crawl_motor_command_speed_mode;
+    status.rightCrawlMotor.commandReverse = msg->right_crawl_motor_command_reverse;
+    status.rightCrawlMotor.commandSpeedRpm = msg->right_crawl_motor_command_speed_rpm;
+    status.rightCrawlMotor.commandTorqueOrQAxisCurrent = msg->right_crawl_motor_command_torque_or_q_axis_current;
+
+    status.bms.valid = true;
+    status.bms.selfCheckStatus = msg->high_voltage_bms_status;
+    status.bms.heartbeat = msg->high_voltage_bms_heartbeat;
+    status.bms.alarmLevel = msg->high_voltage_bms_alarm_level;
+    status.bms.currentStatus = msg->high_voltage_bms_current_status;
+    status.bms.packVoltage = msg->high_voltage_bms_pack_voltage;
+    status.bms.packCurrent = msg->high_voltage_bms_pack_current;
+    status.bms.maxCellVoltageIndex = msg->high_voltage_bms_max_cell_voltage_index;
+    status.bms.maxCellVoltage = msg->high_voltage_bms_max_cell_voltage;
+    status.bms.minCellVoltageIndex = msg->high_voltage_bms_min_cell_voltage_index;
+    status.bms.minCellVoltage = msg->high_voltage_bms_min_cell_voltage;
+    status.bms.maxTemperatureIndex = msg->high_voltage_bms_max_temperature_index;
+    status.bms.maxTemperature = msg->high_voltage_bms_max_temperature;
+    status.bms.minTemperatureIndex = msg->high_voltage_bms_min_temperature_index;
+    status.bms.minTemperature = msg->high_voltage_bms_min_temperature;
+    status.bms.soc = msg->high_voltage_bms_soc_status;
+    status.bms.warningCodes = QVector<int>{
+        msg->high_voltage_bms_total_voltage_over_high_warning,
+        msg->high_voltage_bms_cell_voltage_over_high_warning,
+        msg->high_voltage_bms_charge_temperature_over_high_warning,
+        msg->high_voltage_bms_charge_temperature_over_low_warning,
+        msg->high_voltage_bms_total_voltage_over_low_warning,
+        msg->high_voltage_bms_discharge_current_over_warning,
+        msg->high_voltage_bms_cell_voltage_over_low_warning,
+        msg->high_voltage_bms_discharge_temperature_over_high_warning,
+        msg->high_voltage_bms_discharge_temperature_over_low_warning,
+        msg->high_voltage_bms_soc_over_low_warning,
+        msg->high_voltage_bms_pack_voltage_difference_over_warning,
+        msg->high_voltage_bms_pack_temperature_difference_over_warning};
+
+    status.powerSupplyStatuses = QVector<int>{
+        msg->power_supply_1_status,
+        msg->power_supply_2_status,
+        msg->power_supply_3_status,
+        msg->power_supply_4_status,
+        msg->power_supply_5_status,
+        msg->power_supply_6_status,
+        msg->power_supply_7_status,
+        msg->power_supply_8_status,
+        msg->power_supply_9_status,
+        msg->power_supply_10_status,
+        msg->power_supply_11_status,
+        msg->power_supply_12_status,
+        msg->power_supply_13_status,
+        msg->power_supply_14_status,
+        msg->power_supply_15_status,
+        msg->power_supply_16_status};
     dataManager()->setChassisRuntimeStatus(status);
 }
 void Ros2MsgSubsrcribe::callbackSystemRunStatesMsg(const custom_msgs::msg::SystemRunStates::ConstSharedPtr msg)
@@ -471,12 +518,17 @@ void Ros2MsgSubsrcribe::callbackSystemRunStatesMsg(const custom_msgs::msg::Syste
     status.timestampMs = currentTimestampMs();
     status.owner = msg->owner;
     status.state = msg->state;
+    status.goalUuid = QString::fromStdString(msg->goal_uuid);
     status.chassisMode = msg->chassis_mode;
     status.isEnable = msg->is_enable;
+    status.naviMode = msg->navi_mode;
     status.targetDepth = msg->target_depth;
     status.targetHeight = msg->target_height;
     status.buoyancyAdjust = msg->buoyancy_adjust;
     status.targetSpeed = msg->target_speed;
+    status.targetHeading = msg->target_heading;
+    // custom_msgs publishes this field in deg/s; keep the internal model in rad/s.
+    status.targetAngularVelocity = msg->target_angular_velocity * kDegreesToRadians;
     dataManager()->setActionRuntimeStatus(status);
 }
 
@@ -531,6 +583,7 @@ void Ros2MsgSubsrcribe::callbackLocalPathMsg(const custom_msgs::msg::TrajectoryM
     status.valid = !local_path_.points.isEmpty();
     status.timestampMs = currentTimestampMs();
     status.frameId = QString::fromStdString(msg->header.frame_id);
+    status.goalUuid = QString::fromStdString(msg->goal_uuid);
     status.pointCount = local_path_.points.size();
     status.length = polylineLength(msg->trajectory.size(), [msg](int index) {
         const auto& position = msg->trajectory.at(index).pose.position;

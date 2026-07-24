@@ -126,7 +126,11 @@ ROS 回调的职责不是把消息直接画出来，而是把 ROS msg 填入这�
 当前 ROS2 代码里维护的话题是：
 
 - `/location`
-- `/scene`
+- `/targets/final_objects`
+- `/chassis_command`
+- `/chassis_states`
+- `/system_run_states`
+- `/task_params`
 - `/local_path`
 - `/global_path`
 
@@ -162,9 +166,15 @@ void Ros2MsgSubsrcribe::callbackLocationMsg(const custom_msgs::msg::Location::Co
 
 其他几类数据也是同样思路：
 
-- `/scene` -> `ObstacleList`
+- `/targets/final_objects` -> `ObstacleList`
+- `/chassis_command` -> `ControlCmd`
+- `/chassis_states` -> `VehicleChassisInfo`
+- `/system_run_states` -> 运行状态
+- `/task_params` -> 任务状态
 - `/local_path` -> `Trajectory`
 - `/global_path` -> `Trajectory`
+
+其中 `/system_run_states.goal_uuid` 与 `/local_path.goal_uuid` 用于校验任务和局部路径绑定关系；`ChassisStates` 的履带电机、BMS、配电和心跳字段用于“运动总览”的硬件健康摘要及底盘详情。底盘 ROS 话题在线不等于每个 CAN 从设备帧都具备独立新鲜度，因此界面会区分“消息在线”和消息内的显式故障。
 
 如果当前没有某类输入，也应该主动写空值，例如：
 
@@ -210,10 +220,14 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 - 启动时自动缩放到合适区域
 - 默认支持车辆居中视角
 
+“运动总览”是运行监视面板，优先显示任务链路、当前运动、控制指令（下发/反馈）、硬件健康、垂向状态、路径和感知告警。控制调参、路径终点以及原始底盘/BMS/电机字段放在详情页或图表中；topic 超时后对应旧的运行状态会被清除，避免继续显示过期数据。
+
 坐标约定：
 
 - 业务 `heading`：东向为 `0`，逆时针为正
 - 主视图显示角度：水平向右为 `0`，逆时针为正
+- UI 中所有角度、航向、俯仰、横滚、yaw 及角速度统一使用度显示；角速度使用 `°/s`
+- 原始数据若为弧度或 `rad/s`，必须在 UI/图表显示出口转换为度或 `°/s`
 
 网格约定：
 

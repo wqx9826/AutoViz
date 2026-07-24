@@ -91,6 +91,9 @@ private:
         TimePoint referenceLine;
         TimePoint obstacles;
         TimePoint controlCmd;
+        TimePoint controlCommandStatus;
+        TimePoint actionRuntimeStatus;
+        TimePoint taskRuntimeStatus;
     };
 
     static bool hasVehicleLocationData(const model::VehicleLocation& vehicleLocation);

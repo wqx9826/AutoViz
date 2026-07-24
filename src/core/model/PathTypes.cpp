@@ -17,8 +17,8 @@ Trajectory createArcTrajectory(double lateralOffset, double headingBias, int cou
         point.position = {x, y};
         point.theta = 0.03 * index + headingBias;
         point.kappa = 0.01 * std::sin(index * 0.08);
-        point.velocity = 8.0;
-        point.acceleration = 0.3;
+        point.velocity = 0.38;
+        point.acceleration = 0.03;
         point.s = x;
         point.relativeTime = index * 0.12;
         point.absoluteTime = path.header.timestamp / 1000.0 + point.relativeTime;

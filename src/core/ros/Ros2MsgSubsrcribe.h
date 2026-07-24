@@ -15,7 +15,6 @@
 #include "custom_msgs/msg/chassis_states.hpp"
 #include "custom_msgs/msg/final_target_array.hpp"
 #include "custom_msgs/msg/location.hpp"
-#include "custom_msgs/msg/scene.hpp"
 #include "custom_msgs/msg/system_run_states.hpp"
 #include "custom_msgs/msg/task_params.hpp"
 #include "custom_msgs/msg/trajectory_msg.hpp"
@@ -62,7 +61,6 @@ private:
     rclcpp::Node::SharedPtr m_node;
     std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> m_executor;
     rclcpp::Subscription<custom_msgs::msg::Location>::SharedPtr m_sub_location;
-    rclcpp::Subscription<custom_msgs::msg::Scene>::SharedPtr m_sub_scene;
     rclcpp::Subscription<custom_msgs::msg::FinalTargetArray>::SharedPtr m_sub_final_targets;
     rclcpp::Subscription<custom_msgs::msg::ChassisCommand>::SharedPtr m_sub_chassis_command;
     rclcpp::Subscription<custom_msgs::msg::ChassisStates>::SharedPtr m_sub_chassis_states;
@@ -74,7 +72,6 @@ private:
 private:
 
     void callbackLocationMsg(const custom_msgs::msg::Location::ConstSharedPtr msg);
-    void callbackSceneMsg(const custom_msgs::msg::Scene::ConstSharedPtr msg);
     void callbackFinalTargetArrayMsg(const custom_msgs::msg::FinalTargetArray::ConstSharedPtr msg);
     void callbackChassisCommandMsg(const custom_msgs::msg::ChassisCommand::ConstSharedPtr msg);
     void callbackChassisStatesMsg(const custom_msgs::msg::ChassisStates::ConstSharedPtr msg);

@@ -13,6 +13,7 @@
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QTimer>
+#include <QtMath>
 #include <QVBoxLayout>
 
 #include "core/datacenter/DataManager.h"
@@ -215,7 +216,7 @@ void ControlPanelWidget::configurePlots()
                             {QStringLiteral("speed_error"), QColor("#DC2626"), Role::SpeedError, Axis::Left, 1.6}});
 
     m_yawPlot->configure(tr("航向跟踪"),
-                         QStringLiteral("yaw / rad"),
+                         QStringLiteral("yaw / °"),
                          QString(),
                          {{QStringLiteral("cmd_yaw"), QColor("#4F46E5"), Role::CmdYaw, Axis::Left, 2.2},
                           {QStringLiteral("feedback_yaw"), QColor("#16A34A"), Role::FeedbackYaw, Axis::Left, 2.0},
@@ -223,7 +224,7 @@ void ControlPanelWidget::configurePlots()
 
     m_pathErrorPlot->configure(tr("路径误差"),
                                QStringLiteral("lateral / m"),
-                               QStringLiteral("body-path / rad"),
+                               QStringLiteral("body-path / °"),
                                {{QStringLiteral("lateral_error"), QColor("#DC2626"), Role::LateralError, Axis::Left, 2.0},
                                 {QStringLiteral("heading_to_path"), QColor("#0F766E"), Role::PathYawError, Axis::Right, 1.8}});
 }
@@ -296,13 +297,17 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     data.hasCmdSpeed = fresh && hasControl;
     data.cmdSpeed = command.desiredVelocity;
 
+    double cmdYawRadians = 0.0;
+    double feedbackYawRadians = 0.0;
     if (command.mode == autoviz::model::ControlMode::Sailing) {
         data.hasFeedbackSpeed = fresh && hasLocation;
         data.feedbackSpeed = snapshot.vehicleLocation.speed;
         data.hasCmdYaw = fresh && hasControl;
-        data.cmdYaw = command.desiredHeading;
+        cmdYawRadians = command.desiredHeading;
+        data.cmdYaw = qRadiansToDegrees(cmdYawRadians);
         data.hasFeedbackYaw = fresh && hasLocation;
-        data.feedbackYaw = snapshot.vehicleLocation.heading;
+        feedbackYawRadians = snapshot.vehicleLocation.heading;
+        data.feedbackYaw = qRadiansToDegrees(feedbackYawRadians);
     } else if (command.mode == autoviz::model::ControlMode::Crawl) {
         data.hasFeedbackSpeed = fresh && hasChassis;
         data.feedbackSpeed = snapshot.vehicleChassisInfo.currentSpeed;
@@ -311,13 +316,15 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     data.hasSpeedError = data.hasCmdSpeed && data.hasFeedbackSpeed;
     data.speedError = data.cmdSpeed - data.feedbackSpeed;
     data.hasYawError = data.hasCmdYaw && data.hasFeedbackYaw;
-    data.yawError = normalizeAngle(data.cmdYaw - data.feedbackYaw);
+    data.yawError = qRadiansToDegrees(normalizeAngle(cmdYawRadians - feedbackYawRadians));
 
     if (fresh && hasLocation && status.hasLocalPathData) {
+        double pathYawErrorRadians = 0.0;
         data.hasLateralError = calculatePathError(snapshot.vehicleLocation,
                                                   snapshot.localPath,
                                                   &data.lateralError,
-                                                  &data.pathYawError);
+                                                  &pathYawErrorRadians);
+        data.pathYawError = qRadiansToDegrees(pathYawErrorRadians);
         data.hasPathYawError = data.hasLateralError;
     }
 
