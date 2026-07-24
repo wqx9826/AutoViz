@@ -61,23 +61,24 @@ AutoVizProto 和 Client 必须使用兼容的编译器、架构与 protobuf。�
 `AutoVizClient\third_party\protobuf`，上面的 `CMAKE_PREFIX_PATH` 指向该目录即可；
 它是本次配置参数，不要求设置系统环境变量。
 
-## CMake 文件怎样分工
+## CMakeLists 怎样阅读
 
-顶层 `CMakeLists.txt` 只保留项目的主流程：
+为了便于第一次开发 SDK 时从头阅读，生成、编译和安装逻辑统一保存在一个
+`CMakeLists.txt`，并使用中文分段注释：
 
 ```text
 CMakeLists.txt
-  ├── GenerateProto.cmake：调用 protoc，生成 autoviz/*.pb.h/.pb.cc
-  ├── add_library：编译 pb.cc 和 FrameCodec.cpp
-  ├── 可选 GTest
-  └── InstallAutoVizProto.cmake：安装 include/lib 并导出 CMake target
+  1. 项目基础设置和依赖
+  2. protoc 生成 autoviz/*.pb.h/.pb.cc
+  3. 编译 pb.cc 和 FrameCodec.cpp
+  4. 可选 GTest
+  5. 安装 include/lib/schema
+  6. 导出 find_package 所需文件
 ```
 
-具体文件：
-
-- `cmake/GenerateProto.cmake`：维护 schema 列表和生成路径。
-- `cmake/InstallAutoVizProto.cmake`：维护标准 SDK 安装与导出。
-- `cmake/AutoVizProtoConfig.cmake.in`：让安装后的 `find_package` 继续查找 protobuf。
+`cmake/AutoVizProtoConfig.cmake.in` 仍单独保存，因为它不是另一段构建脚本，而是最终
+安装进 SDK 的 `AutoVizProtoConfig.cmake` 的源码模板。主 CMake 中已经明确标出读取、
+生成和安装该模板的位置。
 
 消费方因此很简单。若只复制某个 `.a` 并手写 include/lib 路径，Windows `.lib`、
 protobuf 传递依赖和不同构建类型都需要在 Client/Server 重复处理，反而更容易出错。

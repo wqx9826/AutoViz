@@ -11,7 +11,6 @@ compile_commands.json
 
 # CMake generated files
 *.cmake
-!AutoVizProto/cmake/*.cmake
 */CMakeFiles/
 
 # Binary and object files
