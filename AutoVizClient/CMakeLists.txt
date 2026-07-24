@@ -10,6 +10,16 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
+set(AUTOVIZ_THIRD_PARTY_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
+    CACHE PATH "AutoVizClient third-party SDK directory"
+)
+list(PREPEND CMAKE_PREFIX_PATH
+    "${AUTOVIZ_THIRD_PARTY_DIR}/AutoVizProto"
+    "${AUTOVIZ_THIRD_PARTY_DIR}/protobuf"
+    "${AUTOVIZ_THIRD_PARTY_DIR}/Qt5"
+)
+
 find_package(AutoVizProto CONFIG REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Network Widgets)
 

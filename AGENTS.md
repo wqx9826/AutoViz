@@ -37,8 +37,10 @@ ROS2/custom_msgs
 
 ## 依赖边界
 
-- Client 和 Server 必须用 `find_package(AutoVizProto CONFIG REQUIRED)` 消费安装包，
-  不得引用 `../AutoVizProto` 之类源码路径。
+- Client 和 Server 必须用 `find_package(AutoVizProto CONFIG REQUIRED)` 消费各自
+  `third_party/AutoVizProto` 下的 SDK，不得引用 `../AutoVizProto` 之类源码路径。
+- 两个消费工程的 CMake 必须默认搜索自身 `third_party`，不得要求设置系统环境变量；
+  非标准位置只通过 `AUTOVIZ_THIRD_PARTY_DIR` 显式覆盖。
 - AutoVizProto 不得依赖 Qt、ROS、Boost 或 custom_msgs。
 - Client 只依赖 C++17、Qt5 Widgets/Network、protobuf/AutoVizProto；禁止 include/link
   ROS、custom_msgs，也禁止理解 ROS topic 名。
@@ -100,19 +102,21 @@ robot_ws 当前输入：
 
 ```bash
 cmake -S AutoVizProto -B build/proto \
-  -DCMAKE_INSTALL_PREFIX="$PWD/install/proto" \
   -DAUTOVIZ_PROTO_BUILD_TESTS=ON
 cmake --build build/proto -j4
 ./build/proto/autoviz_proto_tests
-cmake --install build/proto
+cmake --install build/proto \
+  --prefix "$PWD/AutoVizClient/third_party/AutoVizProto"
+cmake --install build/proto \
+  --prefix "$PWD/AutoVizServer/third_party/AutoVizProto"
 
-cmake -S AutoVizClient -B build/client \
-  -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
+cmake -S AutoVizClient -B build/client
 cmake --build build/client -j4
 ```
 
-Server 构建须 source ROS2 和 robot_ws，并向 colcon 的 `--cmake-args` 传入相同
-`AutoVizProto_DIR`。Client 不使用 CTest；协议 GTest 归 AutoVizProto。
+Server 构建须 source ROS2 和 robot_ws；默认从
+`AutoVizServer/third_party/AutoVizProto` 查找协议 SDK。Client 不使用 CTest；协议
+GTest 归 AutoVizProto。
 
 协议或网络变更至少验证：拆包/粘包、超长帧、握手、全量快照、增量、CLEAR、断线重连
 和 session 变化。ROS 映射变更需要编译 Server。

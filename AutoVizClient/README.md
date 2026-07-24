@@ -1,81 +1,91 @@
 # AutoVizClient
 
-AutoVizClient 是纯 Qt 可视化客户端，不依赖 AutoVizServer、ROS2 或 custom_msgs。它只
-消费安装后的 AutoVizProto CMake package。
+AutoVizClient 是纯 Qt Client，不依赖 ROS。AutoVizProto、protobuf 和 Qt 都可按固定布局
+放入工程自己的 `third_party/`，CMake 会自动搜索，不要求系统环境变量。
 
-## 数据怎样进入 UI
+## third_party 布局
 
 ```text
-QTcpSocket 字节流
-  -> autoviz::FrameDecoder 按 4 字节长度拆帧
-  -> protobuf 解析 autoviz::Envelope
-  -> ProtocolModelConverter 转为内部 VisualizationSnapshot
-  -> DataManager -> SceneManager / Qt UI
+AutoVizClient/
+  third_party/
+    AutoVizProto/
+      include/
+      lib/
+    protobuf/       # 本地 protobuf SDK，可选
+      include/
+      lib/
+    Qt5/            # Qt kit 根目录或目录链接，可选
+      include/
+      lib/
 ```
 
-TCP 一次读取可能只有半帧，也可能包含多帧；FrameDecoder 解决拆包/粘包。protobuf
-负责把完整 payload 还原为车辆、轨迹、障碍物和状态对象。
+AutoVizProto 必须存在。protobuf/Qt5 若已能被工具链正常找到，可以不复制；若希望工程
+完全使用固定依赖，则放到上述目录。
 
-## 依赖与边界
+## Linux
 
-- CMake 3.16+、C++17。
-- Qt5 Widgets、Network。
-- 已构建安装的 AutoVizProto。
-
-Client 不保存 `.proto`，不调用 protoc，不包含 FrameCodec 的重复实现，也没有
-CTest/GTest。协议与 framing 测试统一位于 AutoVizProto。
-
-主要代码：
-
-- `src/core/network/RemoteVisualizationSource.cpp`：连接、握手、心跳、session 和重连。
-- `src/core/network/ProtocolModelConverter.cpp`：protobuf 到内部模型的唯一入口。
-- `src/core/datacenter/DataManager.cpp`：快照、历史轨迹和旧数据清理。
-- `src/core/render/`、`src/ui/`：渲染和界面，不 include protobuf。
-
-## Linux 构建
-
-先安装 AutoVizProto，再配置 Client：
+从仓库根目录构建并安装协议 SDK：
 
 ```bash
-cmake -S ../AutoVizProto -B ../build/proto \
-  -DCMAKE_INSTALL_PREFIX="$PWD/../install/proto"
-cmake --build ../build/proto -j4
-cmake --install ../build/proto
-
-cmake -S . -B build \
-  -DAutoVizProto_DIR="$PWD/../install/proto/lib/cmake/AutoVizProto"
-cmake --build build -j4
-./build/AutoViz
+cmake -S AutoVizProto -B build/proto-client \
+  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
+cmake --build build/proto-client -j4
+./build/proto-client/autoviz_proto_tests
+cmake --install build/proto-client \
+  --prefix "$PWD/AutoVizClient/third_party/AutoVizProto"
 ```
 
-也可把协议安装前缀放进 `CMAKE_PREFIX_PATH`。`configs/` 会复制到可执行文件旁。
+然后 Client 无需附加 AutoVizProto 参数：
 
-## Windows 构建
+```bash
+cmake -S AutoVizClient -B build/client
+cmake --build build/client -j4
+./build/client/AutoViz
+```
 
-先用同一编译器/架构构建并安装 AutoVizProto，再构建 Client：
+## Windows
+
+先把 AutoVizProto 源码包放在任意临时位置，或使用仓库中的 `AutoVizProto`。假设
+protobuf SDK 已放在 `AutoVizClient\third_party\protobuf`：
 
 ```powershell
-cmake -S ..\AutoVizProto -B ..\build\proto `
-  -DCMAKE_INSTALL_PREFIX=C:\AutoVizSDK
-cmake --build ..\build\proto --config Release
-cmake --install ..\build\proto --config Release
-
-cmake -S . -B build `
-  -DCMAKE_PREFIX_PATH=C:\Qt\5.15.2\msvc2019_64 `
-  -DAutoVizProto_DIR=C:\AutoVizSDK\lib\cmake\AutoVizProto
-cmake --build build --config Release
-.\build\Release\AutoViz.exe
+cmake -S AutoVizProto -B build\proto-client `
+  -DCMAKE_PREFIX_PATH="$PWD\AutoVizClient\third_party\protobuf"
+cmake --build build\proto-client --config Release
+cmake --install build\proto-client --config Release `
+  --prefix "$PWD\AutoVizClient\third_party\AutoVizProto"
 ```
 
-迁移 Client 时不需要 Server 或 ROS workspace。可以复制 AutoVizClient 与
-AutoVizProto 源码，也可以分发已经安装好的 AutoVizProto SDK。
+Qt kit 可放到 `AutoVizClient\third_party\Qt5`，或在该位置创建指向实际 Qt kit 的
+目录链接。之后直接构建：
 
-## 连接过程
+```powershell
+cmake -S AutoVizClient -B build\client
+cmake --build build\client --config Release
+.\build\client\Release\AutoViz.exe
+```
 
-默认连接 `127.0.0.1:39090`，可在“连接 -> 连接 Server...”修改：
+这里没有设置 `AutoVizProto_DIR`、`Qt5_DIR` 或系统环境变量。若 third_party 实际放在
+其他位置，可显式传 `-DAUTOVIZ_THIRD_PARTY_DIR=C:\your\sdk` 覆盖默认目录。
 
-1. Client 发送 ClientHello。
-2. 检查 ServerHello 的 protocol major 并保存 `session_id`。
-3. 发送订阅请求并接收全量 snapshot。
-4. 持续接收 ChannelUpdate 和 Heartbeat。
-5. 断线、新 session 或 CLEAR 时清理旧数据。
+注意：
+
+- Windows 不能使用 Linux 生成的 `.a`，必须使用对应工具链的 `.lib`。
+- AutoVizProto、protobuf 和 Client 应使用相同架构（例如全部 x64）。
+- MSVC Runtime、Debug/Release 也应一致。
+
+## 数据流与边界
+
+```text
+QTcpSocket
+  -> autoviz::FrameDecoder
+  -> autoviz::Envelope
+  -> ProtocolModelConverter
+  -> DataManager
+  -> SceneManager / Qt UI
+```
+
+Client 不保存 `.proto`、不运行 protoc、不包含 FrameCodec 副本，也没有 CTest/GTest。
+协议测试统一在 AutoVizProto。
+
+默认连接 `127.0.0.1:39090`。断线、新 session 或 CLEAR 都会清理旧数据。

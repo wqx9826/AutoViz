@@ -15,9 +15,9 @@ AutoViz 是 Qt/C++ 规划控制可视化工具，当前首先服务 robot_ws 水
 | AutoVizClient | TCP 消费、内部模型、DataManager、渲染和 Qt UI | C++17、Qt5、AutoVizProto |
 | AutoVizServer | robot_ws ROS Adapter、转换、缓存、新鲜度、TCP 服务 | ROS2、custom_msgs、Boost、AutoVizProto |
 
-AutoVizProto 是可安装 CMake package。Client/Server 通过
-`find_package(AutoVizProto CONFIG REQUIRED)` 使用它，不引用兄弟源码目录。唯一 schema
-位于 `AutoVizProto/proto/autoviz/*.proto`，package 为 `autoviz`，生成 C++ 类型例如
+AutoVizProto 构建为包含 `include/`、`lib/` 的第三方 SDK。Client/Server 分别从自身
+`third_party/AutoVizProto` 查找，不依赖环境变量或兄弟源码目录。唯一 schema 位于
+`AutoVizProto/proto/autoviz/*.proto`，package 为 `autoviz`，生成 C++ 类型例如
 `autoviz::Envelope`。
 
 ## 当前数据链路

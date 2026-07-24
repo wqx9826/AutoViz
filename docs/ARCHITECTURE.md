@@ -17,9 +17,10 @@ ROS2 topics -> AutoVizServer ---- protobuf/TCP ----> AutoVizClient
                                       SceneManager        状态与图表 UI
 ```
 
-AutoVizProto 先构建并安装。Client 和 Server 都使用
-`find_package(AutoVizProto CONFIG REQUIRED)` 与 `AutoVizProto::AutoVizProto`，因此
-只依赖安装接口，不依赖彼此，也不依赖兄弟目录的源码路径。
+AutoVizProto 先构建为第三方 SDK，分别安装到 Client/Server 自己的
+`third_party/AutoVizProto`。两边使用 `find_package(AutoVizProto CONFIG REQUIRED)`
+与 `AutoVizProto::AutoVizProto`，CMake 默认搜索本工程的 third_party，不要求环境
+变量，也不依赖兄弟目录源码。
 
 ## AutoVizProto 边界
 
@@ -30,9 +31,9 @@ AutoVizProto 先构建并安装。Client 和 Server 都使用
 - GTest 在该工程验证 framing 和 transport 消息。
 - 不依赖 Qt、ROS2、Boost、custom_msgs。
 
-把协议做成独立可安装包，同时解决了两个问题：只有一份 schema，不会人工同步漂移；
-Client 迁移到 Windows 时只需带 Client 与协议包，不必携带 Server 或 ROS workspace。
-未来 AutoVizProto 可原样拆到独立仓库或发布二进制 SDK。
+把协议做成第三方 SDK，同时解决两个问题：只有一份 schema，不会人工同步漂移；
+Client 迁移到 Windows 时携带对应 Windows SDK，不必携带 Server 或 ROS workspace。
+未来 AutoVizProto 可原样拆到独立仓库或发布版本化 SDK。
 
 ## Server 边界
 

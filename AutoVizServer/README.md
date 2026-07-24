@@ -60,8 +60,10 @@ AutoVizProto/proto/autoviz/*.proto
 ```
 
 构建 AutoVizProto 时，CMake 调用 protoc 生成 `autoviz/*.pb.h/.pb.cc`，再把生成代码
-和 FrameCodec 做成可安装库 `AutoVizProto::AutoVizProto`。Server 通过
-`find_package(AutoVizProto)` 链接安装包，不复制 `.proto`，也不引用 Client。
+和 FrameCodec 做成第三方 SDK。Server 从
+`AutoVizServer/third_party/AutoVizProto` 自动查找
+`AutoVizProto::AutoVizProto`，不复制 `.proto`，不引用 Client，也不要求配置
+`AutoVizProto_DIR` 参数或环境变量。
 
 所有 schema 使用：
 
@@ -135,7 +137,7 @@ Client                                      Server
 - `src/autoviz_server/src/AutoVizServerNode.cpp`：订阅、字段映射、缓存和新鲜度。
 - `src/autoviz_server/src/TcpServer.cpp`：连接、握手、订阅、队列和心跳。
 - `src/autoviz_server/config/robot_ws.yaml`：topic、端口、超时和车辆参数。
-- `../AutoVizProto/`：仓库中的独立协议工程；部署时也可以用其安装包。
+- `AutoVizServer/third_party/AutoVizProto/`：Server 使用的协议 SDK。
 
 ## 构建
 
@@ -143,11 +145,11 @@ Client                                      Server
 
 ```bash
 cmake -S AutoVizProto -B build/proto \
-  -DCMAKE_INSTALL_PREFIX="$PWD/install/proto" \
   -DAUTOVIZ_PROTO_BUILD_TESTS=ON
 cmake --build build/proto -j4
 ./build/proto/autoviz_proto_tests
-cmake --install build/proto
+cmake --install build/proto \
+  --prefix "$PWD/AutoVizServer/third_party/AutoVizProto"
 ```
 
 再构建 Server：
@@ -159,10 +161,12 @@ source /home/wqx/LZBK/robot_ws/install/setup.bash
 colcon --log-base AutoVizServer/log build \
   --base-paths AutoVizServer/src \
   --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install \
-  --cmake-args \
-    -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
+  --install-base AutoVizServer/install
 ```
+
+安装后可在 `AutoVizServer/third_party/AutoVizProto/include` 和 `lib` 看到公开头与
+库。Server CMake 已配置固定搜索路径；只有 third_party 放在别处时才传
+`-DAUTOVIZ_THIRD_PARTY_DIR=/other/path`。
 
 Server 不重复保存 FrameCodec GTest；协议测试在 AutoVizProto 中直接运行，不使用
 CTest。ROS 映射变化则必须重新编译 Server，并应增加字段级映射测试。

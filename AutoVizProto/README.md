@@ -1,72 +1,82 @@
 # AutoVizProto
 
-AutoVizProto 是 AutoViz 的独立协议工程，也是 `.proto` 文件的唯一真实来源。它不依赖
-Qt、ROS2、Boost 或 custom_msgs，只依赖 C++17 和 protobuf，因此可在 Linux 与
-Windows 上单独构建、安装和分发。
+AutoVizProto 是 AutoViz 的第三方协议库，也是 `.proto` 的唯一源码。它不依赖 Qt、
+ROS2、Boost 或 custom_msgs，只依赖 C++17 和 protobuf。
 
-## 它提供什么
+## 生成的 SDK
 
-- `proto/autoviz/*.proto`：车辆、规划、感知、控制、运行状态和传输消息。
-- `autoviz/*.pb.h`：构建时由 `protoc` 生成的 C++ 头文件。
-- `autoviz/FrameCodec.h`：TCP 的 4 字节大端长度前缀编解码。
-- `AutoVizProto::AutoVizProto`：供其他 CMake 工程链接的导入 target。
-- `autoviz_proto_tests`：覆盖拆包、粘包、非法长度、损坏 payload、握手、快照、
-  增量和 CLEAR 的 GTest 可执行文件。
+标准安装后得到：
 
-所有 proto 都声明：
-
-```proto
-package autoviz;
+```text
+<prefix>/
+  include/autoviz/
+    FrameCodec.h
+    *.pb.h
+  lib/
+    libautoviz_proto.a       # Linux 静态库
+    autoviz_proto.lib        # Windows 静态库
+    cmake/AutoVizProto/      # 让 CMake 正确导入头文件和库
+  share/AutoVizProto/proto/  # 原始 schema，便于查看与其他语言生成
 ```
 
-所以生成类型是 `autoviz::Envelope`、`autoviz::VehicleState` 等。这里没有
-`protocol` 子命名空间。`v1` 仍是握手时的协议主版本概念，不写进 C++ namespace。
-
-## 构建、测试和安装
-
-```bash
-cmake -S AutoVizProto -B build/proto \
-  -DCMAKE_INSTALL_PREFIX="$PWD/install/proto" \
-  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
-cmake --build build/proto -j4
-./build/proto/autoviz_proto_tests
-cmake --install build/proto
-```
-
-测试使用 GTest，但项目不启用 CTest；直接运行测试程序即可。关闭测试时可省略
-`AUTOVIZ_PROTO_BUILD_TESTS`。
-
-安装目录包含库、生成头、公开 FrameCodec 头、原始 proto 和 CMake package 配置。
-消费方写法：
+`lib/cmake/AutoVizProto` 不是多余运行文件，而是 SDK 的 CMake 元数据。它让消费方使用
+一个稳定 target：
 
 ```cmake
 find_package(AutoVizProto CONFIG REQUIRED)
-target_link_libraries(my_target PRIVATE AutoVizProto::AutoVizProto)
+target_link_libraries(app PRIVATE AutoVizProto::AutoVizProto)
 ```
 
-配置时若安装前缀不在默认搜索路径，传入：
+这样不需要在 Client/Server 中手写 Linux `.a`、Windows `.lib`、Debug/Release 路径
+和 protobuf 的传递依赖。
+
+## 标准构建流程
 
 ```bash
--DAutoVizProto_DIR=/path/to/install/lib/cmake/AutoVizProto
+cmake -S . -B build -DAUTOVIZ_PROTO_BUILD_TESTS=ON
+cmake --build build -j4
+./build/autoviz_proto_tests
+cmake --install build --prefix /目标/third_party/AutoVizProto
 ```
 
-Windows 的安装目录通常仍有 `lib/cmake/AutoVizProto`；也可将安装前缀加入
-`CMAKE_PREFIX_PATH`。
+注意：`cmake -S . -B build` 只是配置；`cmake --build` 才编译；`cmake --install`
+才把公开头和库整理到 `include/`、`lib/`。
 
-## 为什么不在 Client 和 Server 各放一份
+测试使用 GTest，直接运行，不启用 CTest。
 
-两份 schema 看起来方便迁移，实际会产生“改了一边、忘了另一边”的协议漂移。
-AutoVizProto 把唯一 schema 做成可安装依赖，同时保留可移植性：
+## Windows
 
-- Windows 只需取得 AutoVizClient 与 AutoVizProto，不需要 ROS Server。
-- Server 只链接已安装的协议包，不读取 Client 源码。
-- 将来把 AutoVizProto 拆成独立仓库、Git submodule 或预编译 SDK 时，Client/Server
-  的 `find_package` 接口无需改变。
+以 MSVC Release 为例：
 
-## 兼容约束
+```powershell
+cmake -S . -B build `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_PREFIX_PATH=C:\path\to\protobuf
+cmake --build build --config Release
+cmake --install build --config Release `
+  --prefix C:\path\to\AutoVizClient\third_party\AutoVizProto
+```
 
-- 已使用的 protobuf field number 永不复用，删除字段使用 `reserved`。
-- 新字段使用 optional/repeated，禁止 required。
-- 不兼容的语义、单位或坐标变化必须提升握手的 protocol major。
-- `package autoviz` 是公开生成代码 API；更改它会造成 C++ 源码级不兼容。
-- framing 固定为 4 字节大端 payload 长度 + Envelope，payload 最大 16 MiB。
+AutoVizProto 和 Client 必须使用兼容的编译器、架构与 protobuf。若 protobuf 放在
+`AutoVizClient\third_party\protobuf`，上面的 `CMAKE_PREFIX_PATH` 指向该目录即可；
+它是本次配置参数，不要求设置系统环境变量。
+
+## 为什么 CMakeLists 不只有几行
+
+它完成四件必要工作：
+
+1. 调用 protoc，把 7 个 schema 生成到正确的 `autoviz/*.pb.h/.pb.cc` 路径。
+2. 编译生成代码与 FrameCodec。
+3. 安装公开头、库和原始 schema。
+4. 导出跨 Linux/Windows、Debug/Release 可用的 CMake target。
+
+消费方因此很简单。若只复制某个 `.a` 并手写 include/lib 路径，Windows `.lib`、
+protobuf 传递依赖和不同构建类型都需要在 Client/Server 重复处理，反而更容易出错。
+
+## 协议规则
+
+- 所有文件使用 `package autoviz;`，生成类型如 `autoviz::Envelope`。
+- proto2 只使用 optional/repeated，禁止 required。
+- field number 永不复用，删除字段使用 `reserved`。
+- framing 是 4 字节大端长度 + Envelope，payload 最大 16 MiB。
+- 不兼容语义、单位或坐标变化提升握手的 protocol major。

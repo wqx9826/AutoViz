@@ -1,7 +1,7 @@
 # AutoViz Protocol v1
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`。Client 和 Server 不保存副本，
-而是链接安装后的 `AutoVizProto::AutoVizProto`。
+而是分别从自身 `third_party/AutoVizProto` 链接 `AutoVizProto::AutoVizProto`。
 
 ## protobuf 与 TCP 为什么能一起工作
 

@@ -40,3 +40,9 @@ compile_commands.json
 .DS_Store
 
 /message/
+
+# Local third-party SDKs (keep only usage documentation)
+AutoVizClient/third_party/*
+!AutoVizClient/third_party/README.md
+AutoVizServer/third_party/*
+!AutoVizServer/third_party/README.md

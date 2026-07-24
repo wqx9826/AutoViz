@@ -14,7 +14,7 @@
 - [x] 唯一 schema 迁移到 `AutoVizProto/proto/autoviz`。
 - [x] proto package 简化为 `autoviz`，移除 `autoviz::protocol::v1`。
 - [x] AutoVizProto 可安装并导出 `AutoVizProto::AutoVizProto`。
-- [x] Client/Server 通过 `find_package` 消费安装包，不引用兄弟源码。
+- [x] Client/Server 默认从各自 `third_party` 消费 SDK，不引用兄弟源码或环境变量。
 - [x] FrameCodec 和 GTest 从 Client/Server 集中到 AutoVizProto。
 - [x] proto2、快照、UPSERT/CLEAR、握手、心跳和 16 MiB framing。
 - [ ] 增加 ROS msg -> proto、proto -> 内部模型字段级测试。

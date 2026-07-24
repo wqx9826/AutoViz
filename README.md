@@ -1,99 +1,108 @@
 # AutoViz
 
-AutoViz 是面向机器人规划控制链路的可视化调试工具。`feature/client-server` 由三个
-边界清晰、可独立构建的工程组成：
+AutoViz 的 `feature/client-server` 包含三个工程：
 
 ```text
-ROS2 topics
-    -> AutoVizServer (Linux / ROS2)
-    -> protobuf Envelope + TCP
-    -> AutoVizClient (Linux / Windows / Qt5)
-
-AutoVizProto
-    -> 为 Client 和 Server 提供唯一 schema、生成代码与 TCP FrameCodec
+AutoVizProto   唯一协议源码，构建后作为第三方 SDK 使用
+AutoVizServer  ROS2 -> protobuf/TCP
+AutoVizClient  protobuf/TCP -> Qt UI
 ```
 
-`main` 仍是经过现场测试的 ROS2 单体版本；本分支的修改不会改写 main。
+`main` 仍是现场稳定的 ROS2 单体版本，本分支不会修改 main。
 
-## 工程目录
+## 第三方库布局
+
+AutoVizProto 的定位是普通第三方库。它的源码只保存一份，分别为 Client 和 Server
+生成对应平台的 SDK：
 
 ```text
-AutoVizProto/                         # 纯 C++/protobuf、可安装的协议工程
-  proto/autoviz/*.proto               # 唯一 schema
-  include/autoviz/FrameCodec.h
-  src/ tests/
+AutoVizClient/third_party/AutoVizProto/
+  include/autoviz/
+  lib/
+  lib/cmake/AutoVizProto/
 
-AutoVizClient/                        # 纯 Qt Client，不含 ROS
-  CMakeLists.txt
-  src/ configs/
-
-AutoVizServer/                        # 独立 ROS2 workspace
-  src/autoviz_server/
-    CMakeLists.txt package.xml
-    include/ src/ config/ launch/
-
-docs/                                 # 架构、协议和演进文档
+AutoVizServer/third_party/AutoVizProto/
+  include/autoviz/
+  lib/
+  lib/cmake/AutoVizProto/
 ```
 
-proto 声明为 `package autoviz;`，所以生成的 C++ 类型直接位于 `autoviz` namespace，
-例如 `autoviz::Envelope`。目录名只决定生成头文件路径
-`autoviz/transport.pb.h`，不再出现 `autoviz::protocol::v1`。
+Client/Server 的 CMake 已内置上述搜索路径，不需要配置环境变量，也不需要手工传
+`AutoVizProto_DIR`。`third_party` 中的本机二进制不提交 Git；README 会保留。
 
-## 1. 构建并安装 AutoVizProto
+## 为什么不是只运行 `cmake ..`
 
-Client 和 Server 都消费安装后的 CMake package，不引用 `AutoVizProto` 源码相对路径：
+第三方源码变成 `include/` 和 `lib/` 通常有三个阶段：
+
+```text
+cmake 配置 -> cmake --build 编译 -> cmake --install 安装 SDK
+```
+
+`cmake ..` 只生成构建系统，不会完成编译和安装。下面是标准操作。
+
+## Linux：为 Client 准备 AutoVizProto
+
+在仓库根目录：
 
 ```bash
-cmake -S AutoVizProto -B build/proto \
-  -DCMAKE_INSTALL_PREFIX="$PWD/install/proto" \
+cmake -S AutoVizProto -B build/proto-client \
   -DAUTOVIZ_PROTO_BUILD_TESTS=ON
-cmake --build build/proto -j4
-./build/proto/autoviz_proto_tests
-cmake --install build/proto
-```
+cmake --build build/proto-client -j4
+./build/proto-client/autoviz_proto_tests
+cmake --install build/proto-client \
+  --prefix "$PWD/AutoVizClient/third_party/AutoVizProto"
 
-测试使用 GTest，但不注册 CTest。schema、FrameCodec 或 framing 变化应在此工程验证。
-
-## 2. 构建 Client
-
-依赖 CMake 3.16+、C++17、Qt5 Widgets/Network，以及已安装的 AutoVizProto：
-
-```bash
-cmake -S AutoVizClient -B build/client \
-  -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
+cmake -S AutoVizClient -B build/client
 cmake --build build/client -j4
-./build/client/AutoViz
 ```
 
-Client 没有 CTest/GTest，也不需要 ROS。迁移到 Windows 时复制
-`AutoVizClient/` 和一个可独立获取的 `AutoVizProto/`（或其预编译安装包）即可，无需
-携带 Server。
-
-## 3. 构建和运行 Server
+## Linux：为 Server 准备 AutoVizProto
 
 ```bash
+cmake -S AutoVizProto -B build/proto-server
+cmake --build build/proto-server -j4
+cmake --install build/proto-server \
+  --prefix "$PWD/AutoVizServer/third_party/AutoVizProto"
+
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
-
 colcon --log-base AutoVizServer/log build \
   --base-paths AutoVizServer/src \
   --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install \
-  --cmake-args \
-    -DAutoVizProto_DIR="$PWD/install/proto/lib/cmake/AutoVizProto"
-
-source AutoVizServer/install/setup.bash
-ros2 launch autoviz_server autoviz_server.launch.py
+  --install-base AutoVizServer/install
 ```
 
-默认监听 `0.0.0.0:39090`。参数位于
-`AutoVizServer/src/autoviz_server/config/robot_ws.yaml`。
+同一台 Linux 机器也可以复用一次 build，再用两个不同的 `--prefix` 安装两次。
 
-详细说明见：
+## Windows Client
+
+Windows 不能使用 Linux 编译出的 `.a`。应使用和 Client 相同的 MSVC/MinGW、架构和
+构建类型编译 AutoVizProto，然后安装到：
+
+```text
+AutoVizClient\third_party\AutoVizProto
+```
+
+Client CMake 还会自动搜索：
+
+```text
+AutoVizClient\third_party\protobuf
+AutoVizClient\third_party\Qt5
+```
+
+因此可把 protobuf SDK、Qt kit（或指向 Qt kit 的目录链接）放到固定位置，不依赖
+系统环境变量。完整命令见 `AutoVizClient/README.md`。
+
+## 协议命名
+
+唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部声明
+`package autoviz;`。生成头路径是 `autoviz/*.pb.h`，C++ 类型直接是
+`autoviz::Envelope` 等。
+
+详细说明：
 
 - `AutoVizProto/README.md`
 - `AutoVizClient/README.md`
 - `AutoVizServer/README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/PROTOCOL_DESIGN.md`
-- `docs/PROJECT_CONTEXT.md`
