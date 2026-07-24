@@ -30,6 +30,8 @@ AutoVizProto 先构建为第三方 SDK，分别安装到 Client/Server 自己的
 - `FrameCodec` 负责 4 字节大端长度前缀与 protobuf Envelope。
 - GTest 在该工程验证 framing 和 transport 消息。
 - 不依赖 Qt、ROS2、Boost、custom_msgs。
+- 顶层 CMake 只描述库和测试；proto 生成与 SDK 安装分别由
+  `cmake/GenerateProto.cmake`、`cmake/InstallAutoVizProto.cmake` 管理。
 
 把协议做成第三方 SDK，同时解决两个问题：只有一份 schema，不会人工同步漂移；
 Client 迁移到 Windows 时携带对应 Windows SDK，不必携带 Server 或 ROS workspace。
