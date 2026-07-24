@@ -1,9 +1,9 @@
 # AutoViz Protocol v1
 
 本文同时记录已实现协议和后续演进约束。schema 分别位于
-`AutoVizClient/proto/autoviz/protocol/v1/` 和
-`AutoVizServer/src/autoviz_server/proto/autoviz/protocol/v1/`。两份 schema
-必须完全一致，由各自工程直接编译，并通过
+`AutoVizClient/proto/autoviz/*.proto` 和
+`AutoVizServer/src/autoviz_server/proto/autoviz/*.proto`。两份 schema 必须完全
+一致，由各自工程直接编译，并通过
 `cmake -P tools/verify_proto_sync.cmake` 校验。
 
 ## 通信目标
@@ -12,6 +12,23 @@
 - Client 不安装 ROS2，不接触 custom_msgs。
 - 同一协议未来可承载 ROS Adapter、Simulation Adapter 和 Log Adapter。
 - 第一阶段只读、可信局域网、多 Client。
+
+## protobuf 与 TCP 各自解决什么
+
+TCP 只保证一串字节可靠、有序地到达，不知道字节的业务含义，也不保留应用消息边界。
+protobuf 把 VehicleState、Trajectory、Heartbeat 等结构化对象序列化为跨平台字节，
+但不负责建立连接或发送数据。因此本项目把两者组合：
+
+```text
+业务对象 --protobuf 序列化--> payload --长度前缀--> TCP 字节流
+TCP 字节流 --按长度拆帧--> payload --protobuf 解析--> 业务对象
+```
+
+`.proto` 在构建时由 `protoc` 生成 `.pb.h/.pb.cc`。运行时双方不会交换 `.proto`
+文件，而是使用各自编译好的代码按照相同 field number 读写 wire format。源码目录
+`proto/autoviz/transport.proto` 决定生成头路径 `autoviz/transport.pb.h`；
+`package autoviz.protocol.v1` 独立决定 C++ namespace
+`autoviz::protocol::v1`。
 
 ## 数据格式选择
 

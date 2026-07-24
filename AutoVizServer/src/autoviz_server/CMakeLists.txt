@@ -16,13 +16,13 @@ find_package(rclcpp REQUIRED)
 set(AUTOVIZ_PROTOCOL_PROTO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/proto")
 set(AUTOVIZ_PROTOCOL_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(AUTOVIZ_PROTOCOL_FILES
-    autoviz/protocol/v1/common.proto
-    autoviz/protocol/v1/vehicle.proto
-    autoviz/protocol/v1/planning.proto
-    autoviz/protocol/v1/perception.proto
-    autoviz/protocol/v1/control.proto
-    autoviz/protocol/v1/runtime.proto
-    autoviz/protocol/v1/transport.proto
+    autoviz/common.proto
+    autoviz/vehicle.proto
+    autoviz/planning.proto
+    autoviz/perception.proto
+    autoviz/control.proto
+    autoviz/runtime.proto
+    autoviz/transport.proto
 )
 
 set(AUTOVIZ_PROTOCOL_GENERATED_SOURCES)

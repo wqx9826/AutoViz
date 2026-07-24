@@ -23,6 +23,7 @@ AutoViz 是 Qt/C++ 机器人规划控制可视化工具，当前首先服务水�
 | Server 网络 | Boost.Asio（当前环境 Boost 1.74） |
 | Server ROS | ROS2 Humble、rclcpp、robot_ws `custom_msgs` |
 | 构建 | Client/协议用 CMake 3.16+；Server 用 ament_cmake/colcon |
+| Client 测试 | 独立 GTest 可执行文件，不使用 CTest |
 
 `AutoVizClient` 构建不查找 `rclcpp`、`custom_msgs` 或任何 ROS 包。只有
 `AutoVizServer/src/autoviz_server` 需要 source ROS2 与 robot_ws。
@@ -100,6 +101,11 @@ robot_ws 底盘反馈“左负右正”取反为协议统一的“逆时针/左�
 5. Windows Client 的目录和依赖边界已满足，但尚未在 Windows 工具链完成正式构建验证。
 6. Client 和 Server 各保存并编译一份 proto；仓库内通过
    `tools/verify_proto_sync.cmake` 防止 schema 漂移。
+
+两份 schema 的当前路径分别是 `AutoVizClient/proto/autoviz/*.proto` 和
+`AutoVizServer/src/autoviz_server/proto/autoviz/*.proto`。文件路径决定生成的头文件
+位于 `generated/autoviz/*.pb.h`，但 proto 内的 `package autoviz.protocol.v1` 继续
+决定 C++ namespace 为 `autoviz::protocol::v1`。
 
 ## 开发底线
 

@@ -13,8 +13,11 @@
 
 - [x] proto2 v1 schema、全量快照、通道 UPSERT/CLEAR、握手和心跳。
 - [x] 4 字节大端 framing 和 16 MiB 上限单元测试。
-- [x] Client/Server 分别使用 GTest 验证本地 proto 与 FrameCodec。
+- [x] Client 使用独立 GTest 可执行文件（不使用 CTest），Server 使用
+  `ament_cmake_gtest` 验证本地 proto 与 FrameCodec。
 - [x] 增加两份 proto 的文件集合与 SHA256 同步检查。
+- [x] proto 扁平化到各工程的 `proto/autoviz/*.proto`，同步修正 import、生成头路径
+  和 CMake 输入。
 - [ ] 增加 robot_ws 消息到 proto、proto 到内部模型的字段级自动测试。
 - [ ] 增加录制的 golden snapshot，覆盖水平、垂向、急停和空障碍物。
 - [ ] 压测高频轨迹/障碍物和慢 Client，确定背压与队列上限。

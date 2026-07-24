@@ -2,11 +2,11 @@ syntax = "proto2";
 
 package autoviz.protocol.v1;
 
-import "autoviz/protocol/v1/control.proto";
-import "autoviz/protocol/v1/perception.proto";
-import "autoviz/protocol/v1/planning.proto";
-import "autoviz/protocol/v1/runtime.proto";
-import "autoviz/protocol/v1/vehicle.proto";
+import "autoviz/control.proto";
+import "autoviz/perception.proto";
+import "autoviz/planning.proto";
+import "autoviz/runtime.proto";
+import "autoviz/vehicle.proto";
 
 enum ChannelId {
   CHANNEL_UNKNOWN = 0;

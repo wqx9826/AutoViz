@@ -1,6 +1,6 @@
 #pragma once
 
-#include "autoviz/protocol/v1/transport.pb.h"
+#include "autoviz/transport.pb.h"
 #include "core/datacenter/DataManager.h"
 
 namespace autoviz::network {

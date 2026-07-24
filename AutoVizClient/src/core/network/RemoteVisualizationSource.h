@@ -7,7 +7,7 @@
 #include <QObject>
 #include <QString>
 
-#include "autoviz/protocol/FrameCodec.h"
+#include "FrameCodec.h"
 
 class QTcpSocket;
 class QTimer;

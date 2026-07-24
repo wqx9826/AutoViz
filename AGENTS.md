@@ -26,7 +26,7 @@ ROS2/custom_msgs
 ## 主要目录
 
 - `AutoVizClient/`：可独立复制和构建的纯 Qt Client 工程。
-- `AutoVizClient/proto/`：Client 自己编译的协议副本。
+- `AutoVizClient/proto/autoviz/*.proto`：Client 自己编译的协议副本。
 - `AutoVizClient/src/core/network/`：Client 网络连接和协议到内部模型转换。
 - `AutoVizClient/src/core/model/`：UI 唯一业务数据契约。
 - `AutoVizClient/src/core/datacenter/`：线程安全快照、历史轨迹和本地新鲜度。
@@ -34,7 +34,7 @@ ROS2/custom_msgs
 - `AutoVizClient/src/ui/`：Qt Widgets UI、图表和状态页。
 - `AutoVizServer/`：独立 ROS2 workspace。
 - `AutoVizServer/src/autoviz_server/`：ament Server 包和 robot_ws Adapter。
-- `AutoVizServer/src/autoviz_server/proto/`：Server 自己编译的协议副本。
+- `AutoVizServer/src/autoviz_server/proto/autoviz/*.proto`：Server 自己编译的协议副本。
 - `tools/verify_proto_sync.cmake`：仓库内两份 proto 的一致性检查。
 
 ## Client 规则
@@ -69,9 +69,9 @@ robot_ws 当前输入：
 
 ## 协议规则
 
-- schema 分别位于 `AutoVizClient/proto/autoviz/protocol/v1/` 和
-  `AutoVizServer/src/autoviz_server/proto/autoviz/protocol/v1/`，两份内容必须完全
-  一致并由各自 CMake 直接编译。
+- schema 分别位于 `AutoVizClient/proto/autoviz/*.proto` 和
+  `AutoVizServer/src/autoviz_server/proto/autoviz/*.proto`，两份内容必须完全一致并
+  由各自 CMake 直接编译。
 - 协议变更后必须运行 `cmake -P tools/verify_proto_sync.cmake`。
 - schema 使用 proto2 optional，禁止 required。
 - framing 固定为 4 字节大端 payload 长度 + protobuf Envelope，最大 16 MiB。
@@ -104,9 +104,9 @@ robot_ws 当前输入：
 Client（不 source ROS）：
 
 ```bash
-cmake -S AutoVizClient -B build/client -DBUILD_TESTING=ON
+cmake -S AutoVizClient -B build/client -DAUTOVIZ_BUILD_TESTS=ON
 cmake --build build/client -j4
-ctest --test-dir build/client --output-on-failure
+./build/client/autoviz_client_protocol_tests
 ```
 
 Server：

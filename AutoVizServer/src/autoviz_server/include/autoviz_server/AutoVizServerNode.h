@@ -16,7 +16,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "autoviz/protocol/v1/transport.pb.h"
+#include "autoviz/transport.pb.h"
 #include "autoviz_server/TcpServer.h"
 
 namespace autoviz_server {

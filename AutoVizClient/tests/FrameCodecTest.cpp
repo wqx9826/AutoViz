@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "autoviz/protocol/FrameCodec.h"
+#include "FrameCodec.h"
 
 namespace {
 

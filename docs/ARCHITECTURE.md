@@ -39,9 +39,12 @@ DataManager (VisualizationSnapshot)
 
 Client 与 Server 各自持有一份协议源码：
 
-- `AutoVizClient/proto/` 与 `AutoVizServer/src/autoviz_server/proto/` 按 common、
-  vehicle、planning、perception、control、runtime、transport 分域。
+- `AutoVizClient/proto/autoviz/*.proto` 与
+  `AutoVizServer/src/autoviz_server/proto/autoviz/*.proto` 按 common、vehicle、
+  planning、perception、control、runtime、transport 分域。
 - 两边 CMake 分别调用 `protoc` 并生成自己的静态协议库，不引用对方目录。
+- 当前生成文件路径为 `generated/autoviz/*.pb.h/.pb.cc`；proto package 仍是
+  `autoviz.protocol.v1`，因此 C++ namespace 不随源码目录扁平化而变化。
 - 两份 schema 必须逐文件一致，由仓库根同步检查校验；该检查不是任一工程的构建依赖。
 - `FrameCodec` 只负责 4 字节大端长度前缀和 protobuf Envelope。
 - 两侧 FrameCodec 都不依赖 Qt、ROS 或 Boost。
@@ -64,7 +67,8 @@ Server 的边界职责：
 ### Client 层
 
 `AutoVizClient` 是可单独复制和构建的纯 Client 工程。其 CMake 仅查找 Qt5
-Widgets/Network、protobuf 以及测试时的 GTest；工程目录中不保存 ROS Adapter。
+Widgets/Network、protobuf 以及开启 `AUTOVIZ_BUILD_TESTS` 时的 GTest；Client 不
+使用 CTest，工程目录中也不保存 ROS Adapter。
 
 Client 的边界职责：
 

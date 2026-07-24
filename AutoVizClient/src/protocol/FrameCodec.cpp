@@ -1,4 +1,4 @@
-#include "autoviz/protocol/FrameCodec.h"
+#include "FrameCodec.h"
 
 namespace autoviz::protocol {
 

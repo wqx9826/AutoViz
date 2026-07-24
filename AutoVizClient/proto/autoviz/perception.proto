@@ -2,8 +2,8 @@ syntax = "proto2";
 
 package autoviz.protocol.v1;
 
-import "autoviz/protocol/v1/common.proto";
-import "autoviz/protocol/v1/planning.proto";
+import "autoviz/common.proto";
+import "autoviz/planning.proto";
 
 message Obstacle {
   enum Type {

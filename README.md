@@ -24,14 +24,14 @@ DataManager -> SceneManager -> UI
 ```text
 AutoVizClient/                         # 独立 Qt Client 工程
   CMakeLists.txt
-  proto/                              # Client 自己编译的协议副本
+  proto/autoviz/*.proto               # Client 自己编译的协议副本
   include/ src/ configs/ tests/
 
 AutoVizServer/                         # 独立 ROS2 workspace
   src/autoviz_server/
     CMakeLists.txt
     package.xml
-    proto/                            # Server 自己编译的协议副本
+    proto/autoviz/*.proto             # Server 自己编译的协议副本
     include/ src/ config/ launch/ test/
 
 tools/verify_proto_sync.cmake         # 仓库内两份 proto 一致性检查
@@ -44,15 +44,16 @@ colcon workspace 构建。
 
 ## 构建 Client
 
-依赖 CMake 3.16+、C++17、Qt5 Widgets/Network 和 protobuf 3。启用测试时还需要
-GTest。
+依赖 CMake 3.16+、C++17、Qt5 Widgets/Network 和 protobuf 3。
 
 ```bash
-cmake -S AutoVizClient -B build/client -DBUILD_TESTING=ON
+cmake -S AutoVizClient -B build/client
 cmake --build build/client -j4
-ctest --test-dir build/client --output-on-failure
 ./build/client/AutoViz
 ```
+
+Client 不使用 CTest。需要 GTest 时增加 `-DAUTOVIZ_BUILD_TESTS=ON`，构建后直接运行
+`./build/client/autoviz_client_protocol_tests`。
 
 详细的 Linux/Windows 说明见 `AutoVizClient/README.md`。
 
@@ -77,7 +78,7 @@ ros2 launch autoviz_server autoviz_server.launch.py
 
 ## 测试与协议同步
 
-Client 使用 CMake/CTest 驱动 GTest。Server 使用 `ament_cmake_gtest`：
+Client 使用独立 GTest 可执行文件，Server 使用 `ament_cmake_gtest`：
 
 ```bash
 colcon --log-base AutoVizServer/log test \

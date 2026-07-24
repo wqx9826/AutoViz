@@ -2,7 +2,7 @@ syntax = "proto2";
 
 package autoviz.protocol.v1;
 
-import "autoviz/protocol/v1/common.proto";
+import "autoviz/common.proto";
 
 message VerticalState {
   optional double odom_z_m = 1;

@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-include(CTest)
+option(AUTOVIZ_BUILD_TESTS "Build AutoVizClient GTest executable" OFF)
 
 find_package(Protobuf REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Network Widgets)
@@ -18,13 +18,13 @@ find_package(Qt5 REQUIRED COMPONENTS Network Widgets)
 set(AUTOVIZ_PROTOCOL_PROTO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/proto")
 set(AUTOVIZ_PROTOCOL_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(AUTOVIZ_PROTOCOL_FILES
-    autoviz/protocol/v1/common.proto
-    autoviz/protocol/v1/vehicle.proto
-    autoviz/protocol/v1/planning.proto
-    autoviz/protocol/v1/perception.proto
-    autoviz/protocol/v1/control.proto
-    autoviz/protocol/v1/runtime.proto
-    autoviz/protocol/v1/transport.proto
+    autoviz/common.proto
+    autoviz/vehicle.proto
+    autoviz/planning.proto
+    autoviz/perception.proto
+    autoviz/control.proto
+    autoviz/runtime.proto
+    autoviz/transport.proto
 )
 
 set(AUTOVIZ_PROTOCOL_GENERATED_SOURCES)
@@ -56,14 +56,14 @@ add_custom_command(
 add_library(autoviz_client_protocol STATIC
     ${AUTOVIZ_PROTOCOL_GENERATED_SOURCES}
     ${AUTOVIZ_PROTOCOL_GENERATED_HEADERS}
-    include/autoviz/protocol/FrameCodec.h
+    src/protocol/FrameCodec.h
     src/protocol/FrameCodec.cpp
 )
 add_library(AutoVizClient::Protocol ALIAS autoviz_client_protocol)
 
 target_include_directories(autoviz_client_protocol
     PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/protocol"
         "${AUTOVIZ_PROTOCOL_GENERATED_DIR}"
 )
 target_link_libraries(autoviz_client_protocol PUBLIC protobuf::libprotobuf)
@@ -142,9 +142,8 @@ add_custom_command(
     COMMENT "Copying AutoVizClient runtime configuration"
 )
 
-if(BUILD_TESTING)
+if(AUTOVIZ_BUILD_TESTS)
     find_package(GTest REQUIRED)
-    include(GoogleTest)
 
     add_executable(autoviz_client_protocol_tests tests/FrameCodecTest.cpp)
     target_link_libraries(autoviz_client_protocol_tests
@@ -152,5 +151,4 @@ if(BUILD_TESTING)
             AutoVizClient::Protocol
             GTest::gtest_main
     )
-    gtest_discover_tests(autoviz_client_protocol_tests)
 endif()
