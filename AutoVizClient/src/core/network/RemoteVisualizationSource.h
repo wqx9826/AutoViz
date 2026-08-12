@@ -41,7 +41,6 @@ signals:
 private:
     void sendEnvelope(const ::autoviz::Envelope& envelope);
     void sendHello();
-    void sendSubscribe();
     void sendHeartbeat();
     void handleEnvelope(const ::autoviz::Envelope& envelope);
     void scheduleReconnect();

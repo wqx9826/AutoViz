@@ -2,36 +2,36 @@
 
 namespace autoviz {
 
-std::string encodeFrame(const Envelope& envelope)
+bool encodeFrame(const Envelope& envelope, FrameBytes& frame, std::string& errorMessage)
 {
     std::string payload;
-    if (!envelope.SerializeToString(&payload) || payload.size() > kMaxFrameSize) {
-        return {};
+    errorMessage.clear();
+    frame.clear();
+    if (!envelope.SerializeToString(&payload)) {
+        errorMessage = "protobuf envelope serialization failed";
+        return false;
+    }
+    if (payload.empty() || payload.size() > kMaxFrameSize) {
+        errorMessage = "invalid or oversized protobuf payload";
+        return false;
     }
 
     const auto size = static_cast<std::uint32_t>(payload.size());
-    std::string frame(kFrameHeaderSize, '\0');
+    frame.assign(kFrameHeaderSize, '\0');
     frame[0] = static_cast<char>((size >> 24U) & 0xffU);
     frame[1] = static_cast<char>((size >> 16U) & 0xffU);
     frame[2] = static_cast<char>((size >> 8U) & 0xffU);
     frame[3] = static_cast<char>(size & 0xffU);
     frame += payload;
-    return frame;
+    return true;
 }
 
-bool FrameDecoder::append(const char* data,
-                          std::size_t size,
-                          std::vector<Envelope>* envelopes,
-                          std::string* errorMessage)
+bool FrameDecoder::decode(std::string_view bytes,
+                          std::vector<Envelope>& envelopes,
+                          std::string& errorMessage)
 {
-    if (envelopes == nullptr || (data == nullptr && size != 0U)) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "invalid decoder argument";
-        }
-        return false;
-    }
-
-    m_buffer.append(data, size);
+    errorMessage.clear();
+    m_buffer.append(bytes.data(), bytes.size());
     for (;;) {
         if (m_buffer.size() < kFrameHeaderSize) {
             return true;
@@ -43,9 +43,7 @@ bool FrameDecoder::append(const char* data,
                                           | (static_cast<std::uint32_t>(bytes[2]) << 8U)
                                           | static_cast<std::uint32_t>(bytes[3]);
         if (payloadSize == 0U || payloadSize > kMaxFrameSize) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "invalid or oversized frame";
-            }
+            errorMessage = "invalid or oversized frame";
             reset();
             return false;
         }
@@ -56,13 +54,11 @@ bool FrameDecoder::append(const char* data,
         Envelope envelope;
         if (!envelope.ParseFromArray(m_buffer.data() + kFrameHeaderSize,
                                      static_cast<int>(payloadSize))) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "protobuf envelope parse failed";
-            }
+            errorMessage = "protobuf envelope parse failed";
             reset();
             return false;
         }
-        envelopes->push_back(std::move(envelope));
+        envelopes.push_back(std::move(envelope));
         m_buffer.erase(0, kFrameHeaderSize + payloadSize);
     }
 }

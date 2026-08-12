@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <mutex>
 
 #include "core/model/ControlTypes.h"
@@ -20,6 +19,10 @@ enum class VisualizationInputSource {
 
 struct VisualizationRuntimeStatus {
     VisualizationInputSource inputSource = VisualizationInputSource::Mock;
+    bool hasCommonPlanningControlCapability = true;
+    bool hasVerticalMotionCapability = false;
+    bool hasUnderwaterSystemCapability = false;
+    bool hasPlatformDiagnosticsCapability = false;
     bool hasVehicleLocationData = false;
     bool hasVehicleChassisData = false;
     bool hasGlobalPathData = false;
@@ -61,50 +64,11 @@ public:
     void replaceVisualizationSnapshot(const VisualizationSnapshot& snapshot,
                                       VisualizationInputSource inputSource);
 
-    void setVehicleLocation(const model::VehicleLocation& vehicleLocation);
-    void setVehicleChassisInfo(const model::VehicleChassisInfo& vehicleChassisInfo);
-    void setVehicleConfig(const model::VehicleConfig& vehicleConfig);
-    void setGlobalPath(const model::Trajectory& globalPath);
-    void setLocalPath(const model::Trajectory& localPath);
-    void setReferenceLine(const model::ReferenceLine& referenceLine);
-    void setObstacles(const model::ObstacleList& obstacles);
-    void setControlCmd(const model::ControlCmd& controlCmd);
-    void setTopicStatus(const model::TopicStatus& topicStatus);
-    void setTopicStatuses(const model::TopicStatusList& topicStatuses);
-    void setLocalizationStatus(const model::LocalizationStatus& status);
-    void setChassisRuntimeStatus(const model::ChassisRuntimeStatus& status);
-    void setControlCommandStatus(const model::ControlCommandStatus& status);
-    void setGlobalPathStatus(const model::PathRuntimeStatus& status);
-    void setLocalPathStatus(const model::PathRuntimeStatus& status);
-    void setActionRuntimeStatus(const model::ActionRuntimeStatus& status);
-    void setTaskRuntimeStatus(const model::TaskRuntimeStatus& status);
     void clearHistoryTrail();
 
     VisualizationSnapshot getSnapshot() const;
 
 private:
-    using Clock = std::chrono::steady_clock;
-    using TimePoint = Clock::time_point;
-
-    struct ChannelUpdateTimes {
-        TimePoint vehicleLocation;
-        TimePoint vehicleChassis;
-        TimePoint globalPath;
-        TimePoint localPath;
-        TimePoint referenceLine;
-        TimePoint obstacles;
-        TimePoint controlCmd;
-        TimePoint controlCommandStatus;
-        TimePoint actionRuntimeStatus;
-        TimePoint taskRuntimeStatus;
-    };
-
-    static bool hasVehicleLocationData(const model::VehicleLocation& vehicleLocation);
-    static bool hasVehicleChassisData(const model::VehicleChassisInfo& vehicleChassisInfo);
-    static bool hasControlCmdData(const model::ControlCmd& controlCmd);
-    static bool isFresh(TimePoint lastUpdate, TimePoint now);
-    static TimePoint timestampFor(bool hasData);
-    static void applyFreshnessFilter(VisualizationSnapshot& snapshot, const ChannelUpdateTimes& updateTimes, TimePoint now);
     static void updateTopicAges(model::TopicStatusList& topicStatuses, qint64 nowMs);
     model::TrajectoryPoint buildHistoryTrailPointLocked() const;
     void appendHistoryTrailPointLocked();
@@ -113,7 +77,6 @@ private:
 
     mutable std::mutex m_mutex;
     VisualizationSnapshot m_snapshot;
-    ChannelUpdateTimes m_updateTimes;
 };
 
 }  // namespace autoviz::datacenter

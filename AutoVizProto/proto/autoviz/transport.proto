@@ -3,25 +3,11 @@ syntax = "proto2";
 package autoviz;
 
 import "autoviz/control.proto";
+import "autoviz/common.proto";
 import "autoviz/perception.proto";
 import "autoviz/planning.proto";
 import "autoviz/runtime.proto";
 import "autoviz/vehicle.proto";
-
-enum ChannelId {
-  CHANNEL_UNKNOWN = 0;
-  CHANNEL_VEHICLE_STATE = 1;
-  CHANNEL_CHASSIS_STATE = 2;
-  CHANNEL_CONTROL_COMMAND = 3;
-  CHANNEL_GLOBAL_TRAJECTORY = 4;
-  CHANNEL_LOCAL_TRAJECTORY = 5;
-  CHANNEL_REFERENCE_LINE = 6;
-  CHANNEL_OBSTACLES = 7;
-  CHANNEL_ACTION_STATE = 8;
-  CHANNEL_TASK_STATE = 9;
-  CHANNEL_RUNTIME_STATE = 10;
-  CHANNEL_VEHICLE_PARAMETERS = 11;
-}
 
 message VisualizationSnapshot {
   optional uint64 sequence = 1;
@@ -41,31 +27,6 @@ message VisualizationSnapshot {
   optional VehicleParameters vehicle_parameters = 20;
 }
 
-message ChannelUpdate {
-  enum Operation {
-    OPERATION_UPSERT = 0;
-    OPERATION_CLEAR = 1;
-  }
-
-  optional uint64 sequence = 1;
-  optional uint64 server_time_ns = 2;
-  optional string session_id = 3;
-  optional ChannelId channel = 4 [default = CHANNEL_UNKNOWN];
-  optional Operation operation = 5 [default = OPERATION_UPSERT];
-  oneof payload {
-    VehicleState vehicle_state = 10;
-    ChassisState chassis_state = 11;
-    ControlCommand control_command = 12;
-    Trajectory trajectory = 13;
-    ReferenceLine reference_line = 14;
-    ObstacleSet obstacles = 15;
-    ActionState action_state = 16;
-    TaskState task_state = 17;
-    RuntimeState runtime_state = 18;
-    VehicleParameters vehicle_parameters = 19;
-  }
-}
-
 message ClientHello {
   optional string client_name = 1;
   optional string client_version = 2;
@@ -80,12 +41,7 @@ message ServerHello {
   optional uint32 protocol_minor = 4 [default = 0];
   optional string session_id = 5;
   optional SourceInfo source = 6;
-  repeated ChannelId available_channel = 7;
-}
-
-message SubscribeRequest {
-  repeated ChannelId channel = 1;
-  optional bool request_full_snapshot = 2 [default = true];
+  repeated Capability capability = 7;
 }
 
 message Heartbeat {
@@ -101,12 +57,12 @@ message ProtocolError {
 }
 
 message Envelope {
+  // v1 的 SubscribeRequest=3、ChannelUpdate=5 已删除，field number 永不复用。
+  reserved 3, 5;
   oneof body {
     ClientHello client_hello = 1;
     ServerHello server_hello = 2;
-    SubscribeRequest subscribe_request = 3;
     VisualizationSnapshot snapshot = 4;
-    ChannelUpdate channel_update = 5;
     Heartbeat heartbeat = 6;
     ProtocolError error = 7;
   }

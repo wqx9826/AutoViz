@@ -88,4 +88,13 @@ QTcpSocket
 Client 不保存 `.proto`、不运行 protoc、不包含 FrameCodec 副本，也没有 CTest/GTest。
 协议测试统一在 AutoVizProto。
 
-默认连接 `127.0.0.1:39090`。断线、新 session 或 CLEAR 都会清理旧数据。
+默认连接 `127.0.0.1:39090`。当前协议为 v2 完整快照：ClientHello 完成后接收
+ServerHello、VisualizationSnapshot、Heartbeat 和 ProtocolError，不发送订阅，也不处理
+ChannelUpdate。断线或新 session 会清空全部远程数据和历史轨迹；同一 session 内
+DataManager 原子替换快照并延续历史轨迹。
+
+Client 的业务状态按内部 `VisualizationChannel`/capability 匹配；ROS topic、DDS reader
+或日志字段名称只作为诊断文本显示，UI 不解析这些来源字符串。通用项目始终使用 XY、
+轨迹、障碍物和控制曲线；只有 Server 声明垂向、水下或平台诊断 capability 时，相关视图
+和状态区域才启用。所有 protobuf 字段先经 `ProtocolModelConverter` 转为内部模型，
+UI/SceneManager 不直接读取 protobuf。

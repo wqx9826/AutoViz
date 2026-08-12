@@ -12,8 +12,6 @@
 namespace autoviz::datacenter {
 
 namespace {
-// 与 topic 状态监控保持一致，避免短暂发布空档导致主视图数据闪烁。
-constexpr auto kRealtimeDataTimeout = std::chrono::seconds(5);
 constexpr int kMaxHistoryTrailPoints = 2000;
 // XY 轨迹仍按水平位移降采样；垂向动作需要 depth/height 和时间兜底共同触发采样。
 constexpr double kHistoryTrailMinDistance = 1.0;
@@ -96,7 +94,7 @@ void DataManager::initializeMockData()
     chassis.gearStatus = m_snapshot.vehicleChassisInfo.currentGearPosition;
     chassis.waterTankLevelStatus = 62;
     chassis.waterTankLevelIsRaw = false;
-    chassis.waterTankStatus = 0;
+    chassis.waterTankState = model::WaterTankState::Idle;
     chassis.waterHeartbeat = 42;
     chassis.crawlHeartbeat = 17;
     chassis.leftTailActuatorStatus = 0;
@@ -192,8 +190,11 @@ void DataManager::initializeMockData()
                                             ? 0.0
                                             : m_snapshot.localPath.points.constLast().position.x;
 
-    auto mockTopic = [mockTimestamp](const QString& name, const QString& type) {
+    auto mockTopic = [mockTimestamp](model::VisualizationChannel channel,
+                                     const QString& name,
+                                     const QString& type) {
         model::TopicStatus status;
+        status.channel = channel;
         status.name = name;
         status.type = type;
         status.lastUpdateMs = mockTimestamp;
@@ -205,18 +206,22 @@ void DataManager::initializeMockData()
         return status;
     };
     m_snapshot.topicStatuses = model::TopicStatusList{
-        mockTopic(QStringLiteral("vehicle_state"), QStringLiteral("AutoViz.VehicleState")),
-        mockTopic(QStringLiteral("obstacles"), QStringLiteral("AutoViz.ObstacleSet")),
-        mockTopic(QStringLiteral("control_command"), QStringLiteral("AutoViz.ControlCommand")),
-        mockTopic(QStringLiteral("chassis_state"), QStringLiteral("AutoViz.ChassisState")),
-        mockTopic(QStringLiteral("action_state"), QStringLiteral("AutoViz.ActionState")),
-        mockTopic(QStringLiteral("task_state"), QStringLiteral("AutoViz.TaskState")),
-        mockTopic(QStringLiteral("local_trajectory"), QStringLiteral("AutoViz.Trajectory")),
-        mockTopic(QStringLiteral("global_trajectory"), QStringLiteral("AutoViz.Trajectory"))};
+        mockTopic(model::VisualizationChannel::VehicleState, QStringLiteral("vehicle_state"), QStringLiteral("AutoViz.VehicleState")),
+        mockTopic(model::VisualizationChannel::Obstacles, QStringLiteral("obstacles"), QStringLiteral("AutoViz.ObstacleSet")),
+        mockTopic(model::VisualizationChannel::ControlCommand, QStringLiteral("control_command"), QStringLiteral("AutoViz.ControlCommand")),
+        mockTopic(model::VisualizationChannel::ChassisState, QStringLiteral("chassis_state"), QStringLiteral("AutoViz.ChassisState")),
+        mockTopic(model::VisualizationChannel::ActionState, QStringLiteral("action_state"), QStringLiteral("AutoViz.ActionState")),
+        mockTopic(model::VisualizationChannel::TaskState, QStringLiteral("task_state"), QStringLiteral("AutoViz.TaskState")),
+        mockTopic(model::VisualizationChannel::LocalTrajectory, QStringLiteral("local_trajectory"), QStringLiteral("AutoViz.Trajectory")),
+        mockTopic(model::VisualizationChannel::GlobalTrajectory, QStringLiteral("global_trajectory"), QStringLiteral("AutoViz.Trajectory"))};
 
     m_snapshot.pathEndpointStatus = model::PathEndpointStatus{};
     m_snapshot.runVisualizationMode = model::RunVisualizationMode::HorizontalMotion;
     m_snapshot.runtimeStatus.inputSource = VisualizationInputSource::Mock;
+    m_snapshot.runtimeStatus.hasCommonPlanningControlCapability = true;
+    m_snapshot.runtimeStatus.hasVerticalMotionCapability = true;
+    m_snapshot.runtimeStatus.hasUnderwaterSystemCapability = true;
+    m_snapshot.runtimeStatus.hasPlatformDiagnosticsCapability = true;
     m_snapshot.runtimeStatus.hasVehicleLocationData = true;
     m_snapshot.runtimeStatus.hasVehicleChassisData = true;
     m_snapshot.runtimeStatus.hasGlobalPathData = !m_snapshot.globalPath.points.isEmpty();
@@ -224,7 +229,6 @@ void DataManager::initializeMockData()
     m_snapshot.runtimeStatus.hasReferenceLineData = !m_snapshot.referenceLine.points.isEmpty();
     m_snapshot.runtimeStatus.hasObstacleData = !m_snapshot.obstacles.isEmpty();
     m_snapshot.runtimeStatus.hasControlCmdData = true;
-    m_updateTimes = ChannelUpdateTimes{};
     updatePathEndpointLocked();
     appendHistoryTrailPointLocked();
 }
@@ -252,7 +256,6 @@ void DataManager::resetVisualizationData(VisualizationInputSource inputSource)
     m_snapshot.runVisualizationMode = model::RunVisualizationMode::Unknown;
     m_snapshot.runtimeStatus = VisualizationRuntimeStatus{};
     m_snapshot.runtimeStatus.inputSource = inputSource;
-    m_updateTimes = ChannelUpdateTimes{};
 }
 
 void DataManager::replaceVisualizationSnapshot(const VisualizationSnapshot& snapshot,
@@ -268,150 +271,9 @@ void DataManager::replaceVisualizationSnapshot(const VisualizationSnapshot& snap
     }
     m_snapshot.historyTrail = existingHistory;
     m_snapshot.runtimeStatus.inputSource = inputSource;
-    const auto now = Clock::now();
-    m_updateTimes.vehicleLocation = m_snapshot.runtimeStatus.hasVehicleLocationData ? now : TimePoint{};
-    m_updateTimes.vehicleChassis = m_snapshot.runtimeStatus.hasVehicleChassisData ? now : TimePoint{};
-    m_updateTimes.globalPath = m_snapshot.runtimeStatus.hasGlobalPathData ? now : TimePoint{};
-    m_updateTimes.localPath = m_snapshot.runtimeStatus.hasLocalPathData ? now : TimePoint{};
-    m_updateTimes.referenceLine = m_snapshot.runtimeStatus.hasReferenceLineData ? now : TimePoint{};
-    m_updateTimes.obstacles = m_snapshot.runtimeStatus.hasObstacleData ? now : TimePoint{};
-    m_updateTimes.controlCmd = m_snapshot.runtimeStatus.hasControlCmdData ? now : TimePoint{};
-    m_updateTimes.controlCommandStatus = m_snapshot.controlCommandStatus.valid ? now : TimePoint{};
-    m_updateTimes.actionRuntimeStatus = m_snapshot.actionRuntimeStatus.valid ? now : TimePoint{};
-    m_updateTimes.taskRuntimeStatus = m_snapshot.taskRuntimeStatus.valid ? now : TimePoint{};
     updatePathEndpointLocked();
     updateRunVisualizationModeLocked();
     appendHistoryTrailPointLocked();
-}
-
-void DataManager::setVehicleLocation(const model::VehicleLocation& vehicleLocation)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.vehicleLocation = vehicleLocation;
-    m_snapshot.runtimeStatus.hasVehicleLocationData = hasVehicleLocationData(vehicleLocation);
-    m_updateTimes.vehicleLocation = timestampFor(m_snapshot.runtimeStatus.hasVehicleLocationData);
-    appendHistoryTrailPointLocked();
-}
-
-void DataManager::setVehicleChassisInfo(const model::VehicleChassisInfo& vehicleChassisInfo)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.vehicleChassisInfo = vehicleChassisInfo;
-    m_snapshot.runtimeStatus.hasVehicleChassisData = hasVehicleChassisData(vehicleChassisInfo);
-    m_updateTimes.vehicleChassis = timestampFor(m_snapshot.runtimeStatus.hasVehicleChassisData);
-}
-
-void DataManager::setVehicleConfig(const model::VehicleConfig& vehicleConfig)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.vehicleConfig = vehicleConfig;
-}
-
-void DataManager::setGlobalPath(const model::Trajectory& globalPath)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.globalPath = globalPath;
-    m_snapshot.runtimeStatus.hasGlobalPathData = !globalPath.points.isEmpty();
-    m_updateTimes.globalPath = timestampFor(m_snapshot.runtimeStatus.hasGlobalPathData);
-    updatePathEndpointLocked();
-}
-
-void DataManager::setLocalPath(const model::Trajectory& localPath)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.localPath = localPath;
-    m_snapshot.runtimeStatus.hasLocalPathData = !localPath.points.isEmpty();
-    m_updateTimes.localPath = timestampFor(m_snapshot.runtimeStatus.hasLocalPathData);
-}
-
-void DataManager::setReferenceLine(const model::ReferenceLine& referenceLine)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.referenceLine = referenceLine;
-    m_snapshot.runtimeStatus.hasReferenceLineData = !referenceLine.points.isEmpty();
-    m_updateTimes.referenceLine = timestampFor(m_snapshot.runtimeStatus.hasReferenceLineData);
-}
-
-void DataManager::setObstacles(const model::ObstacleList& obstacles)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.obstacles = obstacles;
-    m_snapshot.runtimeStatus.hasObstacleData = !obstacles.isEmpty();
-    m_updateTimes.obstacles = timestampFor(m_snapshot.runtimeStatus.hasObstacleData);
-}
-
-void DataManager::setControlCmd(const model::ControlCmd& controlCmd)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.controlCmd = controlCmd;
-    m_snapshot.runtimeStatus.hasControlCmdData = hasControlCmdData(controlCmd);
-    m_updateTimes.controlCmd = timestampFor(m_snapshot.runtimeStatus.hasControlCmdData);
-}
-
-void DataManager::setTopicStatus(const model::TopicStatus& topicStatus)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& existing : m_snapshot.topicStatuses) {
-        if (existing.name == topicStatus.name) {
-            existing = topicStatus;
-            return;
-        }
-    }
-    m_snapshot.topicStatuses.push_back(topicStatus);
-}
-
-void DataManager::setTopicStatuses(const model::TopicStatusList& topicStatuses)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.topicStatuses = topicStatuses;
-}
-
-void DataManager::setLocalizationStatus(const model::LocalizationStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.localizationStatus = status;
-    appendHistoryTrailPointLocked();
-}
-
-void DataManager::setChassisRuntimeStatus(const model::ChassisRuntimeStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.chassisRuntimeStatus = status;
-}
-
-void DataManager::setControlCommandStatus(const model::ControlCommandStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.controlCommandStatus = status;
-    m_updateTimes.controlCommandStatus = timestampFor(status.valid);
-}
-
-void DataManager::setGlobalPathStatus(const model::PathRuntimeStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.globalPathStatus = status;
-}
-
-void DataManager::setLocalPathStatus(const model::PathRuntimeStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.localPathStatus = status;
-}
-
-void DataManager::setActionRuntimeStatus(const model::ActionRuntimeStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.actionRuntimeStatus = status;
-    m_updateTimes.actionRuntimeStatus = timestampFor(status.valid);
-    updateRunVisualizationModeLocked();
-}
-
-void DataManager::setTaskRuntimeStatus(const model::TaskRuntimeStatus& status)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_snapshot.taskRuntimeStatus = status;
-    m_updateTimes.taskRuntimeStatus = timestampFor(status.valid);
-    updateRunVisualizationModeLocked();
 }
 
 void DataManager::clearHistoryTrail()
@@ -432,109 +294,8 @@ VisualizationSnapshot DataManager::getSnapshot() const
         }
     } else {
         updateTopicAges(snapshot.topicStatuses, QDateTime::currentMSecsSinceEpoch());
-        applyFreshnessFilter(snapshot, m_updateTimes, Clock::now());
     }
     return snapshot;
-}
-
-bool DataManager::hasVehicleLocationData(const model::VehicleLocation& vehicleLocation)
-{
-    return vehicleLocation.header.timestamp != 0
-           || !qFuzzyIsNull(vehicleLocation.position.x)
-           || !qFuzzyIsNull(vehicleLocation.position.y)
-           || !qFuzzyIsNull(vehicleLocation.heading)
-           || !qFuzzyIsNull(vehicleLocation.speed)
-           || !qFuzzyIsNull(vehicleLocation.acceleration)
-           || !qFuzzyIsNull(vehicleLocation.yawRate);
-}
-
-bool DataManager::hasVehicleChassisData(const model::VehicleChassisInfo& vehicleChassisInfo)
-{
-    return vehicleChassisInfo.header.timestamp != 0
-           || !qFuzzyIsNull(vehicleChassisInfo.currentSpeed)
-           || !qFuzzyIsNull(vehicleChassisInfo.currentAngularVelocity)
-           || !qFuzzyIsNull(vehicleChassisInfo.currentWheelAngle)
-           || !qFuzzyIsNull(vehicleChassisInfo.currentSteerWheelAngle)
-           || !qFuzzyIsNull(vehicleChassisInfo.throttleRatio)
-           || !qFuzzyIsNull(vehicleChassisInfo.brakeRatio)
-           || vehicleChassisInfo.currentGearPosition != 0
-           || vehicleChassisInfo.handBrake
-           || !qFuzzyIsNull(vehicleChassisInfo.energyRatio)
-           || !qFuzzyIsNull(vehicleChassisInfo.leftWheelSpeed)
-           || !qFuzzyIsNull(vehicleChassisInfo.rightWheelSpeed);
-}
-
-bool DataManager::hasControlCmdData(const model::ControlCmd& controlCmd)
-{
-    return controlCmd.header.timestamp != 0
-           || !qFuzzyIsNull(controlCmd.desiredVelocity)
-           || !qFuzzyIsNull(controlCmd.desiredAngularVelocity)
-           || !qFuzzyIsNull(controlCmd.desiredWheelAngle)
-           || !qFuzzyIsNull(controlCmd.desiredSteerWheelAngle)
-           || !qFuzzyIsNull(controlCmd.desiredHeading)
-           || controlCmd.mode != model::ControlMode::Unknown
-           || controlCmd.desiredGear != 0
-           || !qFuzzyIsNull(controlCmd.desiredBrake)
-           || !qFuzzyIsNull(controlCmd.desiredThrottle)
-           || controlCmd.handBrake;
-}
-
-bool DataManager::isFresh(TimePoint lastUpdate, TimePoint now)
-{
-    return lastUpdate != TimePoint{} && now - lastUpdate <= kRealtimeDataTimeout;
-}
-
-DataManager::TimePoint DataManager::timestampFor(bool hasData)
-{
-    return hasData ? Clock::now() : TimePoint{};
-}
-
-void DataManager::applyFreshnessFilter(VisualizationSnapshot& snapshot, const ChannelUpdateTimes& updateTimes, TimePoint now)
-{
-    if (!isFresh(updateTimes.vehicleLocation, now)) {
-        snapshot.vehicleLocation = model::VehicleLocation{};
-        snapshot.localizationStatus = model::LocalizationStatus{};
-        snapshot.runtimeStatus.hasVehicleLocationData = false;
-    }
-    if (!isFresh(updateTimes.vehicleChassis, now)) {
-        snapshot.vehicleChassisInfo = model::VehicleChassisInfo{};
-        snapshot.chassisRuntimeStatus = model::ChassisRuntimeStatus{};
-        snapshot.runtimeStatus.hasVehicleChassisData = false;
-    }
-    if (!isFresh(updateTimes.globalPath, now)) {
-        snapshot.globalPath = model::Trajectory{};
-        snapshot.runtimeStatus.hasGlobalPathData = false;
-        snapshot.globalPathStatus = model::PathRuntimeStatus{};
-        snapshot.pathEndpointStatus = model::PathEndpointStatus{};
-    }
-    if (!isFresh(updateTimes.localPath, now)) {
-        snapshot.localPath = model::Trajectory{};
-        snapshot.runtimeStatus.hasLocalPathData = false;
-        snapshot.localPathStatus = model::PathRuntimeStatus{};
-    }
-    if (!isFresh(updateTimes.referenceLine, now)) {
-        snapshot.referenceLine = model::ReferenceLine{};
-        snapshot.runtimeStatus.hasReferenceLineData = false;
-    }
-    if (!isFresh(updateTimes.obstacles, now)) {
-        snapshot.obstacles = model::ObstacleList{};
-        snapshot.runtimeStatus.hasObstacleData = false;
-    }
-    if (!isFresh(updateTimes.controlCmd, now)) {
-        snapshot.controlCmd = model::ControlCmd{};
-        snapshot.runtimeStatus.hasControlCmdData = false;
-    }
-    if (!isFresh(updateTimes.controlCommandStatus, now)) {
-        snapshot.controlCommandStatus = model::ControlCommandStatus{};
-    }
-    if (!isFresh(updateTimes.actionRuntimeStatus, now)) {
-        snapshot.actionRuntimeStatus = model::ActionRuntimeStatus{};
-    }
-    if (!isFresh(updateTimes.taskRuntimeStatus, now)) {
-        snapshot.taskRuntimeStatus = model::TaskRuntimeStatus{};
-    }
-    snapshot.runVisualizationMode = model::inferRunVisualizationMode(snapshot.actionRuntimeStatus,
-                                                                       snapshot.taskRuntimeStatus);
 }
 
 void DataManager::updateTopicAges(model::TopicStatusList& topicStatuses, qint64 nowMs)

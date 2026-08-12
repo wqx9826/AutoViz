@@ -10,6 +10,10 @@ AutoVizClient  protobuf/TCP -> Qt UI
 
 `main` 仍是现场稳定的 ROS2 单体版本，本分支不会修改 main。
 
+当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.0**：Server 最多 20 Hz 发送
+完整当前快照，不再使用订阅、ChannelUpdate 或 UPSERT/CLEAR。八条 robot_ws 输入均由
+Server Adapter 转换；Client 根据通用规划控制、垂向、水下和平台诊断 capability 组织 UI。
+
 ## 第三方库布局
 
 AutoVizProto 的定位是普通第三方库。它的源码只保存一份，分别为 Client 和 Server
@@ -45,6 +49,13 @@ cmake 配置 -> cmake --build 编译 -> cmake --install 安装 SDK
 在仓库根目录：
 
 ```bash
+./scripts/bootstrap_proto.sh
+```
+
+该脚本会构建并测试一次协议库，再把 SDK 分别安装到 Client 和 Server。若只想手工为
+Client 准备 SDK，可使用下面的分步命令：
+
+```bash
 cmake -S AutoVizProto -B build/proto-client \
   -DAUTOVIZ_PROTO_BUILD_TESTS=ON
 cmake --build build/proto-client -j4
@@ -73,6 +84,8 @@ colcon --log-base AutoVizServer/log build \
 ```
 
 同一台 Linux 机器也可以复用一次 build，再用两个不同的 `--prefix` 安装两次。
+不要在 build 目录裸执行 `make install`：未指定前缀时 CMake 默认写入 `/usr/local`，
+普通用户会得到 `Permission denied`。本项目不需要 `sudo make install`。
 
 ## Windows Client
 
@@ -104,5 +117,7 @@ AutoVizClient\third_party\Qt5
 - `AutoVizProto/README.md`
 - `AutoVizClient/README.md`
 - `AutoVizServer/README.md`
-- `docs/ARCHITECTURE.md`
-- `docs/PROTOCOL_DESIGN.md`
+- `memory/ARCHITECTURE.md`
+- `memory/PROTOCOL_DESIGN.md`
+- `memory/VALIDATION.md`
+- `AutoVizServer/docs/BOOST_ASIO_GUIDE.md`

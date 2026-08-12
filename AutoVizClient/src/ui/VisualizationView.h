@@ -70,6 +70,7 @@ protected:
 private:
     void setupScene();
     bool isPanButton(Qt::MouseButton button) const;
+    double adaptiveMinorGridSpacingMeters() const;
     void updateOverlayGeometry();
     void drawVerticalProfileForeground(QPainter* painter) const;
 

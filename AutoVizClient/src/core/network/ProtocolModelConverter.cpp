@@ -28,67 +28,72 @@ model::Header convertHeader(const wire::Header& source)
     return target;
 }
 
-const wire::DiagnosticMetric* findMetric(
-    const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
-    const char* key)
+model::VisualizationChannel convertDataKind(wire::DataKind kind)
 {
-    for (const auto& metric : metrics) {
-        if (metric.key() == key) {
-            return &metric;
-        }
+    switch (kind) {
+    case wire::DATA_KIND_VEHICLE_STATE:
+        return model::VisualizationChannel::VehicleState;
+    case wire::DATA_KIND_CHASSIS_STATE:
+        return model::VisualizationChannel::ChassisState;
+    case wire::DATA_KIND_CONTROL_COMMAND:
+        return model::VisualizationChannel::ControlCommand;
+    case wire::DATA_KIND_GLOBAL_TRAJECTORY:
+        return model::VisualizationChannel::GlobalTrajectory;
+    case wire::DATA_KIND_LOCAL_TRAJECTORY:
+        return model::VisualizationChannel::LocalTrajectory;
+    case wire::DATA_KIND_REFERENCE_LINE:
+        return model::VisualizationChannel::ReferenceLine;
+    case wire::DATA_KIND_OBSTACLES:
+        return model::VisualizationChannel::Obstacles;
+    case wire::DATA_KIND_ACTION_STATE:
+        return model::VisualizationChannel::ActionState;
+    case wire::DATA_KIND_TASK_STATE:
+        return model::VisualizationChannel::TaskState;
+    case wire::DATA_KIND_RUNTIME_STATE:
+        return model::VisualizationChannel::RuntimeState;
+    case wire::DATA_KIND_VEHICLE_PARAMETERS:
+        return model::VisualizationChannel::VehicleParameters;
+    case wire::DATA_KIND_UNKNOWN:
+    default:
+        return model::VisualizationChannel::Unknown;
     }
-    return nullptr;
 }
 
-double metricDouble(const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
-                    const char* key,
-                    double fallback = 0.0)
+model::WaterTankState convertWaterTankState(wire::WaterTankState state)
 {
-    const auto* metric = findMetric(metrics, key);
-    if (metric == nullptr) {
-        return fallback;
+    switch (state) {
+    case wire::WATER_TANK_STATE_IDLE:
+        return model::WaterTankState::Idle;
+    case wire::WATER_TANK_STATE_FILLING:
+        return model::WaterTankState::Filling;
+    case wire::WATER_TANK_STATE_DRAINING:
+        return model::WaterTankState::Draining;
+    case wire::WATER_TANK_STATE_MANUAL_OVERRIDE:
+        return model::WaterTankState::ManualOverride;
+    case wire::WATER_TANK_STATE_FAULT:
+        return model::WaterTankState::Fault;
+    case wire::WATER_TANK_STATE_FILL_DONE:
+        return model::WaterTankState::FillDone;
+    case wire::WATER_TANK_STATE_DRAIN_DONE:
+        return model::WaterTankState::DrainDone;
+    case wire::WATER_TANK_STATE_UNKNOWN:
+    default:
+        return model::WaterTankState::Unknown;
     }
-    if (metric->has_double_value()) {
-        return metric->double_value();
-    }
-    if (metric->has_int_value()) {
-        return static_cast<double>(metric->int_value());
-    }
-    return fallback;
 }
 
-int metricInt(const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
-              const std::string& key,
-              int fallback = 0)
+int convertBuoyancyCommand(wire::BuoyancyCommand command)
 {
-    const auto* metric = findMetric(metrics, key.c_str());
-    if (metric == nullptr) {
-        return fallback;
+    switch (command) {
+    case wire::BUOYANCY_COMMAND_STOP:
+        return 0;
+    case wire::BUOYANCY_COMMAND_FILL:
+        return 1;
+    case wire::BUOYANCY_COMMAND_DRAIN:
+        return 2;
+    default:
+        return -1;
     }
-    if (metric->has_int_value()) {
-        return static_cast<int>(metric->int_value());
-    }
-    if (metric->has_double_value()) {
-        return static_cast<int>(metric->double_value());
-    }
-    return fallback;
-}
-
-bool metricBool(const google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>& metrics,
-                const char* key,
-                bool fallback = false)
-{
-    const auto* metric = findMetric(metrics, key);
-    if (metric == nullptr) {
-        return fallback;
-    }
-    if (metric->has_bool_value()) {
-        return metric->bool_value();
-    }
-    if (metric->has_int_value()) {
-        return metric->int_value() != 0;
-    }
-    return fallback;
 }
 
 model::VehicleLocation convertVehicle(const wire::VehicleState& source)
@@ -145,34 +150,33 @@ model::LocalizationStatus convertLocalization(const wire::VehicleState& source)
     target.velocity = source.speed_mps();
     target.omegaZ = source.yaw_rate_radps();
     target.acc = source.longitudinal_acceleration_mps2();
-    if (source.has_vertical()) {
-        target.odomZ = source.vertical().odom_z_m();
-        target.depth = source.vertical().depth_m();
-        target.height = source.vertical().height_above_bottom_m();
+    if (source.has_underwater()) {
+        target.odomZ = source.underwater().odom_z_m();
+        target.depth = source.underwater().depth_m();
+        target.height = source.underwater().height_above_bottom_m();
     }
     return target;
 }
 
-model::CrawlMotorRuntimeStatus convertMotor(const wire::ActuatorState& source)
+model::CrawlMotorRuntimeStatus convertMotor(const wire::CrawlMotorState& source)
 {
     model::CrawlMotorRuntimeStatus target;
-    target.valid = true;
-    target.speedRpm = metricDouble(source.metric(), "speed_rpm");
-    target.torqueOrQAxisCurrent = metricDouble(source.metric(), "torque_or_q_axis_current");
-    target.temperature = metricInt(source.metric(), "temperature");
-    target.busVoltage = metricDouble(source.metric(), "bus_voltage");
-    target.controllerReady = metricBool(source.metric(), "controller_ready");
-    target.outputEnabled = metricBool(source.metric(), "output_enabled");
-    target.controllerUTemperature = metricInt(source.metric(), "controller_u_temperature");
-    target.controllerVTemperature = metricInt(source.metric(), "controller_v_temperature");
+    target.valid = source.valid();
+    target.speedRpm = source.speed_rpm();
+    target.torqueOrQAxisCurrent = source.torque_or_q_axis_current();
+    target.temperature = source.temperature_c();
+    target.busVoltage = source.bus_voltage_v();
+    target.controllerReady = source.controller_ready();
+    target.outputEnabled = source.output_enabled();
+    target.controllerUTemperature = source.controller_u_temperature_c();
+    target.controllerVTemperature = source.controller_v_temperature_c();
     target.fault = source.fault();
-    target.faultCode = source.fault_code();
-    target.commandEnable = metricBool(source.metric(), "command_enable");
-    target.commandSpeedMode = metricBool(source.metric(), "command_speed_mode");
-    target.commandReverse = metricBool(source.metric(), "command_reverse");
-    target.commandSpeedRpm = metricDouble(source.metric(), "command_speed_rpm");
-    target.commandTorqueOrQAxisCurrent =
-        metricDouble(source.metric(), "command_torque_or_q_axis_current");
+    target.faultCode = source.motor_fault_code();
+    target.commandEnable = source.command_enable();
+    target.commandSpeedMode = source.command_speed_mode();
+    target.commandReverse = source.command_reverse();
+    target.commandSpeedRpm = source.command_speed_rpm();
+    target.commandTorqueOrQAxisCurrent = source.command_torque_or_q_axis_current();
     return target;
 }
 
@@ -201,63 +205,70 @@ model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& sourc
     target.currentSpeed = source.speed_mps();
     target.currentAngularVelocity = source.yaw_rate_radps();
     target.gearStatus = source.gear();
-    target.waterTankLevelStatus = metricInt(source.metric(), "water_tank_level");
-    target.waterTankLevelIsRaw = metricBool(source.metric(), "water_tank_level_is_raw");
-    target.waterTankStatus = metricInt(source.metric(), "water_tank_status");
-    target.waterHeartbeat = metricInt(source.metric(), "water_heartbeat");
-    target.crawlHeartbeat = metricInt(source.metric(), "crawl_heartbeat");
-    target.dccdcStatus = metricBool(source.metric(), "dccdc_status");
-    target.smartPowerInputVoltageStatus = metricDouble(source.metric(), "smart_power_input_voltage");
-
-    for (const auto& actuator : source.actuator()) {
-        if (actuator.id() == "left_tail_thruster") {
-            target.leftTailActuatorStatus = actuator.fault_code();
-        } else if (actuator.id() == "right_tail_thruster") {
-            target.rightTailActuatorStatus = actuator.fault_code();
-        } else if (actuator.id() == "left_vertical_thruster") {
-            target.leftVerticalActuatorStatus = actuator.fault_code();
-        } else if (actuator.id() == "right_vertical_thruster") {
-            target.rightVerticalActuatorStatus = actuator.fault_code();
-        } else if (actuator.id() == "back_vertical_thruster") {
-            target.backVerticalActuatorStatus = actuator.fault_code();
-        } else if (actuator.id() == "left_crawl_motor") {
-            target.leftCrawlMotor = convertMotor(actuator);
-            target.leftCrawlActuatorFaultCode = actuator.fault_code();
-        } else if (actuator.id() == "right_crawl_motor") {
-            target.rightCrawlMotor = convertMotor(actuator);
-            target.rightCrawlActuatorFaultCode = actuator.fault_code();
+    if (source.has_underwater()) {
+        const auto& underwater = source.underwater();
+        target.waterTankLevelStatus = underwater.water_tank_level();
+        target.waterTankLevelIsRaw = underwater.water_tank_level_is_raw();
+        target.waterTankState = convertWaterTankState(underwater.water_tank_state());
+        target.waterHeartbeat = underwater.water_heartbeat();
+        target.emergencyAscentActive = underwater.emergency_ascent_active();
+        for (const auto& thruster : underwater.thruster()) {
+            if (thruster.id() == "left_tail_thruster") {
+                target.leftTailActuatorStatus = thruster.fault_code();
+            } else if (thruster.id() == "right_tail_thruster") {
+                target.rightTailActuatorStatus = thruster.fault_code();
+            } else if (thruster.id() == "left_vertical_thruster") {
+                target.leftVerticalActuatorStatus = thruster.fault_code();
+            } else if (thruster.id() == "right_vertical_thruster") {
+                target.rightVerticalActuatorStatus = thruster.fault_code();
+            } else if (thruster.id() == "back_vertical_thruster") {
+                target.backVerticalActuatorStatus = thruster.fault_code();
+            }
         }
     }
-
-    if (source.has_battery()) {
-        const auto& battery = source.battery();
-        target.highVoltageBmsStatus = metricInt(battery.metric(), "self_check_status");
-        target.highVoltageBmsSocStatus = static_cast<int>(battery.state_of_charge_percent());
-        auto& bms = target.bms;
-        bms.valid = battery.valid();
-        bms.selfCheckStatus = metricInt(battery.metric(), "self_check_status");
-        bms.heartbeat = metricInt(battery.metric(), "heartbeat");
-        bms.alarmLevel = battery.alarm_level();
-        bms.currentStatus = metricInt(battery.metric(), "current_status");
-        bms.packVoltage = battery.pack_voltage_v();
-        bms.packCurrent = battery.pack_current_a();
-        bms.maxCellVoltageIndex = metricInt(battery.metric(), "max_cell_voltage_index");
-        bms.maxCellVoltage = metricDouble(battery.metric(), "max_cell_voltage");
-        bms.minCellVoltageIndex = metricInt(battery.metric(), "min_cell_voltage_index");
-        bms.minCellVoltage = metricDouble(battery.metric(), "min_cell_voltage");
-        bms.maxTemperatureIndex = metricInt(battery.metric(), "max_temperature_index");
-        bms.maxTemperature = metricInt(battery.metric(), "max_temperature");
-        bms.minTemperatureIndex = metricInt(battery.metric(), "min_temperature_index");
-        bms.minTemperature = metricInt(battery.metric(), "min_temperature");
-        bms.soc = target.highVoltageBmsSocStatus;
-        for (int index = 1; index <= 12; ++index) {
-            bms.warningCodes.push_back(metricInt(battery.metric(),
-                                                 "warning_" + std::to_string(index)));
+    if (source.has_platform()) {
+        const auto& platform = source.platform();
+        target.crawlHeartbeat = platform.crawl_heartbeat();
+        target.dccdcStatus = platform.dcdc_enabled();
+        target.smartPowerInputVoltageStatus = platform.smart_power_input_voltage_v();
+        if (platform.has_left_crawl_motor()) {
+            target.leftCrawlMotor = convertMotor(platform.left_crawl_motor());
+            target.leftCrawlActuatorFaultCode =
+                platform.left_crawl_motor().actuator_fault_code();
         }
-    }
-    for (int index = 1; index <= 16; ++index) {
-        target.powerSupplyStatuses.push_back(
-            metricInt(source.metric(), "power_supply_" + std::to_string(index)));
+        if (platform.has_right_crawl_motor()) {
+            target.rightCrawlMotor = convertMotor(platform.right_crawl_motor());
+            target.rightCrawlActuatorFaultCode =
+                platform.right_crawl_motor().actuator_fault_code();
+        }
+        if (platform.has_battery()) {
+            const auto& battery = platform.battery();
+            target.highVoltageBmsStatus = battery.self_check_status() != 0;
+            target.highVoltageBmsSocStatus = battery.state_of_charge_percent();
+            auto& bms = target.bms;
+            bms.valid = battery.valid();
+            bms.selfCheckStatus = battery.self_check_status();
+            bms.heartbeat = battery.heartbeat();
+            bms.alarmLevel = battery.alarm_level();
+            bms.currentStatus = battery.current_status();
+            bms.packVoltage = battery.pack_voltage_v();
+            bms.packCurrent = battery.pack_current_a();
+            bms.maxCellVoltageIndex = battery.max_cell_voltage_index();
+            bms.maxCellVoltage = battery.max_cell_voltage_v();
+            bms.minCellVoltageIndex = battery.min_cell_voltage_index();
+            bms.minCellVoltage = battery.min_cell_voltage_v();
+            bms.maxTemperatureIndex = battery.max_temperature_index();
+            bms.maxTemperature = battery.max_temperature_c();
+            bms.minTemperatureIndex = battery.min_temperature_index();
+            bms.minTemperature = battery.min_temperature_c();
+            bms.soc = battery.state_of_charge_percent();
+            for (const int warning : battery.warning_code()) {
+                bms.warningCodes.push_back(warning);
+            }
+        }
+        for (const auto& channel : platform.power_channel()) {
+            target.powerSupplyStatuses.push_back(channel.status());
+        }
     }
     return target;
 }
@@ -356,7 +367,7 @@ model::ObstacleList convertObstacles(const wire::ObstacleSet& source)
             obstacle.position.position.x = item.center().x_m();
             obstacle.position.position.y = item.center().y_m();
         }
-        obstacle.position.theta = item.heading_rad();
+        obstacle.position.theta = item.has_heading_rad() ? item.heading_rad() : 0.0;
         obstacle.length = item.length_m();
         obstacle.width = item.width_m();
         obstacle.boundingBox.center = obstacle.position.position;
@@ -416,17 +427,18 @@ model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& sou
     target.speed = source.target_speed_mps();
     target.angularVelocity = source.target_yaw_rate_radps();
     target.expectedGear = source.target_gear();
-    target.naviMode = source.navigation_mode();
     target.heading = source.target_heading_rad();
-    target.isOpenSonarPower = source.sonar_power_enabled();
-    if (source.has_vertical()) {
-        target.isUseWaterActuator = true;
-        target.depth = source.vertical().target_depth_m();
-        target.height = source.vertical().target_height_above_bottom_m();
-        target.diveSpeed = source.vertical().dive_speed_mps();
-        target.leftWaterActuatorSpeed = source.vertical().left_thruster_command();
-        target.rightWaterActuatorSpeed = source.vertical().right_thruster_command();
-        target.buoyancyAdjust = source.vertical().buoyancy_adjust();
+    if (source.has_underwater()) {
+        const auto& underwater = source.underwater();
+        target.isUseWaterActuator = underwater.water_actuator_enabled();
+        target.naviMode = underwater.navigation_mode();
+        target.depth = underwater.target_depth_m();
+        target.height = underwater.target_height_above_bottom_m();
+        target.leftWaterActuatorSpeed = underwater.left_thruster_command();
+        target.rightWaterActuatorSpeed = underwater.right_thruster_command();
+        target.buoyancyAdjust = convertBuoyancyCommand(underwater.buoyancy_command());
+        target.isOpenSonarPower = underwater.sonar_power_enabled();
+        target.emergencyAscent = underwater.emergency_ascent();
     }
     return target;
 }
@@ -446,10 +458,13 @@ model::ActionRuntimeStatus convertAction(const wire::ActionState& source)
     target.targetSpeed = source.target_speed_mps();
     target.targetHeading = source.target_heading_rad();
     target.targetAngularVelocity = source.target_yaw_rate_radps();
-    if (source.has_vertical()) {
-        target.targetDepth = source.vertical().target_depth_m();
-        target.targetHeight = source.vertical().target_height_above_bottom_m();
-        target.buoyancyAdjust = source.vertical().buoyancy_adjust();
+    if (source.has_underwater()) {
+        const auto& underwater = source.underwater();
+        target.naviMode = underwater.navigation_mode();
+        target.targetDepth = underwater.target_depth_m();
+        target.targetHeight = underwater.target_height_above_bottom_m();
+        target.buoyancyAdjust = convertBuoyancyCommand(underwater.buoyancy_command());
+        target.emergencyAscent = underwater.emergency_ascent();
     }
     return target;
 }
@@ -464,6 +479,8 @@ model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
     target.taskId = source.task_id();
     target.taskEnable = source.enabled();
     target.emergencyStop = source.emergency_stop();
+    target.releaseEmergencyAscent = source.has_underwater()
+                                        && source.underwater().release_emergency_ascent();
     target.remoteMode = source.remote_mode();
     target.powerEnable = source.power_enable();
     return target;
@@ -476,6 +493,7 @@ model::TopicStatusList convertTopics(const wire::RuntimeState& source)
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (const auto& item : source.topic()) {
         model::TopicStatus status;
+        status.channel = convertDataKind(item.data_kind());
         status.name = QString::fromStdString(item.name());
         status.type = QString::fromStdString(item.type());
         status.lastUpdateMs = static_cast<qint64>(item.last_update_time_ns() / 1000000ULL);
@@ -509,6 +527,20 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
 {
     datacenter::VisualizationSnapshot target;
     target.runtimeStatus.inputSource = datacenter::VisualizationInputSource::Remote;
+    target.runtimeStatus.hasCommonPlanningControlCapability = false;
+    if (source.has_source()) {
+        for (const auto capabilityValue : source.source().capability()) {
+            const auto capability = static_cast<wire::Capability>(capabilityValue);
+            target.runtimeStatus.hasCommonPlanningControlCapability |=
+                capability == wire::CAPABILITY_COMMON_PLANNING_CONTROL;
+            target.runtimeStatus.hasVerticalMotionCapability |=
+                capability == wire::CAPABILITY_VERTICAL_MOTION;
+            target.runtimeStatus.hasUnderwaterSystemCapability |=
+                capability == wire::CAPABILITY_UNDERWATER_SYSTEM;
+            target.runtimeStatus.hasPlatformDiagnosticsCapability |=
+                capability == wire::CAPABILITY_PLATFORM_DIAGNOSTICS;
+        }
+    }
     if (source.has_vehicle_state()) {
         target.vehicleLocation = convertVehicle(source.vehicle_state());
         target.localizationStatus = convertLocalization(source.vehicle_state());
@@ -559,93 +591,6 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     target.runVisualizationMode = model::inferRunVisualizationMode(target.actionRuntimeStatus,
                                                                     target.taskRuntimeStatus);
     return target;
-}
-
-void ProtocolModelConverter::applyUpdate(const wire::ChannelUpdate& update,
-                                         datacenter::DataManager* dataManager)
-{
-    if (dataManager == nullptr) {
-        return;
-    }
-    const bool clear = update.operation() == wire::ChannelUpdate::OPERATION_CLEAR;
-    switch (update.channel()) {
-    case wire::CHANNEL_VEHICLE_STATE:
-        dataManager->setVehicleLocation(clear || !update.has_vehicle_state()
-                                            ? model::VehicleLocation{}
-                                            : convertVehicle(update.vehicle_state()));
-        dataManager->setLocalizationStatus(clear || !update.has_vehicle_state()
-                                               ? model::LocalizationStatus{}
-                                               : convertLocalization(update.vehicle_state()));
-        break;
-    case wire::CHANNEL_CHASSIS_STATE:
-        dataManager->setVehicleChassisInfo(clear || !update.has_chassis_state()
-                                               ? model::VehicleChassisInfo{}
-                                               : convertChassisInfo(update.chassis_state()));
-        dataManager->setChassisRuntimeStatus(clear || !update.has_chassis_state()
-                                                 ? model::ChassisRuntimeStatus{}
-                                                 : convertChassisStatus(update.chassis_state()));
-        break;
-    case wire::CHANNEL_CONTROL_COMMAND:
-        dataManager->setControlCmd(clear || !update.has_control_command()
-                                       ? model::ControlCmd{}
-                                       : convertControl(update.control_command()));
-        dataManager->setControlCommandStatus(clear || !update.has_control_command()
-                                                  ? model::ControlCommandStatus{}
-                                                  : convertControlStatus(update.control_command()));
-        break;
-    case wire::CHANNEL_GLOBAL_TRAJECTORY:
-        dataManager->setGlobalPath(clear || !update.has_trajectory()
-                                       ? model::Trajectory{}
-                                       : convertTrajectory(update.trajectory()));
-        dataManager->setGlobalPathStatus(clear || !update.has_trajectory()
-                                             ? model::PathRuntimeStatus{}
-                                             : makePathStatus(update.trajectory()));
-        break;
-    case wire::CHANNEL_LOCAL_TRAJECTORY:
-        dataManager->setLocalPath(clear || !update.has_trajectory()
-                                      ? model::Trajectory{}
-                                      : convertTrajectory(update.trajectory()));
-        dataManager->setLocalPathStatus(clear || !update.has_trajectory()
-                                            ? model::PathRuntimeStatus{}
-                                            : makePathStatus(update.trajectory()));
-        break;
-    case wire::CHANNEL_REFERENCE_LINE:
-        dataManager->setReferenceLine(clear || !update.has_reference_line()
-                                          ? model::ReferenceLine{}
-                                          : convertReferenceLine(update.reference_line()));
-        break;
-    case wire::CHANNEL_OBSTACLES:
-        dataManager->setObstacles(clear || !update.has_obstacles()
-                                      ? model::ObstacleList{}
-                                      : convertObstacles(update.obstacles()));
-        break;
-    case wire::CHANNEL_ACTION_STATE:
-        dataManager->setActionRuntimeStatus(clear || !update.has_action_state()
-                                                ? model::ActionRuntimeStatus{}
-                                                : convertAction(update.action_state()));
-        break;
-    case wire::CHANNEL_TASK_STATE:
-        dataManager->setTaskRuntimeStatus(clear || !update.has_task_state()
-                                              ? model::TaskRuntimeStatus{}
-                                              : convertTask(update.task_state()));
-        break;
-    case wire::CHANNEL_RUNTIME_STATE:
-        dataManager->setTopicStatuses(clear || !update.has_runtime_state()
-                                          ? model::TopicStatusList{}
-                                          : convertTopics(update.runtime_state()));
-        break;
-    case wire::CHANNEL_VEHICLE_PARAMETERS:
-        if (!clear && update.has_vehicle_parameters()) {
-            model::VehicleConfig config;
-            config.vehicleLength = update.vehicle_parameters().length_m();
-            config.vehicleWidth = update.vehicle_parameters().width_m();
-            config.wheelBase = update.vehicle_parameters().wheel_base_m();
-            dataManager->setVehicleConfig(config);
-        }
-        break;
-    default:
-        break;
-    }
 }
 
 }  // namespace autoviz::network

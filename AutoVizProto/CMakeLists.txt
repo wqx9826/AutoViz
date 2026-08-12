@@ -51,6 +51,7 @@ set(AUTOVIZ_PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 # CMake 才能准确识别协议文件集合的变化。
 set(AUTOVIZ_PROTO_FILES
     autoviz/common.proto
+    autoviz/underwater.proto
     autoviz/vehicle.proto
     autoviz/planning.proto
     autoviz/perception.proto

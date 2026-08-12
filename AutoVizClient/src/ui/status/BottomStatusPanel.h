@@ -47,6 +47,9 @@ private:
     QTabWidget* m_detailTabs = nullptr;
     QScrollArea* m_overviewScrollArea = nullptr;
     QWidget* m_overviewContent = nullptr;
+    QGroupBox* m_underwaterOverviewGroup = nullptr;
+    QGroupBox* m_platformOverviewGroup = nullptr;
+    QWidget* m_verticalDetailTab = nullptr;
     QPlainTextEdit* m_logOutput = nullptr;
     QHash<QString, QLabel*> m_overviewValues;
     QHash<QString, QLabel*> m_detailValues;

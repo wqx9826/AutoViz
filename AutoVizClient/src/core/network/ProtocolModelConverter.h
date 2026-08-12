@@ -9,8 +9,6 @@ class ProtocolModelConverter {
 public:
     static datacenter::VisualizationSnapshot toModelSnapshot(
         const ::autoviz::VisualizationSnapshot& source);
-    static void applyUpdate(const ::autoviz::ChannelUpdate& update,
-                            datacenter::DataManager* dataManager);
 };
 
 }  // namespace autoviz::network

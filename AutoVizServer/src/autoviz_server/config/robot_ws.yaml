@@ -1,8 +1,9 @@
 autoviz_server:
   ros__parameters:
-    bind_address: "0.0.0.0"
+    host_ip: "0.0.0.0"
     port: 39090
     max_clients: 8
+    publish_rate_hz: 20
     topic_timeout_ms: 5000
     vehicle_length_m: 4.9
     vehicle_width_m: 1.95

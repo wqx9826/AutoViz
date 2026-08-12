@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QColor>
+#include <QRectF>
 #include <QVector>
 
 #include "core/datacenter/DataManager.h"
@@ -42,6 +43,7 @@ public:
     LayerVisibility layerVisibility() const;
     void setVehicleCenteredMode(bool enabled);
     bool vehicleCenteredMode() const;
+    void refitVisibleData();
     void setMainViewMode(MainViewMode mode);
     MainViewMode mainViewMode() const;
 
@@ -101,6 +103,9 @@ private:
     void drawReferenceLine(const autoviz::model::ReferenceLine& referenceLine);
     void drawObstacles(const autoviz::model::ObstacleList& obstacles);
     void autoFitAndCenter();
+    void includeVisibleContentBounds(const QRectF& bounds);
+    QRectF fittedRegionFor(const QRectF& contentBounds) const;
+    bool hasMaterialVisibleBoundsChange(const QRectF& targetRegion) const;
     QPointF toScenePoint(const autoviz::model::Point2D& point) const;
 
     VisualizationView* m_view = nullptr;
@@ -108,6 +113,10 @@ private:
     autoviz::datacenter::VisualizationSnapshot m_snapshot;
     LayerVisibility m_layerVisibility;
     bool m_vehicleCenteredMode = false;
+    QRectF m_visibleContentBounds;
+    QRectF m_lastAutoFitTargetRegion;
+    bool m_hasVisibleContentBounds = false;
+    bool m_hasAutoFitTargetRegion = false;
     MainViewMode m_mainViewMode = MainViewMode::TopDownXY;
     VerticalMotionSegment m_verticalSegment;
     autoviz::model::RunVisualizationMode m_previousRunMode = autoviz::model::RunVisualizationMode::Unknown;

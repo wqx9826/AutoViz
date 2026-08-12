@@ -7,6 +7,7 @@
 
 #include "core/datacenter/DataManager.h"
 #include "core/network/ProtocolModelConverter.h"
+#include "autoviz/ProtocolVersion.h"
 #include "utils/Logger.h"
 
 namespace autoviz::network {
@@ -39,10 +40,10 @@ RemoteVisualizationSource::RemoteVisualizationSource(datacenter::DataManager* da
         const QByteArray bytes = m_socket->readAll();
         std::vector<wire::Envelope> envelopes;
         std::string error;
-        if (!m_decoder.append(bytes.constData(),
-                              static_cast<std::size_t>(bytes.size()),
-                              &envelopes,
-                              &error)) {
+        if (!m_decoder.decode(
+                std::string_view(bytes.constData(), static_cast<std::size_t>(bytes.size())),
+                envelopes,
+                error)) {
             Logger::instance().warning(
                 QStringLiteral("远程协议帧解析失败：%1").arg(QString::fromStdString(error)));
             m_socket->abort();
@@ -70,6 +71,13 @@ RemoteVisualizationSource::RemoteVisualizationSource(datacenter::DataManager* da
             this,
             [this](QAbstractSocket::SocketError) {
                 setState(tr("连接错误：%1").arg(m_socket->errorString()), false);
+                // connectToHost 被拒绝时 Qt 不保证再发 disconnected；下一事件循环确认
+                // socket 已回到 Unconnected 后主动续上自动重连链。
+                QTimer::singleShot(0, this, [this]() {
+                    if (m_socket->state() == QAbstractSocket::UnconnectedState) {
+                        scheduleReconnect();
+                    }
+                });
             });
     connect(m_heartbeatTimer, &QTimer::timeout, this, &RemoteVisualizationSource::sendHeartbeat);
     connect(m_watchdogTimer, &QTimer::timeout, this, [this]() {
@@ -144,9 +152,13 @@ void RemoteVisualizationSource::sendEnvelope(const wire::Envelope& envelope)
     if (m_socket->state() != QAbstractSocket::ConnectedState) {
         return;
     }
-    const std::string frame = wire::encodeFrame(envelope);
-    if (!frame.empty()) {
+    wire::FrameBytes frame;
+    std::string error;
+    if (wire::encodeFrame(envelope, frame, error)) {
         m_socket->write(frame.data(), static_cast<qint64>(frame.size()));
+    } else {
+        Logger::instance().warning(
+            QStringLiteral("远程协议帧编码失败：%1").arg(QString::fromStdString(error)));
     }
 }
 
@@ -156,15 +168,8 @@ void RemoteVisualizationSource::sendHello()
     auto* hello = envelope.mutable_client_hello();
     hello->set_client_name("AutoViz Qt Client");
     hello->set_client_version("0.3.0");
-    hello->set_protocol_major(1);
-    hello->set_protocol_minor(0);
-    sendEnvelope(envelope);
-}
-
-void RemoteVisualizationSource::sendSubscribe()
-{
-    wire::Envelope envelope;
-    envelope.mutable_subscribe_request()->set_request_full_snapshot(true);
+    hello->set_protocol_major(wire::kProtocolMajor);
+    hello->set_protocol_minor(wire::kProtocolMinor);
     sendEnvelope(envelope);
 }
 
@@ -183,9 +188,11 @@ void RemoteVisualizationSource::handleEnvelope(const wire::Envelope& envelope)
 {
     if (envelope.has_server_hello()) {
         const auto& hello = envelope.server_hello();
-        if (hello.protocol_major() != 1U) {
+        if (!wire::isProtocolMajorCompatible(hello.protocol_major())) {
             Logger::instance().error(
-                QStringLiteral("协议主版本不兼容：Server=%1，Client=1").arg(hello.protocol_major()));
+                QStringLiteral("协议主版本不兼容：Server=%1，Client=%2")
+                    .arg(hello.protocol_major())
+                    .arg(wire::kProtocolMajor));
             m_socket->disconnectFromHost();
             return;
         }
@@ -199,7 +206,6 @@ void RemoteVisualizationSource::handleEnvelope(const wire::Envelope& envelope)
                                    : QStringLiteral("未知 Adapter");
         emit serverIdentityChanged(source);
         setState(tr("已连接 %1:%2（%3）").arg(m_host).arg(m_port).arg(source), true);
-        sendSubscribe();
         return;
     }
     if (envelope.has_snapshot()) {
@@ -216,15 +222,6 @@ void RemoteVisualizationSource::handleEnvelope(const wire::Envelope& envelope)
                 ProtocolModelConverter::toModelSnapshot(snapshot),
                 datacenter::VisualizationInputSource::Remote);
         }
-        return;
-    }
-    if (envelope.has_channel_update()) {
-        const auto& update = envelope.channel_update();
-        if (!m_sessionId.isEmpty()
-            && QString::fromStdString(update.session_id()) != m_sessionId) {
-            return;
-        }
-        ProtocolModelConverter::applyUpdate(update, m_dataManager);
         return;
     }
     if (envelope.has_heartbeat()) {

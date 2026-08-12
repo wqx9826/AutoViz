@@ -17,6 +17,7 @@
 namespace {
 constexpr double kMinorGridSpacing = 1.0;
 constexpr double kMajorGridSpacing = 5.0;
+constexpr double kMinimumMinorGridPixels = 16.0;
 constexpr qreal kZoomStep = 1.15;
 constexpr qreal kMinZoom = 0.02;
 constexpr qreal kMaxZoom = 500.0;
@@ -169,7 +170,7 @@ void VisualizationView::clearVerticalProfileFrame()
 
 double VisualizationView::minorGridSpacingMeters() const
 {
-    return kMinorGridSpacing;
+    return adaptiveMinorGridSpacingMeters();
 }
 
 void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
@@ -187,7 +188,7 @@ void VisualizationView::drawForeground(QPainter* painter, const QRectF& rect)
 
 double VisualizationView::majorGridSpacingMeters() const
 {
-    return kMajorGridSpacing;
+    return adaptiveMinorGridSpacingMeters() * kMajorGridSpacing;
 }
 
 void VisualizationView::drawBackground(QPainter* painter, const QRectF& rect)
@@ -203,27 +204,37 @@ void VisualizationView::drawBackground(QPainter* painter, const QRectF& rect)
     minorPen.setWidthF(0.0);
     majorPen.setWidthF(0.0);
 
-    const int left = static_cast<int>(std::floor(rect.left()));
-    const int right = static_cast<int>(std::ceil(rect.right()));
-    const int top = static_cast<int>(std::floor(rect.top()));
-    const int bottom = static_cast<int>(std::ceil(rect.bottom()));
+    const double minorSpacing = minorGridSpacingMeters();
+    const qint64 firstX = static_cast<qint64>(std::floor(rect.left() / minorSpacing));
+    const qint64 lastX = static_cast<qint64>(std::ceil(rect.right() / minorSpacing));
+    const qint64 firstY = static_cast<qint64>(std::floor(rect.top() / minorSpacing));
+    const qint64 lastY = static_cast<qint64>(std::ceil(rect.bottom() / minorSpacing));
 
-    const int minorSpacing = static_cast<int>(kMinorGridSpacing);
-    const int majorSpacing = static_cast<int>(kMajorGridSpacing);
-
-    for (int x = left - (left % minorSpacing); x <= right; x += minorSpacing) {
-        painter->setPen((x % majorSpacing == 0) ? majorPen : minorPen);
-        painter->drawLine(QLineF(x, top, x, bottom));
+    for (qint64 index = firstX; index <= lastX; ++index) {
+        const double x = static_cast<double>(index) * minorSpacing;
+        painter->setPen((index % 5 == 0) ? majorPen : minorPen);
+        painter->drawLine(QLineF(x, rect.top(), x, rect.bottom()));
     }
 
-    for (int y = top - (top % minorSpacing); y <= bottom; y += minorSpacing) {
-        painter->setPen((y % majorSpacing == 0) ? majorPen : minorPen);
-        painter->drawLine(QLineF(left, y, right, y));
+    for (qint64 index = firstY; index <= lastY; ++index) {
+        const double y = static_cast<double>(index) * minorSpacing;
+        painter->setPen((index % 5 == 0) ? majorPen : minorPen);
+        painter->drawLine(QLineF(rect.left(), y, rect.right(), y));
     }
 
     painter->setPen(QPen(QColor("#78909c"), 0.0));
-    painter->drawLine(QLineF(left, 0, right, 0));
-    painter->drawLine(QLineF(0, top, 0, bottom));
+    painter->drawLine(QLineF(rect.left(), 0, rect.right(), 0));
+    painter->drawLine(QLineF(0, rect.top(), 0, rect.bottom()));
+}
+
+double VisualizationView::adaptiveMinorGridSpacingMeters() const
+{
+    const double pixelsPerMeter = std::abs(transform().m11());
+    double spacing = kMinorGridSpacing;
+    while (pixelsPerMeter > 0.0 && spacing * pixelsPerMeter < kMinimumMinorGridPixels) {
+        spacing *= kMajorGridSpacing;
+    }
+    return spacing;
 }
 
 void VisualizationView::resizeEvent(QResizeEvent* event)
@@ -255,9 +266,16 @@ void VisualizationView::wheelEvent(QWheelEvent* event)
         return;
     }
 
+    // SceneManager 会持续刷新 sceneRect；不要依赖 QGraphicsView 的隐式锚点，
+    // 显式保持鼠标下的场景坐标，避免缩放后跳回原点或视口中心。
+    const QPoint mousePosition = event->position().toPoint();
+    const QPointF scenePointUnderMouse = mapToScene(mousePosition);
+    setTransformationAnchor(QGraphicsView::AnchorViewCenter);
     m_zoomFactor = nextZoom;
-    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     scale(step, step);
+    const QPointF shiftedScenePoint = mapToScene(mousePosition);
+    const QPointF viewportCenter = mapToScene(viewport()->rect().center());
+    centerOn(viewportCenter + (scenePointUnderMouse - shiftedScenePoint));
     event->accept();
 }
 

@@ -42,6 +42,10 @@ cmake --install build --prefix /目标/third_party/AutoVizProto
 注意：`cmake -S . -B build` 只是配置；`cmake --build` 才编译；`cmake --install`
 才把公开头和库整理到 `include/`、`lib/`。
 
+不要直接执行不带安装前缀的 `make install`。CMake 默认前缀是 `/usr/local`，普通用户
+没有写权限；AutoViz 应安装到两个消费工程自己的 `third_party/AutoVizProto`，无需 sudo。
+在完整仓库中可直接运行 `./scripts/bootstrap_proto.sh` 一次完成构建、测试和两份安装。
+
 测试使用 GTest，直接运行，不启用 CTest。
 
 ## Windows
@@ -89,4 +93,24 @@ protobuf 传递依赖和不同构建类型都需要在 Client/Server 重复处�
 - proto2 只使用 optional/repeated，禁止 required。
 - field number 永不复用，删除字段使用 `reserved`。
 - framing 是 4 字节大端长度 + Envelope，payload 最大 16 MiB。
+- 版本常量统一由 `autoviz/ProtocolVersion.h` 提供，业务代码不得散落硬编码版本号。
+- UI 行为依赖的字段使用显式 typed 字段；DiagnosticMetric 只承载扩展诊断。
 - 不兼容语义、单位或坐标变化提升握手的 protocol major。
+
+当前版本为 2.0。Envelope 只包含 ClientHello、ServerHello、VisualizationSnapshot、
+Heartbeat 和 ProtocolError；v1 的订阅与增量 field number 已保留但不再使用。
+
+FrameCodec 的发送和接收 API 对称且显式返回错误：
+
+```cpp
+autoviz::FrameBytes bytes;
+std::string error;
+autoviz::encodeFrame(envelope, bytes, error);
+
+autoviz::FrameDecoder decoder;
+std::vector<autoviz::Envelope> messages;
+decoder.decode(std::string_view(bytes), messages, error);
+```
+
+`FrameBytes` 是 `std::string` 的别名，但内容是二进制，不是文本。它可包含 `\0`；
+`decode()` 保留未完成 TCP 数据并在每次调用输出 0～N 个完整 Envelope。

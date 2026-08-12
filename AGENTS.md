@@ -1,6 +1,6 @@
 # AutoViz Agent Notes
 
-本文件是修改 AutoViz 前必须读取的协作约束。先读 `README.md`，再读 `docs/`。
+本文件是修改 AutoViz 前必须读取的协作约束。先读 `README.md`，再读 `memory/`。
 
 ## 工程定位与分支
 
@@ -124,4 +124,4 @@ GTest 归 AutoVizProto。
 ## 文档规则
 
 架构、接口、单位/坐标、通信协议、field number、framing、兼容策略、可视化模块或
-Adapter 数据源变化，必须同步更新 `docs/` 及对应工程 README。
+Server 数据源变化，必须同步更新 `memory/` 及对应工程 README。

@@ -1,191 +1,105 @@
 # AutoVizServer
 
-AutoVizServer 是独立 ROS2 workspace。`src/autoviz_server` 负责订阅 robot_ws topic，
-转换为来源无关的 AutoViz 消息，缓存最新状态，再通过 TCP 单向发送给 Client。它不
-向机器人写入任务或控制命令。
+AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取 robot_ws 的八个 topic，转换为
+来源无关的 AutoViz Protocol v2 完整快照，并通过 TCP 只读发送给 Qt Client。
 
-## 先理解：protobuf + TCP 到底是什么
-
-如果你已经会 TCP，只需把 protobuf 看成“结构体与字节之间的标准翻译器”。
-
-- TCP 负责连接、可靠传输和顺序，但它只认识连续字节。
-- protobuf 负责定义字段并把 C++ 对象编码成跨平台字节，但它不负责联网。
-- FrameCodec 给每个 protobuf payload 加长度，让接收方知道消息边界。
-
-发送过程：
+## 从 ROS 回调到 TCP 的固定数据流
 
 ```text
-ROS2 message
-  -> Server 做字段映射和单位归一化
-  -> autoviz::VehicleState / Trajectory 等 C++ 对象
-  -> 放入 autoviz::Envelope
-  -> protobuf SerializeToString() 得到 payload
-  -> FrameCodec 加 4 字节长度
-  -> Boost.Asio 通过 TCP 发送
+ROS callback
+  -> RobotWsProtoConverter（纯字段转换、单位/方向归一化）
+  -> SnapshotStore（各数据种类最新值、频率、超时、dirty）
+  -> 50 ms publish timer（最高 20 Hz 合并）
+  -> VisualizationServer::publishSnapshot()
+  -> TcpSession -> FrameCodec -> Boost.Asio async_write
 ```
 
-Client 反向执行：
+ROS 回调不联网，只做一次转换和一次缓存更新。网络层不 include ROS/custom_msgs。完整快照
+缺少某个 optional 字段，表示该数据当前不存在；topic 超过 `topic_timeout_ms` 后，
+`SnapshotStore` 移除该字段，Client 原子替换快照时自然清空，不需要 UPSERT/CLEAR 状态机。
 
-```text
-TCP 字节流
-  -> FrameCodec 依据长度拆出完整 payload
-  -> protobuf ParseFromArray() 得到 Envelope
-  -> 转为 Client 内部模型
-  -> UI
-```
-
-所以它们不是二选一：TCP 解决“怎么送”，protobuf 解决“送的是什么”，FrameCodec
-解决“这一条消息从哪里开始、到哪里结束”。
-
-## 为什么 TCP 还需要 4 字节长度
-
-TCP 不保留 `send()` 次数。Server 发送两条消息，Client 可能一次只读到半条（拆包），
-也可能一次读到两条（粘包）。每帧因此采用：
-
-```text
-+----------------------+----------------------------+
-| uint32 大端长度 N    | N 字节 protobuf Envelope  |
-+----------------------+----------------------------+
-```
-
-接收方先凑齐 4 字节，再等待 N 字节，最后交给 protobuf。N 必须在 1..16 MiB；非法
-长度会终止连接。
-
-## `.proto` 在哪里、怎样变成 C++
-
-唯一 schema 不在 Server 内，而在独立工程：
-
-```text
-AutoVizProto/proto/autoviz/*.proto
-```
-
-构建 AutoVizProto 时，CMake 调用 protoc 生成 `autoviz/*.pb.h/.pb.cc`，再把生成代码
-和 FrameCodec 做成第三方 SDK。Server 从
-`AutoVizServer/third_party/AutoVizProto` 自动查找
-`AutoVizProto::AutoVizProto`，不复制 `.proto`，不引用 Client，也不要求配置
-`AutoVizProto_DIR` 参数或环境变量。
-
-所有 schema 使用：
-
-```proto
-package autoviz;
-```
-
-所以生成 C++ 类型直接是：
+## 对外网络接口
 
 ```cpp
-#include "autoviz/transport.pb.h"
-
-autoviz::Envelope envelope;
-envelope.mutable_heartbeat()->set_sequence(1);
+VisualizationServer server;
+server.start(config, identity, &error);
+server.publishSnapshot(snapshot);
+const auto count = server.clientCount();
+server.stop();
 ```
 
-运行时不会把 `.proto` 发给 Client。双方已经链接同一协议定义，按稳定 field number
-解释 wire format。protobuf 序列化的是字段值，不是 C++ struct 内存，因此 Linux 与
-Windows 的对象布局、指针和 padding 差异不会进入网络。
+异步 Asio 不提供轮询式 `RecvMsg()`：`start()` 已经注册 accept/read 回调，ClientHello、
+版本检查、session、心跳和超时都由 `VisualizationServer` 自动处理。Node 只需要发布完整
+快照。详细阅读顺序见 [Boost.Asio 指南](docs/BOOST_ASIO_GUIDE.md)。
 
-## Envelope、握手、快照和增量
-
-一条连接要承载多类消息，Envelope 是统一外包装：
-
-```text
-Envelope
-  ├── ClientHello
-  ├── ServerHello
-  ├── SubscribeRequest
-  ├── VisualizationSnapshot
-  ├── ChannelUpdate
-  ├── Heartbeat
-  └── ProtocolError
-```
-
-连接流程：
+## v2 连接流程
 
 ```text
 Client                                      Server
   |----- TCP connect ------------------------>|
-  |----- ClientHello ------------------------>|
-  |<---- ServerHello + session_id ------------|
-  |----- SubscribeRequest ------------------->|
-  |<---- VisualizationSnapshot 全量快照 -------|
-  |<---- ChannelUpdate 增量更新 ---------------|
+  |----- ClientHello (protocol 2.x) --------->|
+  |<---- ServerHello + capability + session --|
+  |<---- 最新 VisualizationSnapshot ----------|
+  |<---- 后续完整 VisualizationSnapshot -------|
   |<---> Heartbeat -------------------------->|
 ```
 
-新 Client 先得到完整 snapshot，以后只有相应 ROS topic 变化时才收
-`ChannelUpdate(UPSERT)`。topic 超时或内容需要删除时发送
-`ChannelUpdate(CLEAR)`，防止 Client 永久显示旧数据。Server 重启会产生新
-`session_id`，Client 据此清空旧轨迹。
+- 握手前不发送快照；major 不兼容时返回 fatal `ProtocolError` 后断开。
+- 新连接握手后立即得到最新完整快照。
+- 心跳默认 1 秒；5 秒没有收到 Client 数据则关闭连接。
+- 最大连接数默认 8。
+- 慢 Client 的正在发送帧保留，排队中的旧快照由最新快照替换；握手、心跳和错误帧不丢。
+- Server 每次启动生成新 `session_id`；Client 必须清空旧状态和历史轨迹。
 
-## Server 内部数据流
+## robot_ws Adapter
 
-以 `/location` 为例：
+| topic | v2 数据 | 关键归一化 |
+| --- | --- | --- |
+| `/location` | VehicleState + UnderwaterState | odom_z/depth/离底高度保持独立 |
+| `/targets/final_objects` | ObstacleSet | 只读取当前真实 ID、分类、中心、尺寸、有效标志 |
+| `/chassis_command` | ControlCommand + UnderwaterCommand | 通用运动与水下命令分层 |
+| `/chassis_states` | ChassisState + UnderwaterChassisState + PlatformDiagnostics | 反馈角速度取反为左转正 |
+| `/system_run_states` | ActionState + UnderwaterCommand | 目标角速度 deg/s 转 rad/s |
+| `/task_params` | TaskState + UnderwaterTaskState | 急停与解除紧急上浮 |
+| `/local_path` | local Trajectory | pose、航向、速度、加速度、相对/绝对时间、goal ID、长度 |
+| `/global_path` | global Trajectory | pose、四元数航向、长度 |
 
-```text
-/location (custom_msgs::msg::Location)
-  -> AutoVizServerNode::onLocation()
-  -> 字段映射、单位/方向归一化
-  -> autoviz::VehicleState
-  -> 更新 VisualizationSnapshot 并生成 ChannelUpdate
-  -> TcpServer::broadcast()
-  -> autoviz::encodeFrame()
-  -> Boost.Asio async_write()
-```
+默认 capability 为通用 XY、垂向运动、水下系统和平台诊断。参考线仍是可选通用协议字段，
+robot_ws 当前没有对应输入，不伪造 topic。
 
-主要文件：
+## 配置
 
-- `src/autoviz_server/src/AutoVizServerNode.cpp`：订阅、字段映射、缓存和新鲜度。
-- `src/autoviz_server/src/TcpServer.cpp`：连接、握手、订阅、队列和心跳。
-- `src/autoviz_server/config/robot_ws.yaml`：topic、端口、超时和车辆参数。
-- `AutoVizServer/third_party/AutoVizProto/`：Server 使用的协议 SDK。
+`config/robot_ws.yaml` 提供 bind/port、`max_clients`、`publish_rate_hz`（默认 20）、
+`topic_timeout_ms`（默认 5000）、八个 topic 和车辆长宽/轴距。Server 独立 launch，不修改
+robot_ws launch。
 
-## 构建
+## 构建和测试
 
-先在仓库根目录构建安装 AutoVizProto：
-
-```bash
-cmake -S AutoVizProto -B build/proto \
-  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
-cmake --build build/proto -j4
-./build/proto/autoviz_proto_tests
-cmake --install build/proto \
-  --prefix "$PWD/AutoVizServer/third_party/AutoVizProto"
-```
-
-再构建 Server：
+先从仓库根目录安装协议 SDK，再构建 Server：
 
 ```bash
+./scripts/bootstrap_proto.sh
+
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
-
 colcon --log-base AutoVizServer/log build \
+  --base-paths AutoVizServer/src \
+  --build-base AutoVizServer/build \
+  --install-base AutoVizServer/install
+colcon --log-base AutoVizServer/log test \
   --base-paths AutoVizServer/src \
   --build-base AutoVizServer/build \
   --install-base AutoVizServer/install
 ```
 
-安装后可在 `AutoVizServer/third_party/AutoVizProto/include` 和 `lib` 看到公开头与
-库。Server CMake 已配置固定搜索路径；只有 third_party 放在别处时才传
-`-DAUTOVIZ_THIRD_PARTY_DIR=/other/path`。
+`robot_ws_converter_test` 覆盖八类消息和快照超时；`tcp_server_test` 覆盖动态端口、握手
+隔离、完整快照、多 Client/上限、版本拒绝、心跳、超时、重启 session 与慢 Client 合并。
 
-Server 不重复保存 FrameCodec GTest；协议测试在 AutoVizProto 中直接运行，不使用
-CTest。ROS 映射变化则必须重新编译 Server，并应增加字段级映射测试。
-
-## 运行
+运行：
 
 ```bash
 source AutoVizServer/install/setup.bash
 ros2 launch autoviz_server autoviz_server.launch.py
 ```
 
-默认监听 `0.0.0.0:39090`。Server 可以先启动，Client 连接后会自动握手和全量同步。
-
-## 常见误区
-
-- protobuf 不代替 TCP；它只编码/解析 payload。
-- protobuf 不处理粘包；长度前缀和 FrameCodec 负责消息边界。
-- `.proto` 不在运行时发送；它用于构建双方的代码。
-- TCP 连接成功不代表协议兼容；还必须检查 hello 中的 protocol major。
-- 不要直接发送 C++ struct 内存，里面可能包含指针、padding 和平台相关布局。
-- `package autoviz` 生成 `autoviz::...`，协议 v1 由握手字段表达，不在 namespace 中。
-- 已发布 field number 不得复用；删除字段使用 `reserved`。
+本协议面向可信局域网可视化，不包含控制下发、TLS、认证、压缩或服务发现。

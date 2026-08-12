@@ -90,6 +90,7 @@ private:
     QAction* m_disconnectServerAction = nullptr;
     QAction* m_exitAction = nullptr;
     QAction* m_resetViewAction = nullptr;
+    QAction* m_fitVisibleDataAction = nullptr;
     QAction* m_clearHistoryTrailAction = nullptr;
     QAction* m_restoreLayoutAction = nullptr;
     QAction* m_aboutAction = nullptr;
