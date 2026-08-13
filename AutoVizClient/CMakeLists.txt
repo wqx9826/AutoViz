@@ -21,7 +21,7 @@ list(PREPEND CMAKE_PREFIX_PATH
 )
 
 find_package(AutoVizProto CONFIG REQUIRED)
-find_package(Qt5 REQUIRED COMPONENTS Network Widgets)
+find_package(Qt5 REQUIRED COMPONENTS Network Sql Widgets)
 
 set(AUTOVIZ_CLIENT_SOURCES
     resources.qrc
@@ -44,6 +44,12 @@ set(AUTOVIZ_CLIENT_SOURCES
     src/core/network/ProtocolModelConverter.cpp
     src/core/network/RemoteVisualizationSource.h
     src/core/network/RemoteVisualizationSource.cpp
+    src/core/playback/RosbagPlaybackTypes.h
+    src/core/playback/RosbagPlaybackTypes.cpp
+    src/core/playback/RobotWsCdrDecoder.h
+    src/core/playback/RobotWsCdrDecoder.cpp
+    src/core/playback/LocalRosbagPlaybackSource.h
+    src/core/playback/LocalRosbagPlaybackSource.cpp
     src/core/config/VehicleConfig.h
     src/core/config/VehicleConfig.cpp
     src/core/render/SceneManager.h
@@ -54,6 +60,10 @@ set(AUTOVIZ_CLIENT_SOURCES
     src/ui/ToggleSwitch.cpp
     src/ui/MainViewDisplayConfigDialog.h
     src/ui/MainViewDisplayConfigDialog.cpp
+    src/ui/playback/PlaybackSpeedWidget.h
+    src/ui/playback/PlaybackSpeedWidget.cpp
+    src/ui/playback/RosbagPlaybackDialog.h
+    src/ui/playback/RosbagPlaybackDialog.cpp
     src/ui/LogPanel.h
     src/ui/LogPanel.cpp
     src/ui/status/BottomStatusPanel.h
@@ -86,6 +96,7 @@ target_link_libraries(AutoViz
     PRIVATE
         AutoVizProto::AutoVizProto
         Qt5::Network
+        Qt5::Sql
         Qt5::Widgets
 )
 
@@ -96,3 +107,39 @@ add_custom_command(
             "$<TARGET_FILE_DIR:AutoViz>/configs"
     COMMENT "Copying AutoVizClient runtime configuration"
 )
+
+if(WIN32 AND TARGET Qt5::QSQLiteDriverPlugin)
+    add_custom_command(
+        TARGET AutoViz POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:AutoViz>/plugins/sqldrivers"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:Qt5::QSQLiteDriverPlugin>"
+                "$<TARGET_FILE_DIR:AutoViz>/plugins/sqldrivers/"
+        COMMENT "Deploying Qt SQLite driver for local rosbag playback"
+    )
+endif()
+
+add_executable(AutoVizClientPlaybackTests
+    tests/PlaybackValidationMain.cpp
+    src/core/playback/RobotWsCdrDecoder.h
+    src/core/playback/RobotWsCdrDecoder.cpp
+)
+target_include_directories(AutoVizClientPlaybackTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(AutoVizClientPlaybackTests PRIVATE AutoVizProto::AutoVizProto Qt5::Core Qt5::Sql)
+
+add_executable(AutoVizPlaybackSourceSmoke
+    tests/PlaybackSourceSmokeMain.cpp
+    src/core/model/VehicleState.cpp
+    src/core/model/PathTypes.cpp
+    src/core/model/ObstacleTypes.cpp
+    src/core/model/ControlTypes.cpp
+    src/core/datacenter/DataManager.cpp
+    src/core/config/VehicleConfig.cpp
+    src/core/network/ProtocolModelConverter.cpp
+    src/core/playback/RosbagPlaybackTypes.cpp
+    src/core/playback/RobotWsCdrDecoder.cpp
+    src/core/playback/LocalRosbagPlaybackSource.cpp
+)
+target_include_directories(AutoVizPlaybackSourceSmoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(AutoVizPlaybackSourceSmoke PRIVATE AutoVizProto::AutoVizProto Qt5::Core Qt5::Sql)

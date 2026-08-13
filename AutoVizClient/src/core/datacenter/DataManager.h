@@ -14,6 +14,7 @@ enum class VisualizationInputSource {
     Mock,
     Ros1,
     Ros2,
+    Ros2Bag,
     Remote
 };
 
@@ -30,6 +31,7 @@ struct VisualizationRuntimeStatus {
     bool hasReferenceLineData = false;
     bool hasObstacleData = false;
     bool hasControlCmdData = false;
+    qint64 sourceTimeMs = 0;
 };
 
 struct VisualizationSnapshot {

@@ -13,6 +13,7 @@
 
 #include "ui/theme/UiScaleManager.h"
 #include "ui/theme/UiThemeManager.h"
+#include "ui/playback/PlaybackSpeedWidget.h"
 
 namespace {
 constexpr double kMinorGridSpacing = 1.0;
@@ -27,6 +28,23 @@ VisualizationView::VisualizationView(QWidget* parent)
     : QGraphicsView(parent)
 {
     setupScene();
+    auto* speed = new autoviz::ui::playback::PlaybackSpeedWidget(viewport());
+    m_playbackSpeedWidget = speed;
+    speed->hide();
+    connect(speed, &autoviz::ui::playback::PlaybackSpeedWidget::rateChanged,
+            this, &VisualizationView::playbackRateChanged);
+}
+
+void VisualizationView::setPlaybackSpeedVisible(bool visible)
+{
+    if (m_playbackSpeedWidget == nullptr) return;
+    m_playbackSpeedWidget->setVisible(visible);
+    if (visible) { updateOverlayGeometry(); m_playbackSpeedWidget->raise(); }
+}
+
+void VisualizationView::setPlaybackRate(double rate)
+{
+    if (auto* speed = qobject_cast<autoviz::ui::playback::PlaybackSpeedWidget*>(m_playbackSpeedWidget)) speed->setRate(rate);
 }
 
 void VisualizationView::resetView()
@@ -95,8 +113,8 @@ void VisualizationView::applyTheme(const autoviz::ui::theme::ThemePalette& palet
                            "background-color: rgba(%5, %6, %7, %8);"
                            "color: %9;"
                            "}")
-                .arg(scale.scaled(4))
-                .arg(scale.scaled(7))
+                .arg(scale.scaled(3))
+                .arg(scale.scaled(5))
                 .arg(palette.overlayBorder.name())
                 .arg(scale.scaled(5))
                 .arg(palette.overlayBackground.red())
@@ -607,7 +625,8 @@ void VisualizationView::setupScene()
     m_overlayLabel->setWordWrap(true);
     m_overlayLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_overlayLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    m_overlayLabel->setFont(scale.font(scale.fontSizeSmall()));
+    // 信息浮层比状态面板更靠近主图，使用略紧凑的字号以避免高 DPI 下遮挡路径。
+    m_overlayLabel->setFont(scale.font(qMax(8, scale.fontSizeSmall() - 1)));
     m_overlayLabel->hide();
 
     m_verticalStatusLabel = new QLabel(viewport());
@@ -627,7 +646,8 @@ void VisualizationView::updateOverlayGeometry()
     }
 
     const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
-    const int maxWidth = qMin(scale.scaled(280), qMax(scale.scaled(190), viewport()->width() / 4));
+    // 宽度按逻辑像素受限，不能随高 DPI 的布局缩放无限放大并吞掉主视图。
+    const int maxWidth = qMin(scale.scaled(240), qMax(scale.scaled(180), viewport()->width() / 5));
     m_overlayLabel->setFixedWidth(maxWidth);
     m_overlayLabel->adjustSize();
     m_overlayLabel->move(scale.scaled(8), scale.scaled(8));
@@ -637,6 +657,11 @@ void VisualizationView::updateOverlayGeometry()
         m_verticalStatusLabel->setFixedWidth(verticalMaxWidth);
         m_verticalStatusLabel->adjustSize();
         m_verticalStatusLabel->move(qMax(scale.scaled(8), viewport()->width() - verticalMaxWidth - scale.scaled(8)), scale.scaled(8));
+    }
+    if (m_playbackSpeedWidget != nullptr) {
+        m_playbackSpeedWidget->adjustSize();
+        m_playbackSpeedWidget->move(qMax(scale.scaled(8), viewport()->width() - m_playbackSpeedWidget->width() - scale.scaled(8)),
+                                    scale.scaled(8));
     }
 }
 

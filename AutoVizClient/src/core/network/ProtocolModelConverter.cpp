@@ -527,6 +527,9 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     datacenter::VisualizationSnapshot target;
     target.runtimeStatus.inputSource = datacenter::VisualizationInputSource::Remote;
     target.runtimeStatus.hasCommonPlanningControlCapability = false;
+    target.runtimeStatus.sourceTimeMs = source.has_server_time_ns()
+                                            ? static_cast<qint64>(source.server_time_ns() / 1000000ULL)
+                                            : 0;
     if (source.has_source()) {
         for (const auto capabilityValue : source.source().capability()) {
             const auto capability = static_cast<wire::Capability>(capabilityValue);

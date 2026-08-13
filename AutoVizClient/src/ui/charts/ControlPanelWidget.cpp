@@ -109,8 +109,34 @@ ControlPanelWidget::ControlPanelWidget(QWidget* parent)
 void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
     m_latestData = buildDebugData(snapshot);
-    if (!m_paused) {
+    // reset/restart bag 时主线程会先看见 sourceTimeMs 为 0 的空快照。不能把
+    // 当前墙钟当作回放曲线起点：录制时间通常早于今天，后续虚拟时间会全部被
+    // qMax(0, ...) 压成 0，结果图表只有一条空样本。
+    const bool bagClockNotReady = snapshot.runtimeStatus.inputSource
+                                      == autoviz::datacenter::VisualizationInputSource::Ros2Bag
+                                  && snapshot.runtimeStatus.sourceTimeMs <= 0;
+    if (bagClockNotReady) {
+        return;
+    }
+    if (!m_paused && m_latestData.elapsedMs != m_lastBufferedTimestampMs) {
         m_buffer.pushData(m_latestData);
+        m_lastBufferedTimestampMs = m_latestData.elapsedMs;
+    }
+}
+
+void ControlPanelWidget::setRenderingSuspended(bool suspended)
+{
+    if (m_renderingSuspended == suspended) {
+        return;
+    }
+    m_renderingSuspended = suspended;
+    if (m_repaintTimer == nullptr) {
+        return;
+    }
+    if (suspended) {
+        m_repaintTimer->stop();
+    } else {
+        m_repaintTimer->start();
     }
 }
 
@@ -243,6 +269,7 @@ void ControlPanelWidget::refreshPlots()
 void ControlPanelWidget::clearHistory()
 {
     m_buffer.clear();
+    m_lastBufferedTimestampMs = -1;
     m_firstSampleTimestampMs = 0;
     m_speedPlot->clearFrozenRange();
     m_yawPlot->clearFrozenRange();
@@ -261,13 +288,21 @@ void ControlPanelWidget::setWindowFromCombo()
 
 ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const qint64 wallNowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool isBagPlayback = snapshot.runtimeStatus.inputSource
+                               == autoviz::datacenter::VisualizationInputSource::Ros2Bag;
+    const qint64 timelineNowMs = isBagPlayback && snapshot.runtimeStatus.sourceTimeMs > 0
+                                    ? snapshot.runtimeStatus.sourceTimeMs
+                                    : wallNowMs;
     ControlDebugData data;
-    data.timestampMs = nowMs;
-    if (m_firstSampleTimestampMs == 0) {
-        m_firstSampleTimestampMs = nowMs;
+    data.timestampMs = wallNowMs;
+    const bool hasValidBagClock = !isBagPlayback || snapshot.runtimeStatus.sourceTimeMs > 0;
+    if (m_firstSampleTimestampMs == 0 && hasValidBagClock) {
+        m_firstSampleTimestampMs = timelineNowMs;
     }
-    data.elapsedMs = nowMs - m_firstSampleTimestampMs;
+    data.elapsedMs = m_firstSampleTimestampMs > 0
+                         ? qMax<qint64>(0, timelineNowMs - m_firstSampleTimestampMs)
+                         : 0;
 
     const auto& status = snapshot.runtimeStatus;
     const auto& command = snapshot.controlCmd;
@@ -280,9 +315,9 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     data.sourceTimestampMs = maxTimestamp(command.header.timestamp, snapshot.vehicleLocation.header.timestamp);
     data.sourceTimestampMs = maxTimestamp(data.sourceTimestampMs, snapshot.vehicleChassisInfo.header.timestamp);
     if (data.sourceTimestampMs == 0) {
-        data.sourceTimestampMs = nowMs;
+        data.sourceTimestampMs = timelineNowMs;
     }
-    data.timedOut = nowMs - data.sourceTimestampMs > kTimeoutMs;
+    data.timedOut = timelineNowMs - data.sourceTimestampMs > kTimeoutMs;
     data.mode = data.timedOut ? ControlDebugMode::Error : (hasControl ? ControlDebugMode::Running : ControlDebugMode::Standby);
 
     if (status.inputSource == autoviz::datacenter::VisualizationInputSource::Mock) {

@@ -5,8 +5,12 @@
 
 ## 当前提交前状态
 
-- `AutoVizProto/scripts/bootstrap_proto.sh` 是唯一协议 SDK 引导脚本：从脚本位置解析仓库，
-  构建并运行协议测试后，将 SDK 安装到 Client 和 Server 各自的 `third_party`。
+- Linux 使用 `AutoVizProto/scripts/bootstrap_proto.sh` 引导协议 SDK：从脚本位置解析仓库，
+  固定在 `AutoVizProto/build` 构建，并将 SDK 安装到 Client 和 Server 各自的 `third_party`。
+  协议测试需按需从该构建目录单独执行。
+- Windows 使用独立的 `AutoVizProto/scripts/bootstrap_proto.ps1`；Client 仅在
+  `AutoVizClient/build` 构建，Server 仅在 `AutoVizServer` 中使用 colcon 构建。
+- feature 仓库根目录不创建 `build/`，不用于任何子工程的编译产物。
 - Client 在 Linux 已重新 CMake 配置和构建通过。控制曲线保留未使能控制命令，支持遥控/自主
   切换和 rosbag 回放观察；`enabled` 只作为状态展示。
 - 运动总览固定为六张卡片的 3×2 排布，连接、capability 与数据到达只更新内容，不改变位置。
@@ -66,3 +70,27 @@ Qt Client 以 offscreen 平台实际启动，成功输出：
 
 offscreen 验收证明真实 Client 的构建、启动、握手、快照转换和重连链路可运行；最终字体、
 布局和交互观感仍保留为有显示器环境下的人工验收项。
+
+## Client 原生 bag 回放
+
+新增 ROS-free CDR/SQLite 回放后，`AutoVizClientPlaybackTests` 完整扫描
+`/home/wqx/LZBK/data/rosbag` 的 19 个 bag，共成功解码 3,762,626 条受支持消息，覆盖七个
+常驻通道；现有 bag 未包含障碍物通道。测试同时覆盖大/小端
+CDR、截断和非法 bool。
+
+样例中 2026-08-06 前的 ChassisCommand 为含 `dive_speed` 的 72 字节布局，之后为 64 字节
+布局，两者均完成全量解码。`AutoVizPlaybackSourceSmoke` 对
+`rosbag2_2026_08_12-03_00_17` 完成 metadata/SQLite/CDR 全量预检、seek、8× 和 EOF 状态验证。
+Client 最终构建通过，并以 Qt offscreen 启动无崩溃。Windows 的 qsqlite 部署与实际视觉观感
+仍需在 Windows 图形环境人工验收。
+
+高倍率响应回归增加了 worker 时间片测试：8× 连续播放期间发出暂停命令，样例 bag 实测
+worker 确认延迟为 0 ms（验收上限 300 ms），随后完成 seek、继续播放和 EOF。播放批次按
+通道合并，主场景限频，避免高倍率下 UI 事件队列和完整 snapshot 重绘互相放大。
+
+深色主题切换会触发 Qt5 对整棵控件树的 QSS 重抛光，且无法保证底部状态/详情/日志的局部样式一致。
+当前固定使用 main 分支验证过的浅色 QSS 基线，并移除“外观”菜单；主视图与回放浮层保留高 DPI 适配。
+
+播放速度浮层使用独立自绘 `PillRateSlider`，不继承 `QSlider`：六个内置档位、32 px 胶囊轨道、
+40 px 白色手柄、140 ms OutCubic 吸附动画，以及 hover/pressed 缩放均不依赖图形效果。以
+`QT_SCALE_FACTOR=1.5` 生成 930×267 深浅预览图，控件未裁切或变形。

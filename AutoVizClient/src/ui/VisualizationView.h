@@ -16,6 +16,7 @@ struct ThemePalette;
 
 class VisualizationView : public QGraphicsView
 {
+    Q_OBJECT
 public:
     struct VerticalProfileSample {
         double elapsedSec = 0.0;
@@ -57,6 +58,11 @@ public:
     void clearVerticalProfileFrame();
     double minorGridSpacingMeters() const;
     double majorGridSpacingMeters() const;
+    void setPlaybackSpeedVisible(bool visible);
+    void setPlaybackRate(double rate);
+
+signals:
+    void playbackRateChanged(double rate);
 
 protected:
     void drawBackground(QPainter* painter, const QRectF& rect) override;
@@ -83,6 +89,7 @@ private:
     qreal m_zoomFactor = 1.0;
     QLabel* m_overlayLabel = nullptr;
     QLabel* m_verticalStatusLabel = nullptr;
+    QWidget* m_playbackSpeedWidget = nullptr;
     VerticalProfileFrame m_verticalProfileFrame;
     QRectF m_lastFitRegion;
     bool m_autoFitEnabled = true;

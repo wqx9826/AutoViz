@@ -44,6 +44,24 @@ ROS SingleThreadedExecutor 访问。TCP 慢客户端的旧待发快照会被新�
 - `DataManager`：原子替换值快照；同 session 延续历史轨迹。
 - `SceneManager/UI`：主线程每 50 ms 读内部快照，不 include protobuf，不解析 topic 名。
 
+本地回放是第二条互斥的数据源链路：
+
+```text
+rosbag2 metadata v5 + SQLite3 DB3
+  -> LocalRosbagPlaybackSource 工作线程
+  -> RobotWsCdrDecoder（固定 robot_ws schema、无 ROS 依赖）
+  -> AutoViz protobuf snapshot
+  -> ProtocolModelConverter -> DataManager -> SceneManager / Qt UI
+```
+
+回放 adapter 是 Client 中唯一允许理解 ROS topic/type/CDR 的隔离边界。它与远程源互斥，
+使用 bag 虚拟时钟计算新鲜度；暂停不会让通道按墙钟超时，seek 会重建各通道最近状态并
+清空旧历史。
+
+高倍率回放采用有界背压：worker 每次最多占用 4 ms/处理 2000 行，同一批内每个通道只
+解码最后一帧；过载时放慢虚拟时钟，不积压任务。暂停、停止和调速因此可在下一时间片被
+处理。主场景在本地回放时最多 10 Hz 全量重建，状态区仍保持 20 Hz。
+
 断线或 session 变化先清空 DataManager，因此旧会话轨迹不拼接。Server 负责字段超时；
 Client 的 5 秒 watchdog 只处理连接整体失活。
 

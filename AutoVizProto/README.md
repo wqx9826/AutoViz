@@ -30,40 +30,34 @@ target_link_libraries(app PRIVATE AutoVizProto::AutoVizProto)
 这样不需要在 Client/Server 中手写 Linux `.a`、Windows `.lib`、Debug/Release 路径
 和 protobuf 的传递依赖。
 
-## 标准构建流程
+## Linux 标准构建流程
 
 ```bash
-cmake -S . -B build -DAUTOVIZ_PROTO_BUILD_TESTS=ON
-cmake --build build -j4
-./build/autoviz_proto_tests
-cmake --install build --prefix /目标/third_party/AutoVizProto
+./AutoVizProto/scripts/bootstrap_proto.sh
 ```
 
-注意：`cmake -S . -B build` 只是配置；`cmake --build` 才编译；`cmake --install`
-才把公开头和库整理到 `include/`、`lib/`。
+该脚本可从任意当前目录运行，它会固定使用 `AutoVizProto/build`，并把 SDK
+安装到 Client 和 Server 各自的 `third_party/AutoVizProto`。Linux 下安装 Proto
+应使用此脚本，不在 feature 根目录或其他路径新建 Proto build 目录。
 
-不要直接执行不带安装前缀的 `make install`。CMake 默认前缀是 `/usr/local`，普通用户
-没有写权限；AutoViz 应安装到两个消费工程自己的 `third_party/AutoVizProto`，无需 sudo。
-在完整仓库中可直接运行 `./AutoVizProto/scripts/bootstrap_proto.sh` 一次完成构建、测试和两份安装。
+脚本完成 CMake 配置、编译和带明确前缀的安装，不需要 `sudo`。协议测试
+按需在 `AutoVizProto/build` 中生成和运行。
 
 测试使用 GTest，直接运行，不启用 CTest。
 
 ## Windows
 
-以 MSVC Release 为例：
+在仓库根目录以 PowerShell 运行：
 
 ```powershell
-cmake -S . -B build `
-  -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_PREFIX_PATH=C:\path\to\protobuf
-cmake --build build --config Release
-cmake --install build --config Release `
-  --prefix C:\path\to\AutoVizClient\third_party\AutoVizProto
+.\AutoVizProto\scripts\bootstrap_proto.ps1
 ```
 
+脚本使用 `AutoVizProto\build` 和 Release 配置，并安装 Client/Server 两份 SDK。
+需要其他构建类型时可传入，例如
+`.\AutoVizProto\scripts\bootstrap_proto.ps1 -Configuration Debug`。
 AutoVizProto 和 Client 必须使用兼容的编译器、架构与 protobuf。若 protobuf 放在
-`AutoVizClient\third_party\protobuf`，上面的 `CMAKE_PREFIX_PATH` 指向该目录即可；
-它是本次配置参数，不要求设置系统环境变量。
+`AutoVizClient\third_party\protobuf`，脚本会自动将其传给 CMake，不设置系统环境变量。
 
 ## CMakeLists 怎样阅读
 

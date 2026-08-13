@@ -22,3 +22,8 @@ Client CMake 会自动把以上目录加入搜索路径，不需要设置
 
 AutoVizProto 不能复制 Linux 产物到 Windows；必须使用与 Client 相同的 Windows
 编译器和架构构建，或解压对应平台的预编译 SDK。
+
+Linux 使用仓库根目录的 `./AutoVizProto/scripts/bootstrap_proto.sh` 生成此 SDK；
+Windows 使用 `.\AutoVizProto\scripts\bootstrap_proto.ps1`。两个脚本都只在
+`AutoVizProto/build` 构建 Proto。Client 本身只在 `AutoVizClient/build` 构建，
+不在 feature 根目录创建 `build/`。

@@ -8,6 +8,10 @@ AutoVizServer  ROS2 -> protobuf/TCP
 AutoVizClient  protobuf/TCP -> Qt UI
 ```
 
+AutoVizClient 还可在不启动 Server、ROS2、WSL 或虚拟机的情况下，直接打开 robot_ws
+录制的 ROS2 Humble `sqlite3` bag。菜单栏选择“回放数据”，加载包含 `metadata.yaml` 和
+`.db3` 分片的目录即可进行验证、播放、暂停、跳转及 0.1×～8× 调速。
+
 `main` 仍是现场稳定的 ROS2 单体版本，本分支不会修改 main。
 
 当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.0**：Server 最多 20 Hz 发送
@@ -44,7 +48,22 @@ cmake 配置 -> cmake --build 编译 -> cmake --install 安装 SDK
 
 `cmake ..` 只生成构建系统，不会完成编译和安装。下面是标准操作。
 
-## Linux：为 Client 准备 AutoVizProto
+## 构建目录约定
+
+禁止在 feature 仓库根目录创建通用 `build/`。三个工程的构建产物必须彼此隔离：
+
+```text
+AutoVizProto/build/   CMake 构建目录
+AutoVizClient/build/  CMake 构建目录
+AutoVizServer/build/  colcon 生成（同时使用 AutoVizServer/install 和 log）
+```
+
+- Linux 下的 AutoVizProto SDK 统一由 `AutoVizProto/scripts/bootstrap_proto.sh` 构建和安装。
+- Windows 下使用 `AutoVizProto/scripts/bootstrap_proto.ps1`。
+- Client 始终在 `AutoVizClient/build` 配置、编译和运行。
+- Server 始终从 `AutoVizServer` 目录执行 `colcon build`，不用纯 CMake 构建。
+
+## Linux：准备 AutoVizProto 并构建 Client
 
 在仓库根目录：
 
@@ -52,45 +71,41 @@ cmake 配置 -> cmake --build 编译 -> cmake --install 安装 SDK
 ./AutoVizProto/scripts/bootstrap_proto.sh
 ```
 
-该脚本会构建并测试一次协议库，再把 SDK 分别安装到 Client 和 Server。若只想手工为
-Client 准备 SDK，可使用下面的分步命令：
+该脚本固定在 `AutoVizProto/build` 构建协议库，再把 SDK 分别安装到 Client 和 Server。
+Linux 下不再手工使用其他 Proto 构建目录。随后在 Client 自己的目录中构建：
 
 ```bash
-cmake -S AutoVizProto -B build/proto-client \
-  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
-cmake --build build/proto-client -j4
-./build/proto-client/autoviz_proto_tests
-cmake --install build/proto-client \
-  --prefix "$PWD/AutoVizClient/third_party/AutoVizProto"
-
-cmake -S AutoVizClient -B build/client
-cmake --build build/client -j4
+cmake -S AutoVizClient -B AutoVizClient/build
+cmake --build AutoVizClient/build -j4
+./AutoVizClient/build/AutoViz
 ```
 
 ## Linux：为 Server 准备 AutoVizProto
 
 ```bash
-cmake -S AutoVizProto -B build/proto-server
-cmake --build build/proto-server -j4
-cmake --install build/proto-server \
-  --prefix "$PWD/AutoVizServer/third_party/AutoVizProto"
+./AutoVizProto/scripts/bootstrap_proto.sh
 
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
-colcon --log-base AutoVizServer/log build \
-  --base-paths AutoVizServer/src \
-  --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install
+cd AutoVizServer
+colcon build
 ```
 
-同一台 Linux 机器也可以复用一次 build，再用两个不同的 `--prefix` 安装两次。
-不要在 build 目录裸执行 `make install`：未指定前缀时 CMake 默认写入 `/usr/local`，
-普通用户会得到 `Permission denied`。本项目不需要 `sudo make install`。
+`colcon` 会在 `AutoVizServer` 内管理 `build/`、`install/` 和 `log/`。不要对 Server
+直接执行 `cmake`/`make`，也不要把这些产物放到 feature 根目录。
 
 ## Windows Client
 
 Windows 不能使用 Linux 编译出的 `.a`。应使用和 Client 相同的 MSVC/MinGW、架构和
-构建类型编译 AutoVizProto，然后安装到：
+构建类型运行：
+
+```powershell
+.\AutoVizProto\scripts\bootstrap_proto.ps1
+cmake -S AutoVizClient -B AutoVizClient\build
+cmake --build AutoVizClient\build --config Release
+```
+
+脚本在 `AutoVizProto\build` 构建，然后安装到：
 
 ```text
 AutoVizClient\third_party\AutoVizProto
@@ -102,6 +117,9 @@ Client CMake 还会自动搜索：
 AutoVizClient\third_party\protobuf
 AutoVizClient\third_party\Qt5
 ```
+
+本地 rosbag 回放使用 Qt SQL 的 SQLite 驱动。部署时除 Qt Widgets/Network 外，还需随
+应用携带 `plugins/sqldrivers/qsqlite.dll` 及其 SQLite 运行时依赖；不需要安装 ROS2。
 
 因此可把 protobuf SDK、Qt kit（或指向 Qt kit 的目录链接）放到固定位置，不依赖
 系统环境变量。完整命令见 `AutoVizClient/README.md`。

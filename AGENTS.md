@@ -103,11 +103,15 @@ robot_ws 当前输入：
 ```bash
 ./AutoVizProto/scripts/bootstrap_proto.sh
 
-cmake -S AutoVizClient -B build/client
-cmake --build build/client -j4
+cmake -S AutoVizClient -B AutoVizClient/build
+cmake --build AutoVizClient/build -j4
 ```
 
-Server 构建须 source ROS2 和 robot_ws；默认从
+Linux 下 Proto 必须使用上述脚本，并只在 `AutoVizProto/build` 构建；Windows
+使用 `AutoVizProto/scripts/bootstrap_proto.ps1`。Client 只在 `AutoVizClient/build` 构建。
+禁止在 feature 项目根目录创建 `build/` 或编译任何子工程。
+
+Server 须在 `AutoVizServer` 目录 source ROS2 和 robot_ws 后使用 `colcon build`；默认从
 `AutoVizServer/third_party/AutoVizProto` 查找协议 SDK。Client 不使用 CTest；协议
 GTest 归 AutoVizProto。
 

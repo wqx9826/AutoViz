@@ -39,6 +39,8 @@ public:
     void initializeScene();
     void clearScene();
     void updateScene(const autoviz::datacenter::VisualizationSnapshot& snapshot);
+    // 新的本地回放会话不能复用上一轮 T-Z 分段或自动取景状态。
+    void resetPlaybackSession();
     void setLayerVisibility(const LayerVisibility& visibility);
     LayerVisibility layerVisibility() const;
     void setVehicleCenteredMode(bool enabled);

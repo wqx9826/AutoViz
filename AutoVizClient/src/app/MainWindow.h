@@ -14,6 +14,8 @@ class VisualizationView;
 namespace autoviz::network {
 class RemoteVisualizationSource;
 }
+namespace autoviz::playback { class LocalRosbagPlaybackSource; enum class PlaybackState; }
+namespace autoviz::ui::playback { class RosbagPlaybackDialog; }
 
 namespace autoviz::ui {
 class ConnectionDialog;
@@ -47,7 +49,6 @@ private:
     void setupUi();
     void setupMenuBar();
     void setupConnectionMenu();
-    void setupAppearanceMenu();
     void setupMainViewModeMenu();
     void setupStatusBar();
     void setupMainLayout();
@@ -59,7 +60,9 @@ private:
     void updateMainViewMode(const autoviz::datacenter::VisualizationSnapshot& snapshot);
     void refreshVisualization();
     void initializeRemoteDataSource();
+    void initializeLocalPlaybackSource();
     void openConnectionDialog();
+    void openRosbagPlaybackDialog();
     void openMainViewDisplayConfigDialog();
     void openConfigurationDirectory();
     void updateMainViewOverlay(const autoviz::datacenter::VisualizationSnapshot& snapshot);
@@ -74,6 +77,8 @@ private:
     autoviz::render::SceneManager* m_sceneManager = nullptr;
     autoviz::datacenter::DataManager* m_dataManager = nullptr;
     autoviz::network::RemoteVisualizationSource* m_remoteSource = nullptr;
+    autoviz::playback::LocalRosbagPlaybackSource* m_playbackSource = nullptr;
+    autoviz::ui::playback::RosbagPlaybackDialog* m_playbackDialog = nullptr;
     autoviz::ui::ConnectionDialog* m_connectionDialog = nullptr;
     QTimer* m_refreshTimer = nullptr;
 
@@ -81,14 +86,13 @@ private:
     QSplitter* m_leftSplitter = nullptr;
     QMenu* m_viewMenu = nullptr;
     QMenu* m_connectionMenu = nullptr;
-    QMenu* m_appearanceMenu = nullptr;
     QMenu* m_mainViewModeMenu = nullptr;
-    QActionGroup* m_themeActionGroup = nullptr;
     QActionGroup* m_mainViewModeActionGroup = nullptr;
 
     QAction* m_mainViewDisplayManageAction = nullptr;
     QAction* m_openConfigurationDirectoryAction = nullptr;
     QAction* m_connectServerAction = nullptr;
+    QAction* m_playbackAction = nullptr;
     QAction* m_disconnectServerAction = nullptr;
     QAction* m_exitAction = nullptr;
     QAction* m_resetViewAction = nullptr;
@@ -96,9 +100,6 @@ private:
     QAction* m_clearHistoryTrailAction = nullptr;
     QAction* m_restoreLayoutAction = nullptr;
     QAction* m_aboutAction = nullptr;
-    QAction* m_autoThemeAction = nullptr;
-    QAction* m_lightThemeAction = nullptr;
-    QAction* m_darkThemeAction = nullptr;
     QAction* m_autoMainViewModeAction = nullptr;
     QAction* m_topDownMainViewModeAction = nullptr;
     QAction* m_verticalProfileMainViewModeAction = nullptr;
@@ -108,4 +109,8 @@ private:
     qint64 m_pendingAutoMainViewModeSinceMs = 0;
     QString m_connectionStatus = QStringLiteral("未连接 Server");
     bool m_serverConnected = false;
+    qint64 m_lastPlaybackSceneRefreshMs = 0;
+    qint64 m_lastPlaybackPositionNs = 0;
+    QString m_playbackBagName;
+    QString m_playbackStateText;
 };

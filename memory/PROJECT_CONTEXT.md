@@ -33,11 +33,16 @@ UI 根据 capability 启用垂向、水下和平台诊断内容。公共 UI 只�
 命令的 `enabled` 仅表示执行状态，不会丢弃未使能或切换阶段的回放曲线。
 
 Client 菜单中，“主视图显示管理”属于视图操作；“文件”提供已部署 `configs/` 目录入口
-（车辆尺寸 JSON 与主题 QSS）以及退出。连接地址和主视图可见项由 Qt 用户设置保存，不作为
+（车辆尺寸 JSON 与浅色主题 QSS）以及退出；当前固定使用 main 分支的浅色 UI 基线，暂不开放
+深色外观切换，避免 Qt5 全局 QSS 换肤造成局部颜色不一致。连接地址和主视图可见项由 Qt 用户设置保存，不作为
 项目配置文件编辑入口。
 
-Client 图标保存在 `AutoVizClient/assets/autoviz_icon.png`，通过 Qt resource 内嵌到可执行文件；
-运行时不依赖工作目录或外置图标文件。
+菜单栏“回放数据”提供 ROS-free 的 robot_ws DB3 回放。窗口完成全量预检、播放/暂停/停止、
+进度跳转；主视图右上角提供 0.1×～8× 分档与连续倍率输入。本地回放和远程 Server 数据源
+互斥，所有控件沿用当前浅色主题与 UI 缩放。
+
+Client 图标保存在 `AutoVizClient/assets/autoviz_icon.png`，是透明 RGBA PNG，通过 Qt resource
+内嵌到可执行文件；运行时不依赖工作目录或外置图标文件。
 
 运动总览固定使用六张卡片的 3×2 布局；连接状态、capability 和数据新鲜度仅更新卡片中的
 状态和值，不改变卡片结构或位置，保证未连接、刚连接和稳定运行时的扫读位置一致。
@@ -51,3 +56,12 @@ Client 图标保存在 `AutoVizClient/assets/autoviz_icon.png`，通过 Qt resou
 - 默认端口 39090
 
 协议面向可信局域网只读调试；没有控制下发、TLS、认证、压缩或服务发现。
+
+## 构建边界
+
+- feature 仓库根目录不创建 `build/`，不在根目录汇总编译子工程。
+- Linux AutoVizProto 仅用 `AutoVizProto/scripts/bootstrap_proto.sh`，构建目录固定为
+  `AutoVizProto/build`；Windows 使用 `bootstrap_proto.ps1`。
+- AutoVizClient 构建目录固定为 `AutoVizClient/build`。
+- AutoVizServer 在 `AutoVizServer` 目录使用 `colcon build`，产物位于 Server 自己的
+  `build/`、`install/` 和 `log/`。

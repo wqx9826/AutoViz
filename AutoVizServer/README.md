@@ -82,15 +82,14 @@ robot_ws launch。
 
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
-colcon --log-base AutoVizServer/log build \
-  --base-paths AutoVizServer/src \
-  --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install
-colcon --log-base AutoVizServer/log test \
-  --base-paths AutoVizServer/src \
-  --build-base AutoVizServer/build \
-  --install-base AutoVizServer/install
+cd AutoVizServer
+colcon build
+colcon test
 ```
+
+Server 是 ROS2 workspace，只使用 `colcon build` 构建，不对
+`src/autoviz_server` 单独执行 CMake。从 `AutoVizServer` 目录运行后，colcon 会把
+`build/`、`install/` 和 `log/` 都保留在 Server 工程内，不污染 feature 根目录。
 
 `robot_ws_converter_test` 覆盖八类消息和快照超时；`tcp_server_test` 覆盖动态端口、握手
 隔离、完整快照、多 Client/上限、版本拒绝、心跳、超时、重启 session 与慢 Client 合并。

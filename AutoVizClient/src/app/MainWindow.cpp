@@ -26,6 +26,7 @@
 #include "core/datacenter/DataManager.h"
 #include "core/model/RuntimeStatusTypes.h"
 #include "core/network/RemoteVisualizationSource.h"
+#include "core/playback/LocalRosbagPlaybackSource.h"
 #include "core/render/SceneManager.h"
 #include "ui/MainViewDisplayConfigDialog.h"
 #include "ui/VisualizationView.h"
@@ -33,6 +34,7 @@
 #include "ui/charts/ControlPanelWidget.h"
 #include "ui/status/BottomStatusPanel.h"
 #include "ui/network/ConnectionDialog.h"
+#include "ui/playback/RosbagPlaybackDialog.h"
 #include "ui/theme/UiScaleManager.h"
 #include "ui/theme/UiThemeManager.h"
 #include "utils/Logger.h"
@@ -128,6 +130,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     connectActions();
     initializeRemoteDataSource();
+    initializeLocalPlaybackSource();
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(50);
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() { refreshVisualization(); });
@@ -154,7 +157,8 @@ void MainWindow::setupUi()
     setupMenuBar();
     setupStatusBar();
     setupMainLayout();
-    changeTheme(autoviz::ui::theme::ThemeMode::Auto);
+    // Qt5 下整棵控件树的深浅 QSS 重抛光会破坏响应性；当前固定使用 main 的浅色基线。
+    changeTheme(autoviz::ui::theme::ThemeMode::Light);
     restoreDefaultLayout();
     loadMainViewDisplaySettings();
 }
@@ -205,8 +209,6 @@ void MainWindow::setupMenuBar()
     fileMenu->addSeparator();
     m_exitAction = fileMenu->addAction(tr("退出"));
 
-    setupConnectionMenu();
-
     m_viewMenu = menuBar()->addMenu(tr("视图"));
     m_resetViewAction = m_viewMenu->addAction(tr("重置视图"));
     m_fitVisibleDataAction = m_viewMenu->addAction(tr("适配可见数据"));
@@ -216,7 +218,9 @@ void MainWindow::setupMenuBar()
     m_viewMenu->addSeparator();
     m_mainViewDisplayManageAction = m_viewMenu->addAction(tr("主视图显示管理..."));
     setupMainViewModeMenu();
-    setupAppearanceMenu();
+
+    setupConnectionMenu();
+    m_playbackAction = menuBar()->addAction(tr("回放数据"));
 
     QMenu* helpMenu = menuBar()->addMenu(tr("帮助"));
     m_aboutAction = helpMenu->addAction(tr("关于"));
@@ -257,27 +261,6 @@ void MainWindow::setupMainViewModeMenu()
     });
 }
 
-void MainWindow::setupAppearanceMenu()
-{
-    m_appearanceMenu = m_viewMenu->addMenu(tr("外观"));
-    m_themeActionGroup = new QActionGroup(this);
-    m_themeActionGroup->setExclusive(true);
-
-    m_autoThemeAction = m_appearanceMenu->addAction(tr("自动"));
-    m_lightThemeAction = m_appearanceMenu->addAction(tr("浅色"));
-    m_darkThemeAction = m_appearanceMenu->addAction(tr("深色"));
-
-    for (auto* action : {m_autoThemeAction, m_lightThemeAction, m_darkThemeAction}) {
-        action->setCheckable(true);
-        m_themeActionGroup->addAction(action);
-    }
-    m_autoThemeAction->setChecked(true);
-
-    connect(m_autoThemeAction, &QAction::triggered, this, [this]() { changeTheme(autoviz::ui::theme::ThemeMode::Auto); });
-    connect(m_lightThemeAction, &QAction::triggered, this, [this]() { changeTheme(autoviz::ui::theme::ThemeMode::Light); });
-    connect(m_darkThemeAction, &QAction::triggered, this, [this]() { changeTheme(autoviz::ui::theme::ThemeMode::Dark); });
-}
-
 void MainWindow::setupStatusBar()
 {
     const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
@@ -287,6 +270,7 @@ void MainWindow::setupStatusBar()
 
 void MainWindow::connectActions()
 {
+    connect(m_playbackAction, &QAction::triggered, this, &MainWindow::openRosbagPlaybackDialog);
     connect(m_mainViewDisplayManageAction, &QAction::triggered, this, &MainWindow::openMainViewDisplayConfigDialog);
     connect(m_openConfigurationDirectoryAction,
             &QAction::triggered,
@@ -333,10 +317,11 @@ void MainWindow::restoreDefaultLayout()
 void MainWindow::changeTheme(autoviz::ui::theme::ThemeMode mode)
 {
     auto& theme = autoviz::ui::theme::UiThemeManager::instance();
-    theme.setMode(mode);
-    qApp->setStyleSheet(loadThemeStyleSheet(mode));
-
+    Q_UNUSED(mode)
+    theme.setMode(autoviz::ui::theme::ThemeMode::Light);
     const auto palette = theme.effectivePalette();
+    qApp->setStyleSheet(loadThemeStyleSheet(autoviz::ui::theme::ThemeMode::Light));
+
     if (m_visualizationView != nullptr) {
         m_visualizationView->applyTheme(palette);
     }
@@ -351,23 +336,12 @@ void MainWindow::changeTheme(autoviz::ui::theme::ThemeMode mode)
         m_mainViewDisplayConfigDialog->update();
     }
 
-    if (m_autoThemeAction != nullptr) {
-        m_autoThemeAction->setChecked(mode == autoviz::ui::theme::ThemeMode::Auto);
-    }
-    if (m_lightThemeAction != nullptr) {
-        m_lightThemeAction->setChecked(mode == autoviz::ui::theme::ThemeMode::Light);
-    }
-    if (m_darkThemeAction != nullptr) {
-        m_darkThemeAction->setChecked(mode == autoviz::ui::theme::ThemeMode::Dark);
-    }
 }
 
 QString MainWindow::loadThemeStyleSheet(autoviz::ui::theme::ThemeMode mode) const
 {
-    const auto& theme = autoviz::ui::theme::UiThemeManager::instance();
-    const bool useDark = mode == autoviz::ui::theme::ThemeMode::Dark ||
-                         (mode == autoviz::ui::theme::ThemeMode::Auto && theme.effectivePalette().dark);
-    const QString fileName = useDark ? QStringLiteral("dark.qss") : QStringLiteral("light.qss");
+    Q_UNUSED(mode)
+    const QString fileName = QStringLiteral("light.qss");
     const QStringList candidates = {
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../configs/themes/%1").arg(fileName)),
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("configs/themes/%1").arg(fileName)),
@@ -383,8 +357,7 @@ QString MainWindow::loadThemeStyleSheet(autoviz::ui::theme::ThemeMode mode) cons
         stream.setCodec("UTF-8");
         return stream.readAll();
     }
-
-    return theme.styleSheet();
+    return autoviz::ui::theme::UiThemeManager::instance().styleSheet();
 }
 
 void MainWindow::setRequestedMainViewMode(autoviz::render::MainViewMode mode)
@@ -480,7 +453,15 @@ void MainWindow::refreshVisualization()
 {
     const auto snapshot = m_dataManager->getSnapshot();
     updateMainViewMode(snapshot);
-    m_sceneManager->updateScene(snapshot);
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool isBagPlayback = snapshot.runtimeStatus.inputSource
+                               == autoviz::datacenter::VisualizationInputSource::Ros2Bag;
+    // 本地高速回放时限制昂贵的 QGraphicsScene 全量重建为 10 Hz；状态和控制数据
+    // 仍按主 UI 的 20 Hz 刷新。
+    if (!isBagPlayback || nowMs - m_lastPlaybackSceneRefreshMs >= 100) {
+        m_sceneManager->updateScene(snapshot);
+        if (isBagPlayback) m_lastPlaybackSceneRefreshMs = nowMs;
+    }
     m_controlPanel->updateSnapshot(snapshot);
     m_bottomStatusPanel->updateSnapshot(snapshot);
     updateMainViewOverlay(snapshot);
@@ -493,6 +474,69 @@ void MainWindow::refreshVisualization()
         statusBar()->setToolTip(QStringLiteral("%1\n%2")
                                     .arg(m_connectionStatus, topicStatusSummary(snapshot)));
     }
+    else if (snapshot.runtimeStatus.inputSource == autoviz::datacenter::VisualizationInputSource::Ros2Bag) {
+        statusBar()->showMessage(QStringLiteral("本地回放：%1；%2").arg(m_playbackBagName, m_playbackStateText));
+        statusBar()->setToolTip(statusBar()->currentMessage());
+    }
+}
+
+void MainWindow::initializeLocalPlaybackSource()
+{
+    m_playbackSource = new autoviz::playback::LocalRosbagPlaybackSource(m_dataManager, this);
+    connect(m_playbackSource, &autoviz::playback::LocalRosbagPlaybackSource::bagLoaded,
+            this, [this](const autoviz::playback::RosbagInfo& info) { m_playbackBagName = info.name; });
+    connect(m_playbackSource, &autoviz::playback::LocalRosbagPlaybackSource::playbackStateChanged,
+            this, [this](autoviz::playback::PlaybackState state, const QString& text) {
+                m_playbackStateText = text;
+                const bool visible = state == autoviz::playback::PlaybackState::Playing
+                                     || state == autoviz::playback::PlaybackState::Paused
+                                     || state == autoviz::playback::PlaybackState::Completed;
+                m_visualizationView->setPlaybackSpeedVisible(visible);
+                if (state == autoviz::playback::PlaybackState::Stopped) {
+                    m_controlPanel->clearHistory();
+                }
+            });
+    connect(m_playbackSource, &autoviz::playback::LocalRosbagPlaybackSource::playbackRateChanged,
+            m_visualizationView, &VisualizationView::setPlaybackRate);
+    connect(m_playbackSource, &autoviz::playback::LocalRosbagPlaybackSource::positionChanged,
+            this, [this](qint64 positionNs, qint64) {
+                if (positionNs < m_lastPlaybackPositionNs) {
+                    m_controlPanel->clearHistory();
+                    m_lastPlaybackSceneRefreshMs = 0;
+                }
+                m_lastPlaybackPositionNs = positionNs;
+            });
+    connect(m_visualizationView, &VisualizationView::playbackRateChanged,
+            m_playbackSource, &autoviz::playback::LocalRosbagPlaybackSource::setPlaybackRate);
+}
+
+void MainWindow::openRosbagPlaybackDialog()
+{
+    if (m_playbackDialog == nullptr) {
+        m_playbackDialog = new autoviz::ui::playback::RosbagPlaybackDialog(m_playbackSource, this);
+        connect(m_playbackDialog, &autoviz::ui::playback::RosbagPlaybackDialog::playbackStarting,
+                this, [this]() {
+                    if (m_remoteSource != nullptr) m_remoteSource->disconnectFromServer();
+                    m_controlPanel->clearHistory();
+                    // 清空主线程可见的旧快照，避免 Worker 刚开始新会话时仍把上一轮
+                    // 完成后的 T-Z 图或轨迹绘制一帧。自动模式的新会话从 XY 起步，后续
+                    // 再由新的运行模式按既有防抖规则决定是否切到 T-Z。
+                    m_dataManager->resetVisualizationData(
+                        autoviz::datacenter::VisualizationInputSource::Ros2Bag);
+                    m_lastPlaybackPositionNs = 0;
+                    m_lastPlaybackSceneRefreshMs = 0;
+                    m_pendingAutoMainViewModeSinceMs = 0;
+                    if (m_sceneManager != nullptr) {
+                        m_sceneManager->resetPlaybackSession();
+                        if (m_requestedMainViewMode == autoviz::render::MainViewMode::Auto) {
+                            m_effectiveMainViewMode = autoviz::render::MainViewMode::TopDownXY;
+                            m_pendingAutoMainViewMode = m_effectiveMainViewMode;
+                            m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
+                        }
+                    }
+                });
+    }
+    m_playbackDialog->show();m_playbackDialog->raise();m_playbackDialog->activateWindow();
 }
 
 void MainWindow::initializeRemoteDataSource()
@@ -541,6 +585,7 @@ void MainWindow::openConnectionDialog()
     settings.setValue(QStringLiteral("server/host"), m_connectionDialog->host());
     settings.setValue(QStringLiteral("server/port"), m_connectionDialog->port());
     settings.setValue(QStringLiteral("server/auto_connect"), m_connectionDialog->autoConnect());
+    if (m_playbackSource != nullptr) m_playbackSource->stop();
     m_remoteSource->connectToServer(m_connectionDialog->host(),
                                     m_connectionDialog->port(),
                                     m_connectionDialog->autoConnect());
@@ -625,6 +670,10 @@ void MainWindow::updateMainViewOverlay(const autoviz::datacenter::VisualizationS
     case autoviz::datacenter::VisualizationInputSource::Ros2:
         overlayMessage = QStringLiteral("当前数据源：ROS2 实时数据");
         break;
+    case autoviz::datacenter::VisualizationInputSource::Ros2Bag:
+        overlayMessage = QStringLiteral("当前数据源：ROS2 Bag 本地回放");
+        if (!m_playbackBagName.isEmpty()) overlayMessage += QStringLiteral("\n数据包：%1").arg(m_playbackBagName);
+        break;
     case autoviz::datacenter::VisualizationInputSource::Remote:
         overlayMessage = QStringLiteral("当前数据源：AutoViz Server");
         break;
@@ -636,6 +685,8 @@ void MainWindow::updateMainViewOverlay(const autoviz::datacenter::VisualizationS
 
     if (status.inputSource == autoviz::datacenter::VisualizationInputSource::Mock) {
         overlayMessage += QStringLiteral("\n当前状态：Mock 数据已加载");
+    } else if (status.inputSource == autoviz::datacenter::VisualizationInputSource::Ros2Bag) {
+        overlayMessage += QStringLiteral("\n当前状态：%1").arg(m_playbackStateText.isEmpty() ? QStringLiteral("已就绪") : m_playbackStateText);
     } else if (receivedChannels.isEmpty()) {
         overlayMessage += QStringLiteral("\n当前状态：等待实时数据");
     } else {

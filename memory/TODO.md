@@ -9,12 +9,14 @@
 - [x] Client 完整快照原子替换、session 清理、typed converter 和能力驱动 UI。
 - [x] Proto framing/round-trip、Server TCP 回环和 ROS 映射测试源码。
 - [x] 完成 rosbag + 合成 FinalTarget 本机端到端验收并记录结果。
+- [x] Client 原生读取 robot_ws ROS2 Humble SQLite bag，支持完整验证、跳转和调速，无需 ROS/Server。
 - [ ] 人工检查真实 Client 的 XY、T-Z、控制曲线、详情、断线和重连观感。
 
 ## 后续
 
-- [ ] Windows 构建 AutoVizProto 与 AutoVizClient，并人工验收图标、配置目录入口、固定总览布局、
-  控制曲线回放和 TCP 连接/重连。
+- [ ] Windows 使用 `AutoVizProto/scripts/bootstrap_proto.ps1` 构建 AutoVizProto，再于
+  `AutoVizClient/build` 构建 Client，并人工验收图标、配置目录入口、qsqlite 插件、
+  原生 bag 回放、固定总览布局和 TCP 连接/重连。
 - [ ] 增加 Client converter 的自动化字段级测试。
 - [ ] 用现场高带宽轨迹/障碍物继续压测慢 Client。
 - [ ] 按需求实现 Simulation、Log、ROS1 或 DDS Adapter。

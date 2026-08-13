@@ -298,6 +298,8 @@ QString dataSourceText(autoviz::datacenter::VisualizationInputSource inputSource
         return QStringLiteral("ROS1 实时数据");
     case autoviz::datacenter::VisualizationInputSource::Ros2:
         return QStringLiteral("ROS2 实时数据");
+    case autoviz::datacenter::VisualizationInputSource::Ros2Bag:
+        return QStringLiteral("ROS2 Bag 本地回放");
     case autoviz::datacenter::VisualizationInputSource::Remote:
         return QStringLiteral("AutoViz Server");
     case autoviz::datacenter::VisualizationInputSource::Mock:

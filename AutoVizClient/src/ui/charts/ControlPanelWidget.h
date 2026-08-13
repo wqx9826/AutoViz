@@ -24,12 +24,13 @@ public:
     explicit ControlPanelWidget(QWidget* parent = nullptr);
 
     void updateSnapshot(const autoviz::datacenter::VisualizationSnapshot& snapshot);
+    void clearHistory();
+    void setRenderingSuspended(bool suspended);
 
 private:
     void setupUi();
     void configurePlots();
     void refreshPlots();
-    void clearHistory();
     void setWindowFromCombo();
     ControlDebugData buildDebugData(const autoviz::datacenter::VisualizationSnapshot& snapshot);
 
@@ -45,7 +46,9 @@ private:
     ControlPlotBuffer m_buffer;
     ControlDebugData m_latestData;
     qint64 m_firstSampleTimestampMs = 0;
+    qint64 m_lastBufferedTimestampMs = -1;
     bool m_paused = false;
+    bool m_renderingSuspended = false;
 };
 
 }  // namespace autoviz::ui::charts

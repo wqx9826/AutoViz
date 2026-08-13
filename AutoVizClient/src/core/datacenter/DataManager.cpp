@@ -293,7 +293,11 @@ VisualizationSnapshot DataManager::getSnapshot() const
             status.timedOut = false;
         }
     } else {
-        updateTopicAges(snapshot.topicStatuses, QDateTime::currentMSecsSinceEpoch());
+        const qint64 referenceTime = snapshot.runtimeStatus.inputSource == VisualizationInputSource::Ros2Bag
+                                         && snapshot.runtimeStatus.sourceTimeMs > 0
+                                     ? snapshot.runtimeStatus.sourceTimeMs
+                                     : QDateTime::currentMSecsSinceEpoch();
+        updateTopicAges(snapshot.topicStatuses, referenceTime);
     }
     return snapshot;
 }

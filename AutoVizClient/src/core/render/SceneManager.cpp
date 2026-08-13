@@ -53,9 +53,19 @@ QPainterPath buildTrajectoryPath(const autoviz::model::Trajectory& trajectory)
         return path;
     }
 
+    // ROS bag 异常或 adapter 回归不应让一条路径占满 UI 线程。渲染只需保持路径形状，
+    // 所以对极长轨迹等间隔抽样，同时保留最后一个点；状态和终点仍使用完整模型数据。
+    constexpr int kMaxRenderedSegments = 8000;
+    const int pointCount = trajectory.points.size();
+    const int stride = qMax(1, (pointCount - 1 + kMaxRenderedSegments - 1)
+                               / kMaxRenderedSegments);
     path.moveTo(trajectory.points.first().position.x, -trajectory.points.first().position.y);
-    for (int index = 1; index < trajectory.points.size(); ++index) {
+    for (int index = stride; index < pointCount; index += stride) {
         const auto& point = trajectory.points.at(index);
+        path.lineTo(point.position.x, -point.position.y);
+    }
+    if ((pointCount - 1) % stride != 0) {
+        const auto& point = trajectory.points.constLast();
         path.lineTo(point.position.x, -point.position.y);
     }
     return path;
@@ -117,6 +127,21 @@ void SceneManager::updateScene(const autoviz::datacenter::VisualizationSnapshot&
 {
     m_snapshot = snapshot;
     updateVerticalMotionSegment(m_snapshot);
+    redraw();
+}
+
+void SceneManager::resetPlaybackSession()
+{
+    m_snapshot = autoviz::datacenter::VisualizationSnapshot{};
+    m_verticalSegment = VerticalMotionSegment{};
+    m_previousRunMode = autoviz::model::RunVisualizationMode::Unknown;
+    m_visibleContentBounds = QRectF{};
+    m_lastAutoFitTargetRegion = QRectF{};
+    m_hasVisibleContentBounds = false;
+    m_hasAutoFitTargetRegion = false;
+    if (m_view != nullptr) {
+        m_view->clearVerticalProfileFrame();
+    }
     redraw();
 }
 
@@ -354,7 +379,14 @@ void SceneManager::freezeVerticalMotionSegment()
 
 void SceneManager::updateVerticalMotionSegment(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    // Local playback has a virtual clock.  Using wall clock here made a bag recorded
+    // hours earlier immediately produce a several-hour T-Z segment and freeze it as
+    // stale.  Remote and mock sources continue to use wall time.
+    const qint64 nowMs = snapshot.runtimeStatus.inputSource
+                                  == autoviz::datacenter::VisualizationInputSource::Ros2Bag
+                              && snapshot.runtimeStatus.sourceTimeMs > 0
+                          ? snapshot.runtimeStatus.sourceTimeMs
+                          : QDateTime::currentMSecsSinceEpoch();
     const bool verticalMode = isVerticalMode(snapshot.runVisualizationMode);
     const bool emergencyStop = snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::EmergencyStop
                                || (snapshot.taskRuntimeStatus.valid && snapshot.taskRuntimeStatus.emergencyStop);
