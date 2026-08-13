@@ -16,8 +16,10 @@
 - 运动总览固定为六张卡片的 3×2 排布，连接、capability 与数据到达只更新内容，不改变位置。
 - Client 图标由 Qt resource 内嵌；外置运行时资源仅包括 `configs/vehicle_params.json` 与主题
   QSS，构建后自动复制到可执行文件目录。
-- Windows 尚未验证。需在 Windows 以同一工具链重新构建 AutoVizProto、安装 SDK，并构建
-  AutoVizClient；Linux 产物不可复用。
+- Windows 已使用 MSYS2 UCRT64 Qt6 完成 Client 构建并生成发布目录；发布包仍需在不含 Qt、
+  MSYS2 或 IDE 的目标机上完成双击启动与本地回放人工验收。
+- Linux 下的 C/S 构建、Client 运行已验收；Linux Client 的可分发打包及在干净目标环境的部署
+  尚未验证，不能以 Windows 发布流程或产物替代。
 
 ## 自动化测试
 
@@ -89,7 +91,7 @@ worker 确认延迟为 0 ms（验收上限 300 ms），随后完成 seek、继�
 通道合并，主场景限频，避免高倍率下 UI 事件队列和完整 snapshot 重绘互相放大。
 
 深色主题切换会触发 Qt5 对整棵控件树的 QSS 重抛光，且无法保证底部状态/详情/日志的局部样式一致。
-当前固定使用 main 分支验证过的浅色 QSS 基线，并移除“外观”菜单；主视图与回放浮层保留高 DPI 适配。
+当前固定使用已验收的浅色 QSS 基线，并移除“外观”菜单；主视图与回放浮层保留高 DPI 适配。
 
 播放速度浮层使用独立自绘 `PillRateSlider`，不继承 `QSlider`：六个内置档位、32 px 胶囊轨道、
 40 px 白色手柄、140 ms OutCubic 吸附动画，以及 hover/pressed 缩放均不依赖图形效果。以

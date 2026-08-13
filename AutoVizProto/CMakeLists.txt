@@ -32,7 +32,9 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # protobuf::protoc 用于生成代码；protobuf::libprotobuf 用于编译和链接。
-find_package(Protobuf REQUIRED)
+# 前缀必须由调用方或本地 third_party 显式提供，不能自动选中 MSYS2 UCRT64：
+# Client 的 Qt MinGW runtime 与该目录中的 GCC runtime 可能不同。
+find_package(Protobuf REQUIRED CONFIG)
 
 # =============================================================================
 # 2. 将 *.proto 生成 *.pb.h 和 *.pb.cc

@@ -1009,7 +1009,13 @@ void BottomStatusPanel::updateSnapshot(const autoviz::datacenter::VisualizationS
         const bool verticalVisible = snapshot.runtimeStatus.inputSource
                                          == autoviz::datacenter::VisualizationInputSource::Mock
                                      || snapshot.runtimeStatus.hasVerticalMotionCapability;
-        m_detailTabs->setTabVisible(m_detailTabs->indexOf(m_verticalDetailTab), verticalVisible);
+        const int verticalTabIndex = m_detailTabs->indexOf(m_verticalDetailTab);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+        m_detailTabs->setTabVisible(verticalTabIndex, verticalVisible);
+#else
+        // Qt 5.12 没有 setTabVisible；禁用该 tab 以保持固定详情页结构。
+        m_detailTabs->setTabEnabled(verticalTabIndex, verticalVisible);
+#endif
     }
     updateOverview(snapshot);
     updateTopicTable(snapshot);

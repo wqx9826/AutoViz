@@ -15,12 +15,15 @@ AutoVizClient/
     protobuf/       # 本地 protobuf SDK，可选
       include/
       lib/
-    Qt5/            # Qt kit 根目录或目录链接，可选
+    Qt6/            # Windows 优先使用的 Qt kit 根目录或目录链接，可选
+      include/
+      lib/
+    Qt5/            # Qt6 不可用时的兼容回退，例如 Linux
       include/
       lib/
 ```
 
-AutoVizProto 必须存在。protobuf/Qt5 若已能被工具链正常找到，可以不复制；若希望工程
+AutoVizProto 必须存在。protobuf/Qt6/Qt5 若已能被工具链正常找到，可以不复制；若希望工程
 完全使用固定依赖，则放到上述目录。
 
 ## Linux
@@ -51,7 +54,49 @@ cmake --build AutoVizClient/build -j4
 .\AutoVizProto\scripts\bootstrap_proto.ps1
 ```
 
-Qt kit 可放到 `AutoVizClient\third_party\Qt5`，或在该位置创建指向实际 Qt kit 的
+Windows 优先使用 Qt6，找不到 Qt6 时才回退 Qt5。Client 必须在 IDE 中选择与 Qt kit
+相同的 MinGW Kit；CMake 不会再自动选择 MSYS2 的 UCRT64 工具链。
+
+建议优先统一为 MSYS2 UCRT64：它已提供 protobuf、编译器和一套一致的 GCC runtime；
+只需安装 Qt6 包即可，不需要手工编译 protobuf：
+
+```powershell
+C:\msys64\usr\bin\bash.exe -lc 'pacman -S --needed mingw-w64-ucrt-x86_64-qt6-base'
+```
+
+随后在 IDE 中选择 `C:\msys64\ucrt64\bin\g++.exe`，直接 Reload CMake 即可。
+Windows Client 默认从 `C:\msys64\ucrt64` 查找 Qt6、protobuf 与插件；此时 Qt 与
+`libprotobuf.dll` 来自同一个 Kit，可以安全打包。若 MSYS2 安装在其他位置，才需要将
+`AUTOVIZ_QT_ROOT`、`AUTOVIZ_QT_PLUGINS_DIR` 和 `CMAKE_PREFIX_PATH` 指向该 Kit。
+
+若坚持使用 Qt Online Installer 的 `mingw_64` Kit，则 MSYS2 UCRT64 发行的
+`libprotobuf.dll` 不能作为 Client 运行依赖；需要改用**由该 Qt Kit 的 MinGW 构建的
+protobuf SDK**（可放到 `AutoVizClient\\third_party\\protobuf`），再用同一编译器构建
+AutoVizProto 和 Client。
+
+若采用 Qt Online Installer，Qt kit 位于 `D:\Qt6.10\6.10.0\mingw_64` 时：
+
+```powershell
+$QtRoot = 'D:\Qt6.10\6.10.0\mingw_64'
+$QtCompiler = 'D:\Qt6.10\Tools\mingw1310_64\bin\g++.exe'
+.\AutoVizProto\scripts\bootstrap_proto.ps1 `
+  -CxxCompiler $QtCompiler `
+  -CMakePrefixPath E:\SDK\protobuf-qt-mingw
+cmake -S AutoVizClient -B AutoVizClient\build `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_CXX_COMPILER=$QtCompiler `
+  "-DCMAKE_PREFIX_PATH=$QtRoot;E:\SDK\protobuf-qt-mingw"
+cmake --build AutoVizClient\build --parallel
+```
+
+### CLion
+
+CLion/Qt Creator 都可以使用；选择 Qt 对应的 MinGW Kit 后，把 `CMAKE_PREFIX_PATH` 设为
+`<QtRoot>;<protobuf-sdk-root>`，并把 `AUTOVIZ_QT_ROOT` 设为 `<QtRoot>`。Linux 固定使用
+Qt5。切换 Kit 后，必须删除 `AutoVizProto/build` 和 `AutoVizClient/build`，再用新 Kit
+重新配置；一个 Client 构建目录内不可混用工具链。
+
+Qt kit 可放到 `AutoVizClient\third_party\Qt6`（或 Qt5 回退目录），或在对应位置创建指向实际 Qt kit 的
 目录链接。之后直接构建：
 
 ```powershell
@@ -84,7 +129,7 @@ $Bags = Get-ChildItem D:\data\rosbag -Directory -Filter "rosbag2_*" |
 - MSVC Runtime、Debug/Release 也应一致。
 - 不要复制 Linux 的构建产物；Windows Proto 使用 `AutoVizProto\build`，Client 使用
   `AutoVizClient\build`。Client 构建后会自动把 `configs/` 复制到 `AutoViz.exe` 旁。
-  其中含车辆尺寸 JSON 和浅色主题 QSS；当前固定使用经 main 分支验证的浅色 UI 基线，暂不提供
+  其中含车辆尺寸 JSON 和浅色主题 QSS；当前固定使用已验收的浅色 UI 基线，暂不提供
   深色切换，避免 Qt5 全局 QSS 换肤造成界面卡顿或局部控件色彩不一致；窗口图标来自已内嵌的
   `assets/autoviz_icon.png`，无需复制外置图标。
 
@@ -147,5 +192,81 @@ cmake --build AutoVizClient/build -j4
   /home/wqx/LZBK/data/rosbag/rosbag2_2026_08_12-03_00_17
 ```
 
-Windows 部署必须包含 Qt5 Sql 模块及 `plugins/sqldrivers/qsqlite.dll`；无需 ROS2、WSL 或
-AutoVizServer。
+Windows 开发环境的 `PATH` 只需包含所选 Qt6/Qt5 kit 的 `bin` 目录；无需 ROS2、WSL 或
+AutoVizServer。该目录必须与 Qt、protobuf 和编译器属于同一个 Kit，不能混用。
+
+## Windows 打包
+
+Windows 发布版使用 MSYS2 UCRT64 的 Qt6、protobuf 和 MinGW runtime。先确保已安装：
+
+```powershell
+C:\msys64\usr\bin\bash.exe -lc 'pacman -S --needed mingw-w64-ucrt-x86_64-qt6-base mingw-w64-ucrt-x86_64-protobuf'
+```
+
+首次打包或切换过 IDE Kit 时，在仓库根目录执行以下完整流程。`$PackageRoot` 可以改成
+任意你希望存放发布包的**空目录**，例如移动硬盘、交付目录或版本归档目录；不会写到工程根
+目录，也不要求发布目录位于仓库中。
+
+```powershell
+$UcrtRoot = 'C:\msys64\ucrt64'
+$env:PATH = "$UcrtRoot\bin;$env:PATH"
+
+# 1. 用同一 Kit 构建并安装协议 SDK 到 Client third_party。
+.\AutoVizProto\scripts\bootstrap_proto.ps1 `
+  -CxxCompiler "$UcrtRoot\bin\g++.exe" `
+  -CMakePrefixPath $UcrtRoot
+
+# 2. 配置并构建 Client。日常开发可由 CLion / Qt Creator 代替这一步。
+cmake -S AutoVizClient -B AutoVizClient\build -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_CXX_COMPILER="$UcrtRoot\bin\g++.exe" `
+  -DCMAKE_PREFIX_PATH=$UcrtRoot `
+  -DAUTOVIZ_QT_ROOT=$UcrtRoot `
+  -DAUTOVIZ_QT_PLUGINS_DIR="$UcrtRoot\share\qt6\plugins"
+cmake --build AutoVizClient\build --parallel
+
+# 3. 将完整、可双击运行的发布包安装到你指定的位置。
+$PackageRoot = 'E:\Release\AutoViz-UCRT64'
+cmake --install AutoVizClient\build --prefix $PackageRoot
+
+# 4. 验证发布包。无需 Qt、MSYS2 或 IDE 的 PATH。
+& "$PackageRoot\bin\AutoViz.exe"
+```
+
+如果 Client 已由 IDE 以 UCRT64 Kit 成功构建，只需要重复第 3 步即可重新打包到另一个目录：
+
+```powershell
+$PackageRoot = 'F:\交付\AutoViz-2026-08-14'
+cmake --install AutoVizClient\build --prefix $PackageRoot
+```
+
+发布目录结构如下；交付或复制时应整体保留 `bin/`，不要只拿走 `AutoViz.exe`：
+
+```text
+<PackageRoot>/
+  bin/
+    AutoViz.exe
+    qt.conf                    # 让双击时定位包内 Qt 插件
+    *.dll                      # Qt、protobuf、UCRT64 runtime 及其传递依赖
+    configs/
+    plugins/
+      platforms/qwindows.dll
+      sqldrivers/qsqlite.dll
+    log/
+      autoviz-YYYYMMDD.log     # 程序启动、连接、告警和错误日志
+```
+
+程序以 Windows GUI 子系统发布，资源管理器双击不会显示控制台。运行日志优先写入
+`<PackageRoot>\bin\log`；只有发布目录不可写时，才回退到用户本地应用数据目录。
+`cmake --install` 不会删除旧文件，若要制作干净的新版本，请把 `$PackageRoot` 指向新建的
+空目录。Windows 可执行文件使用 `assets/autoviz_icon.ico` 作为资源管理器图标；Qt 窗口图标
+继续使用 `resources.qrc` 中的 PNG 资源。
+
+## Linux 打包状态
+
+Linux 下的 AutoVizProto、Client 和 Server 构建，以及 Client 运行链路已经验收；但 Client
+的可分发打包和在干净 Linux 目标环境中的部署尚未验证。当前不要把 Windows 的 UCRT64 发布
+目录用于 Linux，也不要将任何本机 `package/`、`build/` 或第三方二进制提交到 Git。
+
+后续需根据目标发行版和 Qt5/protobuf 的部署策略确定 Linux 发布流程，并至少验证应用启动、
+Qt SQLite 插件、本地 bag 回放和 TCP 断线重连。

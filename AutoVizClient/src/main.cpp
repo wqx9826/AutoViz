@@ -4,6 +4,7 @@
 
 #include "app/MainWindow.h"
 #include "ui/theme/UiScaleManager.h"
+#include "utils/Logger.h"
 
 int main(int argc, char* argv[])
 {
@@ -13,6 +14,9 @@ int main(int argc, char* argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName("AutoViz");
     QApplication::setOrganizationName("AutoViz");
+    Logger::instance().initializePersistentLog();
+    Logger::instance().info(
+        QStringLiteral("AutoViz Client 启动，日志文件：%1").arg(Logger::instance().logFilePath()));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/assets/autoviz_icon.png")));
     auto& scale = autoviz::ui::theme::UiScaleManager::instance();
     scale.initialize();

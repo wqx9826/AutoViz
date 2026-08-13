@@ -8,7 +8,7 @@ AutoViz 是 C++/Qt 规划控制可视化调试工具。当前 Adapter 对接 rob
 | 工程 | 依赖 | 职责 |
 | --- | --- | --- |
 | AutoVizProto | C++17、protobuf | v2 schema、FrameCodec、协议 GTest、SDK |
-| AutoVizClient | C++17、Qt5、AutoVizProto | TCP、内部模型、DataManager、XY/T-Z/UI |
+| AutoVizClient | C++17、Qt6（Windows 优先）/ Qt5（Linux 回退）、AutoVizProto | TCP、内部模型、DataManager、XY/T-Z/UI |
 | AutoVizServer | ROS2 Humble、custom_msgs、Boost.Asio、AutoVizProto | robot_ws Adapter、缓存、完整快照 Server |
 
 协议为 2.0，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
@@ -33,7 +33,7 @@ UI 根据 capability 启用垂向、水下和平台诊断内容。公共 UI 只�
 命令的 `enabled` 仅表示执行状态，不会丢弃未使能或切换阶段的回放曲线。
 
 Client 菜单中，“主视图显示管理”属于视图操作；“文件”提供已部署 `configs/` 目录入口
-（车辆尺寸 JSON 与浅色主题 QSS）以及退出；当前固定使用 main 分支的浅色 UI 基线，暂不开放
+（车辆尺寸 JSON 与浅色主题 QSS）以及退出；当前固定使用已验收的浅色 UI 基线，暂不开放
 深色外观切换，避免 Qt5 全局 QSS 换肤造成局部颜色不一致。连接地址和主视图可见项由 Qt 用户设置保存，不作为
 项目配置文件编辑入口。
 
@@ -62,6 +62,8 @@ Client 图标保存在 `AutoVizClient/assets/autoviz_icon.png`，是透明 RGBA 
 - feature 仓库根目录不创建 `build/`，不在根目录汇总编译子工程。
 - Linux AutoVizProto 仅用 `AutoVizProto/scripts/bootstrap_proto.sh`，构建目录固定为
   `AutoVizProto/build`；Windows 使用 `bootstrap_proto.ps1`。
+- Windows 脚本只将 Windows SDK 安装到 `AutoVizClient/third_party/AutoVizProto`；ROS2
+  Server 的 Linux SDK 只由 Linux 脚本安装到 `AutoVizServer/third_party/AutoVizProto`。
 - AutoVizClient 构建目录固定为 `AutoVizClient/build`。
 - AutoVizServer 在 `AutoVizServer` 目录使用 `colcon build`，产物位于 Server 自己的
   `build/`、`install/` 和 `log/`。

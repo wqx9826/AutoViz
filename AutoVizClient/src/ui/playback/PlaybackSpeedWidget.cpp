@@ -158,7 +158,13 @@ void PillRateSlider::mouseMoveEvent(QMouseEvent* event)
         return;
     }
     const qreal handleInset = (width() - scaled(29)) / 2.0;
-    const qreal position = qBound<qreal>(0.0, (event->localPos().x() - handleInset)
+    const qreal position = qBound<qreal>(0.0, (
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                                                  event->position().x()
+#else
+                                                  event->localPos().x()
+#endif
+                                                  - handleInset)
                                                   / qMax<qreal>(1.0, width() - scaled(29)), 1.0);
     setHandlePosition(position);
     const int nextIndex = indexForPosition(position);
@@ -178,13 +184,23 @@ void PillRateSlider::mouseReleaseEvent(QMouseEvent* event)
     m_pressed = false;
     setVisualScale(underMouse() ? 1.06 : 1.0);
     const qreal handleInset = (width() - scaled(29)) / 2.0;
-    const qreal position = qBound<qreal>(0.0, (event->localPos().x() - handleInset)
+    const qreal position = qBound<qreal>(0.0, (
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                                                  event->position().x()
+#else
+                                                  event->localPos().x()
+#endif
+                                                  - handleInset)
                                                   / qMax<qreal>(1.0, width() - scaled(29)), 1.0);
     snapToIndex(indexForPosition(position), true);
     event->accept();
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+void PillRateSlider::enterEvent(QEnterEvent* event)
+#else
 void PillRateSlider::enterEvent(QEvent* event)
+#endif
 {
     if (!m_pressed) {
         setVisualScale(1.06);

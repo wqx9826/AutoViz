@@ -97,7 +97,7 @@ QFont UiScaleManager::font(int pointSize, int weight) const
 {
     QFont result;
     result.setPointSize(pointSize);
-    result.setWeight(weight);
+    result.setWeight(static_cast<QFont::Weight>(weight));
     return result;
 }
 

@@ -282,6 +282,18 @@ void MainWindow::connectActions()
             m_remoteSource->disconnectFromServer();
         }
     });
+    connect(m_visualizationView, &VisualizationView::manualNavigationStarted, this, [this]() {
+        if (m_sceneManager == nullptr || !m_sceneManager->vehicleCenteredMode()) {
+            return;
+        }
+        // 用户主动平移或缩放意味着需要固定当前观察位置；否则回放的下一帧会再次把
+        // 画布拉回车辆。重新开启“车辆居中显示”即可恢复跟车。
+        m_sceneManager->setVehicleCenteredMode(false);
+        if (m_mainViewDisplayConfigDialog != nullptr) {
+            m_mainViewDisplayConfigDialog->setVehicleCenteredMode(false);
+        }
+        saveMainViewDisplaySettings();
+    });
     connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
     connect(m_resetViewAction, &QAction::triggered, this, [this]() {
         m_sceneManager->refitVisibleData();
@@ -354,7 +366,9 @@ QString MainWindow::loadThemeStyleSheet(autoviz::ui::theme::ThemeMode mode) cons
             continue;
         }
         QTextStream stream(&file);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
         stream.setCodec("UTF-8");
+#endif
         return stream.readAll();
     }
     return autoviz::ui::theme::UiThemeManager::instance().styleSheet();
@@ -410,11 +424,11 @@ void MainWindow::updateMainViewMode(const autoviz::datacenter::VisualizationSnap
     }
 
     if (m_requestedMainViewMode != autoviz::render::MainViewMode::Auto) {
-        m_effectiveMainViewMode =
-            m_requestedMainViewMode == autoviz::render::MainViewMode::VerticalProfile
-                    && !verticalAvailable
-                ? autoviz::render::MainViewMode::TopDownXY
-                : m_requestedMainViewMode;
+        // A manual selection must remain stable while snapshots refresh.  A source
+        // may not have announced its capabilities yet (for example, immediately
+        // after opening the client), but the user can still inspect the T-Z view.
+        // Capability-based fallback applies only to automatic mode below.
+        m_effectiveMainViewMode = m_requestedMainViewMode;
         m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
         return;
     }

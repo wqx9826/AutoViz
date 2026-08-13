@@ -1,6 +1,6 @@
 # AutoViz
 
-AutoViz 的 `feature/client-server` 包含三个工程：
+AutoViz 当前主线包含三个工程：
 
 ```text
 AutoVizProto   唯一协议源码，构建后作为第三方 SDK 使用
@@ -12,7 +12,8 @@ AutoVizClient 还可在不启动 Server、ROS2、WSL 或虚拟机的情况下，
 录制的 ROS2 Humble `sqlite3` bag。菜单栏选择“回放数据”，加载包含 `metadata.yaml` 和
 `.db3` 分片的目录即可进行验证、播放、暂停、跳转及 0.1×～8× 调速。
 
-`main` 仍是现场稳定的 ROS2 单体版本，本分支不会修改 main。
+`main` 是当前 C/S v2 主线。此前现场稳定的 ROS2/Qt 单体版本保留在
+`legacy/ros2-qt-monolith` 分支，供现场回溯与对照，不再作为后续开发基线。
 
 当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.0**：Server 最多 20 Hz 发送
 完整当前快照，不再使用订阅、ChannelUpdate 或 UPSERT/CLEAR。八条 robot_ws 输入均由
@@ -105,7 +106,7 @@ cmake -S AutoVizClient -B AutoVizClient\build
 cmake --build AutoVizClient\build --config Release
 ```
 
-脚本在 `AutoVizProto\build` 构建，然后安装到：
+脚本在 `AutoVizProto\build` 构建，然后仅安装到：
 
 ```text
 AutoVizClient\third_party\AutoVizProto
@@ -115,12 +116,14 @@ Client CMake 还会自动搜索：
 
 ```text
 AutoVizClient\third_party\protobuf
+AutoVizClient\third_party\Qt6
 AutoVizClient\third_party\Qt5
 ```
 
 本地 rosbag 回放使用 Qt SQL 的 SQLite 驱动。部署时除 Qt Widgets/Network 外，还需随
 应用携带 `plugins/sqldrivers/qsqlite.dll` 及其 SQLite 运行时依赖；不需要安装 ROS2。
 
+Windows Client 优先使用 Qt6；未找到 Qt6 时（例如当前 Linux 开发环境）自动回退 Qt5。
 因此可把 protobuf SDK、Qt kit（或指向 Qt kit 的目录链接）放到固定位置，不依赖
 系统环境变量。完整命令见 `AutoVizClient/README.md`。
 

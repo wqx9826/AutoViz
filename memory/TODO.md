@@ -14,11 +14,11 @@
 
 ## 后续
 
-- [ ] Windows 使用 `AutoVizProto/scripts/bootstrap_proto.ps1` 构建 AutoVizProto，再于
-  `AutoVizClient/build` 构建 Client，并人工验收图标、配置目录入口、qsqlite 插件、
-  原生 bag 回放、固定总览布局和 TCP 连接/重连。
+- [ ] 在不含 Qt、MSYS2 或 IDE 的 Windows 目标机上，人工验收发布包的图标、配置目录入口、
+  qsqlite 插件、原生 bag 回放、固定总览布局和 TCP 连接/重连。
+- [ ] 在 Linux 重新执行 AutoVizProto、Client 与 Server 构建及 Client 运行验收；完成 Linux
+  Client 可分发打包方案并在干净目标环境验证运行、qsqlite、本地 bag 回放及 TCP 连接/重连。
 - [ ] 增加 Client converter 的自动化字段级测试。
 - [ ] 用现场高带宽轨迹/障碍物继续压测慢 Client。
 - [ ] 按需求实现 Simulation、Log、ROS1 或 DDS Adapter。
-- [ ] C/S 人工验收后再决定合入 main 和旧单体版本保留策略。
 - [ ] 离开可信局域网前单独设计认证、TLS 和权限。

@@ -67,7 +67,11 @@ RemoteVisualizationSource::RemoteVisualizationSource(datacenter::DataManager* da
         scheduleReconnect();
     });
     connect(m_socket,
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
             qOverload<QAbstractSocket::SocketError>(&QTcpSocket::errorOccurred),
+#else
+            qOverload<QAbstractSocket::SocketError>(&QAbstractSocket::error),
+#endif
             this,
             [this](QAbstractSocket::SocketError) {
                 setState(tr("连接错误：%1").arg(m_socket->errorString()), false);

@@ -53,9 +53,23 @@ target_link_libraries(app PRIVATE AutoVizProto::AutoVizProto)
 .\AutoVizProto\scripts\bootstrap_proto.ps1
 ```
 
-脚本使用 `AutoVizProto\build` 和 Release 配置，并安装 Client/Server 两份 SDK。
+脚本使用 `AutoVizProto\build` 和 Release 配置，并仅安装 Windows Client SDK 到
+`AutoVizClient\third_party\AutoVizProto`。ROS2 Server 只在 Linux 上构建；其 Linux SDK
+由 `bootstrap_proto.sh` 安装到 Server 的 `third_party` 目录。
+Windows 默认使用 Ninja 生成器，确保选择当前 Kit/PATH 中的 MinGW，而非 CMake 自动回退到 Visual Studio。
 需要其他构建类型时可传入，例如
 `.\AutoVizProto\scripts\bootstrap_proto.ps1 -Configuration Debug`。
+Windows Client 的 protobuf SDK 必须使用与 Qt Client 相同的 MinGW runtime 构建；脚本不会
+自动选择 `C:\msys64\ucrt64`。若 SDK 位于其他位置，可显式指定它及 Qt Kit 的编译器：
+
+```powershell
+.\AutoVizProto\scripts\bootstrap_proto.ps1 `
+  -CMakePrefixPath E:\SDK\protobuf-qt-mingw `
+  -CxxCompiler D:\Qt6.10\Tools\mingw1310_64\bin\g++.exe
+```
+
+`CMakePrefixPath` 指向 protobuf 的安装前缀；也可将同一 SDK 放到
+`AutoVizClient\third_party\protobuf`，脚本会自动使用它。
 AutoVizProto 和 Client 必须使用兼容的编译器、架构与 protobuf。若 protobuf 放在
 `AutoVizClient\third_party\protobuf`，脚本会自动将其传给 CMake，不设置系统环境变量。
 

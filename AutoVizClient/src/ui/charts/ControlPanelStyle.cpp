@@ -35,7 +35,7 @@ QFont font(int pointSize, int weight)
 {
     QFont result = autoviz::ui::theme::UiScaleManager::instance().font(pointSize, weight);
     result.setFamily(fontFamily());
-    result.setWeight(weight);
+    result.setWeight(static_cast<QFont::Weight>(weight));
     return result;
 }
 

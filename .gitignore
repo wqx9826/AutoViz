@@ -3,6 +3,7 @@ build/
 install/
 log/
 runtime/
+AutoVizClient/package/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

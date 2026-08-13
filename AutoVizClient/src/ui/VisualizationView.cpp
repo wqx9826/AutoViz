@@ -267,6 +267,7 @@ void VisualizationView::resizeEvent(QResizeEvent* event)
 void VisualizationView::wheelEvent(QWheelEvent* event)
 {
     m_autoFitEnabled = false;
+    emit manualNavigationStarted();
     const QPoint angleDelta = event->angleDelta();
     const QPoint pixelDelta = event->pixelDelta();
     const bool zoomIn = angleDelta.y() > 0 || pixelDelta.y() > 0;
@@ -286,7 +287,11 @@ void VisualizationView::wheelEvent(QWheelEvent* event)
 
     // SceneManager 会持续刷新 sceneRect；不要依赖 QGraphicsView 的隐式锚点，
     // 显式保持鼠标下的场景坐标，避免缩放后跳回原点或视口中心。
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     const QPoint mousePosition = event->position().toPoint();
+#else
+    const QPoint mousePosition = event->pos();
+#endif
     const QPointF scenePointUnderMouse = mapToScene(mousePosition);
     setTransformationAnchor(QGraphicsView::AnchorViewCenter);
     m_zoomFactor = nextZoom;
@@ -301,6 +306,7 @@ void VisualizationView::mousePressEvent(QMouseEvent* event)
 {
     if (isPanButton(event->button())) {
         m_autoFitEnabled = false;
+        emit manualNavigationStarted();
         m_isPanning = true;
         m_lastMousePosition = event->pos();
         setCursor(Qt::ClosedHandCursor);

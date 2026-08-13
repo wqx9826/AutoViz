@@ -63,6 +63,7 @@ public:
 
 signals:
     void playbackRateChanged(double rate);
+    void manualNavigationStarted();
 
 protected:
     void drawBackground(QPainter* painter, const QRectF& rect) override;

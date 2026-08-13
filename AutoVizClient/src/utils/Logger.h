@@ -13,6 +13,8 @@ public:
 
     static Logger& instance();
 
+    void initializePersistentLog();
+    QString logFilePath() const;
     void setLogHandler(LogHandler handler);
     void clearLogHandler();
 
@@ -26,4 +28,5 @@ private:
     void dispatch(const QString& level, const QString& message) const;
 
     LogHandler m_handler;
+    QString m_logFilePath;
 };

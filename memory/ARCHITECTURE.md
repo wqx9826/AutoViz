@@ -78,5 +78,6 @@ Client 的 5 秒 watchdog 只处理连接整体失活。
 
 ## 分支边界
 
-`main` 是现场稳定的 ROS2/Qt 单体版；v2 重构只在 `feature/client-server` 验收。main、
-robot_ws、Tcptest 和 rosbag 都是只读参考，不由本工程构建或 launch 修改。
+`main` 是当前 C/S v2 开发主线；此前现场稳定的 ROS2/Qt 单体版保留在
+`legacy/ros2-qt-monolith` 分支。robot_ws、Tcptest 和 rosbag 都是只读参考，不由本工程
+构建或 launch 修改。
