@@ -3,6 +3,18 @@
 日期：2026-08-13。所有写入仅发生在 `AutoViz-feature`；robot_ws、Tcptest、main 和 rosbag
 仅作读取/运行输入。
 
+## 当前提交前状态
+
+- `AutoVizProto/scripts/bootstrap_proto.sh` 是唯一协议 SDK 引导脚本：从脚本位置解析仓库，
+  构建并运行协议测试后，将 SDK 安装到 Client 和 Server 各自的 `third_party`。
+- Client 在 Linux 已重新 CMake 配置和构建通过。控制曲线保留未使能控制命令，支持遥控/自主
+  切换和 rosbag 回放观察；`enabled` 只作为状态展示。
+- 运动总览固定为六张卡片的 3×2 排布，连接、capability 与数据到达只更新内容，不改变位置。
+- Client 图标由 Qt resource 内嵌；外置运行时资源仅包括 `configs/vehicle_params.json` 与主题
+  QSS，构建后自动复制到可执行文件目录。
+- Windows 尚未验证。需在 Windows 以同一工具链重新构建 AutoVizProto、安装 SDK，并构建
+  AutoVizClient；Linux 产物不可复用。
+
 ## 自动化测试
 
 - AutoVizProto：8/8 通过。覆盖二进制零字节、拆包、粘包、多帧、非法/超长长度、损坏

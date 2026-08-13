@@ -24,6 +24,7 @@ find_package(AutoVizProto CONFIG REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Network Widgets)
 
 set(AUTOVIZ_CLIENT_SOURCES
+    resources.qrc
     src/main.cpp
     src/app/MainWindow.h
     src/app/MainWindow.cpp

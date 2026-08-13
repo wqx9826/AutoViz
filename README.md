@@ -49,7 +49,7 @@ cmake 配置 -> cmake --build 编译 -> cmake --install 安装 SDK
 在仓库根目录：
 
 ```bash
-./scripts/bootstrap_proto.sh
+./AutoVizProto/scripts/bootstrap_proto.sh
 ```
 
 该脚本会构建并测试一次协议库，再把 SDK 分别安装到 Client 和 Server。若只想手工为
@@ -105,6 +105,10 @@ AutoVizClient\third_party\Qt5
 
 因此可把 protobuf SDK、Qt kit（或指向 Qt kit 的目录链接）放到固定位置，不依赖
 系统环境变量。完整命令见 `AutoVizClient/README.md`。
+
+切换到 Windows 前请只复制源码和对应 Windows SDK；不要复制 Linux 的 `build/` 或 Linux
+静态库。Client 的应用图标已内嵌在 `AutoVizClient/assets/autoviz_icon.png`，主题和车辆尺寸
+配置由构建过程复制到可执行文件旁的 `configs/`。
 
 ## 协议命名
 

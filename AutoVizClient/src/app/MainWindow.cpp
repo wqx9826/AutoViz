@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QMenu>
@@ -18,6 +19,7 @@
 #include <QTextStream>
 #include <QStatusBar>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -199,7 +201,7 @@ void MainWindow::setupMainLayout()
 void MainWindow::setupMenuBar()
 {
     QMenu* fileMenu = menuBar()->addMenu(tr("文件"));
-    m_mainViewDisplayManageAction = fileMenu->addAction(tr("主视图显示管理"));
+    m_openConfigurationDirectoryAction = fileMenu->addAction(tr("打开配置目录"));
     fileMenu->addSeparator();
     m_exitAction = fileMenu->addAction(tr("退出"));
 
@@ -211,6 +213,8 @@ void MainWindow::setupMenuBar()
     m_fitVisibleDataAction->setShortcut(QKeySequence(Qt::Key_F));
     m_clearHistoryTrailAction = m_viewMenu->addAction(tr("清空历史轨迹"));
     m_restoreLayoutAction = m_viewMenu->addAction(tr("恢复默认布局"));
+    m_viewMenu->addSeparator();
+    m_mainViewDisplayManageAction = m_viewMenu->addAction(tr("主视图显示管理..."));
     setupMainViewModeMenu();
     setupAppearanceMenu();
 
@@ -284,6 +288,10 @@ void MainWindow::setupStatusBar()
 void MainWindow::connectActions()
 {
     connect(m_mainViewDisplayManageAction, &QAction::triggered, this, &MainWindow::openMainViewDisplayConfigDialog);
+    connect(m_openConfigurationDirectoryAction,
+            &QAction::triggered,
+            this,
+            &MainWindow::openConfigurationDirectory);
     connect(m_connectServerAction, &QAction::triggered, this, &MainWindow::openConnectionDialog);
     connect(m_disconnectServerAction, &QAction::triggered, this, [this]() {
         if (m_remoteSource != nullptr) {
@@ -536,6 +544,22 @@ void MainWindow::openConnectionDialog()
     m_remoteSource->connectToServer(m_connectionDialog->host(),
                                     m_connectionDialog->port(),
                                     m_connectionDialog->autoConnect());
+}
+
+void MainWindow::openConfigurationDirectory()
+{
+    const QString deployedDirectory =
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("configs"));
+    const QString directory = QDir(deployedDirectory).exists()
+                                  ? deployedDirectory
+                                  : QDir::current().filePath(QStringLiteral("configs"));
+    if (!QDir(directory).exists()) {
+        statusBar()->showMessage(tr("未找到 Client 配置目录"), 3000);
+        return;
+    }
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
+        statusBar()->showMessage(tr("无法打开配置目录：%1").arg(directory), 3000);
+    }
 }
 
 void MainWindow::openMainViewDisplayConfigDialog()

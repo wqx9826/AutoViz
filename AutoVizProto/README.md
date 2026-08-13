@@ -44,7 +44,7 @@ cmake --install build --prefix /目标/third_party/AutoVizProto
 
 不要直接执行不带安装前缀的 `make install`。CMake 默认前缀是 `/usr/local`，普通用户
 没有写权限；AutoViz 应安装到两个消费工程自己的 `third_party/AutoVizProto`，无需 sudo。
-在完整仓库中可直接运行 `./scripts/bootstrap_proto.sh` 一次完成构建、测试和两份安装。
+在完整仓库中可直接运行 `./AutoVizProto/scripts/bootstrap_proto.sh` 一次完成构建、测试和两份安装。
 
 测试使用 GTest，直接运行，不启用 CTest。
 

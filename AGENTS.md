@@ -75,8 +75,8 @@ robot_ws 当前输入：
   `autoviz.protocol.v1` 或 `autoviz::protocol::v1`。
 - schema 使用 proto2 optional，禁止 required。
 - framing 固定为 4 字节大端 payload 长度 + protobuf Envelope，最大 16 MiB。
-- 新连接/重连发送全量 snapshot，持续数据使用 channel update。
-- 空数据必须用 `CLEAR`；断线和 Server session 变化必须清空旧数据。
+- v2 新连接/重连发送全量 snapshot；不使用 SubscribeRequest、ChannelUpdate、UPSERT 或 CLEAR。
+- 快照中 optional 字段缺失代表当前无数据；断线和 Server session 变化必须清空旧数据。
 - 已用 field number 不复用；不兼容语义/单位变化提升握手中的 protocol major。
 - 字段必须来源无关，不镜像 custom_msgs，不把 ROS 字段路径作为 API。
 
@@ -101,14 +101,7 @@ robot_ws 当前输入：
 先构建安装 AutoVizProto，再分别构建 Client 和 Server：
 
 ```bash
-cmake -S AutoVizProto -B build/proto \
-  -DAUTOVIZ_PROTO_BUILD_TESTS=ON
-cmake --build build/proto -j4
-./build/proto/autoviz_proto_tests
-cmake --install build/proto \
-  --prefix "$PWD/AutoVizClient/third_party/AutoVizProto"
-cmake --install build/proto \
-  --prefix "$PWD/AutoVizServer/third_party/AutoVizProto"
+./AutoVizProto/scripts/bootstrap_proto.sh
 
 cmake -S AutoVizClient -B build/client
 cmake --build build/client -j4
@@ -118,7 +111,7 @@ Server 构建须 source ROS2 和 robot_ws；默认从
 `AutoVizServer/third_party/AutoVizProto` 查找协议 SDK。Client 不使用 CTest；协议
 GTest 归 AutoVizProto。
 
-协议或网络变更至少验证：拆包/粘包、超长帧、握手、全量快照、增量、CLEAR、断线重连
+协议或网络变更至少验证：拆包/粘包、超长帧、握手、全量快照、字段缺失清空、断线重连
 和 session 变化。ROS 映射变更需要编译 Server。
 
 ## 文档规则

@@ -13,7 +13,8 @@
 
 ## 后续
 
-- [ ] Windows 构建 AutoVizProto 与 AutoVizClient。
+- [ ] Windows 构建 AutoVizProto 与 AutoVizClient，并人工验收图标、配置目录入口、固定总览布局、
+  控制曲线回放和 TCP 连接/重连。
 - [ ] 增加 Client converter 的自动化字段级测试。
 - [ ] 用现场高带宽轨迹/障碍物继续压测慢 Client。
 - [ ] 按需求实现 Simulation、Log、ROS1 或 DDS Adapter。

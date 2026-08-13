@@ -73,6 +73,9 @@ cmake --build build\client --config Release
 - Windows 不能使用 Linux 生成的 `.a`，必须使用对应工具链的 `.lib`。
 - AutoVizProto、protobuf 和 Client 应使用相同架构（例如全部 x64）。
 - MSVC Runtime、Debug/Release 也应一致。
+- 不要复制 Linux 的 `build/`；Client 构建后会自动把 `configs/` 复制到 `AutoViz.exe` 旁。
+  其中含车辆尺寸 JSON 和浅/深主题 QSS；窗口图标来自已内嵌的
+  `assets/autoviz_icon.png`，无需复制外置图标。
 
 ## 数据流与边界
 
@@ -98,3 +101,10 @@ Client 的业务状态按内部 `VisualizationChannel`/capability 匹配；ROS t
 轨迹、障碍物和控制曲线；只有 Server 声明垂向、水下或平台诊断 capability 时，相关视图
 和状态区域才启用。所有 protobuf 字段先经 `ProtocolModelConverter` 转为内部模型，
 UI/SceneManager 不直接读取 protobuf。
+
+## 当前 Client UI 行为
+
+- 运动总览固定为六张状态卡片的 3×2 布局，连接状态和 capability 只更新卡片内容，不改变位置。
+- 控制曲线保留实际收到的未使能控制命令，便于观察 rosbag 回放和遥控/自主切换；`enabled`
+  仍在状态区表达执行状态。
+- “主视图显示管理”位于“视图”菜单；“文件”菜单可打开运行时 `configs/` 目录。

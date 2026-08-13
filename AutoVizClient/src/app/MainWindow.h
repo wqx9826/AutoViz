@@ -61,6 +61,7 @@ private:
     void initializeRemoteDataSource();
     void openConnectionDialog();
     void openMainViewDisplayConfigDialog();
+    void openConfigurationDirectory();
     void updateMainViewOverlay(const autoviz::datacenter::VisualizationSnapshot& snapshot);
     void updateMainViewDisplayDialog(const autoviz::datacenter::VisualizationSnapshot& snapshot);
     void loadMainViewDisplaySettings();
@@ -86,6 +87,7 @@ private:
     QActionGroup* m_mainViewModeActionGroup = nullptr;
 
     QAction* m_mainViewDisplayManageAction = nullptr;
+    QAction* m_openConfigurationDirectoryAction = nullptr;
     QAction* m_connectServerAction = nullptr;
     QAction* m_disconnectServerAction = nullptr;
     QAction* m_exitAction = nullptr;

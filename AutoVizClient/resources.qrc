@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file>assets/autoviz_icon.png</file>
+    </qresource>
+</RCC>

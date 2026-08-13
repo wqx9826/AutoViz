@@ -78,7 +78,7 @@ robot_ws launch。
 先从仓库根目录安装协议 SDK，再构建 Server：
 
 ```bash
-./scripts/bootstrap_proto.sh
+./AutoVizProto/scripts/bootstrap_proto.sh
 
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash

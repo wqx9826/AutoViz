@@ -271,6 +271,8 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
 
     const auto& status = snapshot.runtimeStatus;
     const auto& command = snapshot.controlCmd;
+    // 回放曲线展示所有实际收到的控制命令；是否已使能只影响状态提示，
+    // 不能把未使能阶段误判为“没有控制数据”。
     const bool hasControl = status.hasControlCmdData && command.mode != autoviz::model::ControlMode::Unknown;
     const bool hasLocation = status.hasVehicleLocationData;
     const bool hasChassis = status.hasVehicleChassisData;

@@ -1003,19 +1003,10 @@ void BottomStatusPanel::updateSnapshot(const autoviz::datacenter::VisualizationS
         return;
     }
     m_lastStatusRefreshMs = nowMs;
-    const bool verticalVisible = snapshot.runtimeStatus.inputSource
-                                     == autoviz::datacenter::VisualizationInputSource::Mock
-                                 || snapshot.runtimeStatus.hasVerticalMotionCapability;
-    if (m_underwaterOverviewGroup != nullptr) {
-        m_underwaterOverviewGroup->setVisible(verticalVisible);
-    }
-    if (m_platformOverviewGroup != nullptr) {
-        m_platformOverviewGroup->setVisible(
-            snapshot.runtimeStatus.inputSource
-                == autoviz::datacenter::VisualizationInputSource::Mock
-            || snapshot.runtimeStatus.hasPlatformDiagnosticsCapability);
-    }
     if (m_detailTabs != nullptr && m_verticalDetailTab != nullptr) {
+        const bool verticalVisible = snapshot.runtimeStatus.inputSource
+                                         == autoviz::datacenter::VisualizationInputSource::Mock
+                                     || snapshot.runtimeStatus.hasVerticalMotionCapability;
         m_detailTabs->setTabVisible(m_detailTabs->indexOf(m_verticalDetailTab), verticalVisible);
     }
     updateOverview(snapshot);
@@ -1098,9 +1089,7 @@ void BottomStatusPanel::setupOverviewTab()
                                            {QStringLiteral("vertical.height"), tr("高度（m，当前/目标）")},
                                            {QStringLiteral("vertical.tank_level"), tr("水箱液位")},
                                            {QStringLiteral("vertical.tank_state"), tr("水箱状态")}});
-    layout->addWidget(m_underwaterOverviewGroup,
-                      1,
-                      0);
+    layout->addWidget(m_underwaterOverviewGroup, 1, 0);
     layout->addWidget(createOverviewGroup(tab,
                                           tr("路径与感知"),
                                           {{QStringLiteral("path.global"), tr("全局路径")},
@@ -1119,9 +1108,7 @@ void BottomStatusPanel::setupOverviewTab()
                                            {QStringLiteral("hardware.dcdc"), tr("DCDC")},
                                            {QStringLiteral("hardware.power"), tr("配电输入（V）")},
                                            {QStringLiteral("hardware.heartbeat"), tr("控制器心跳")}});
-    layout->addWidget(m_platformOverviewGroup,
-                      1,
-                      2);
+    layout->addWidget(m_platformOverviewGroup, 1, 2);
     layout->setColumnStretch(0, 1);
     layout->setColumnStretch(1, 1);
     layout->setColumnStretch(2, 1);

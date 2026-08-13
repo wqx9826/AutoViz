@@ -397,9 +397,8 @@ model::ControlMode convertControlMode(wire::ControlCommand::Mode mode)
 model::ControlCmd convertControl(const wire::ControlCommand& source)
 {
     model::ControlCmd target;
-    if (!source.enabled()) {
-        return target;
-    }
+    // `enabled` 表示控制器是否正在执行，不表示这条命令不存在。保留未使能
+    // 命令，才能在 rosbag 回放和使能切换阶段连续观察命令与反馈曲线。
     if (source.has_header()) {
         target.header = convertHeader(source.header());
     }
@@ -554,7 +553,9 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     if (source.has_control_command()) {
         target.controlCmd = convertControl(source.control_command());
         target.controlCommandStatus = convertControlStatus(source.control_command());
-        target.runtimeStatus.hasControlCmdData = source.control_command().enabled();
+        // 数据存在与执行使能是两个独立概念：前者驱动可视化，后者由
+        // ControlCommandStatus::isEnable 供状态面板明确展示。
+        target.runtimeStatus.hasControlCmdData = true;
     }
     if (source.has_global_trajectory()) {
         target.globalPath = convertTrajectory(source.global_trajectory());
