@@ -3,6 +3,7 @@ build/
 install/
 log/
 runtime/
+.idea/
 AutoVizClient/package/
 CMakeFiles/
 CMakeCache.txt
