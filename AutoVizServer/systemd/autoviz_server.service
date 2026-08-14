@@ -1,0 +1,27 @@
+[Unit]
+Description=AutoViz Server launcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nvidia/AutoVizServer
+User=nvidia
+Group=nvidia
+Environment=HOME=/home/nvidia
+Environment=USER=nvidia
+Environment=LOGNAME=nvidia
+Environment=ROS_LOG_DIR=/home/nvidia/.ros/log
+
+# 必须由 systemd 显式设置
+Environment="ROS_DOMAIN_ID=0"
+Environment="ROS_LOCALHOST_ONLY=0"
+
+ExecStart=/home/nvidia/AutoVizServer/shell/start_autoviz_server.sh
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
