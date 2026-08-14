@@ -16,6 +16,7 @@ AutoVizClient/
   scripts/
     AutoViz.sh          # 启动 package/AutoViz-Linux/ 内的发布程序
     package_linux.sh    # 生成 package/AutoViz-Linux/
+    package_windows.ps1 # 增量构建并生成 Windows 发布包
 ```
 
 `AutoVizClient/build/AutoViz` 是开发构建产物；`AutoVizClient/package/AutoViz-Linux/` 才是可复制的 Linux
@@ -121,16 +122,29 @@ $env:PATH = "$UcrtRoot\bin;$env:PATH"
   -CMakePrefixPath $UcrtRoot
 ```
 
-### 2. 配置并编译 Release Client
+### 2. 用 MinGW Makefiles 配置并多线程编译 Release Client
 
 ```powershell
-cmake -S AutoVizClient -B AutoVizClient\build -G Ninja `
-  -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_CXX_COMPILER="$UcrtRoot\bin\g++.exe" `
-  -DCMAKE_PREFIX_PATH=$UcrtRoot `
-  -DAUTOVIZ_QT_ROOT=$UcrtRoot `
-  -DAUTOVIZ_QT_PLUGINS_DIR="$UcrtRoot\share\qt6\plugins"
-cmake --build AutoVizClient\build --parallel
+$ProjectRoot = 'E:\Coding\AutoViz\AutoVizClient'
+# 若此前使用过 Ninja、Visual Studio 或其他生成器，先清理该专用构建目录。
+Remove-Item -Recurse -Force "$ProjectRoot\build" -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force "$ProjectRoot\build" | Out-Null
+Set-Location "$ProjectRoot\build"
+cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+mingw32-make.exe -j $env:NUMBER_OF_PROCESSORS
+```
+
+`-j 8` 表示最多同时编译 8 个任务；请按 CPU 的逻辑核心数调整，例如 4 核/8 线程可用
+`-j 8`，也可使用 `-j $env:NUMBER_OF_PROCESSORS` 自动取 Windows 报告的逻辑核心数：
+
+```powershell
+mingw32-make.exe -j $env:NUMBER_OF_PROCESSORS
+```
+
+也可以在仓库根目录执行与上述 `mingw32-make` 等价的 CMake 通用命令：
+
+```powershell
+cmake --build AutoVizClient\build --parallel $env:NUMBER_OF_PROCESSORS
 ```
 
 ### 3. 生成发布目录并启动
@@ -138,10 +152,30 @@ cmake --build AutoVizClient\build --parallel
 `$PackageRoot` 必须是新建的空目录；发布时整体复制该目录，而不是只复制 `AutoViz.exe`。
 
 ```powershell
-$PackageRoot = 'E:\Release\AutoViz-UCRT64'
-cmake --install AutoVizClient\build --prefix $PackageRoot
+$ProjectRoot = 'E:\Coding\AutoViz\AutoVizClient'
+# 清空 package 目录
+Remove-Item -Recurse -Force "$ProjectRoot\package" -ErrorAction SilentlyContinue
+$PackageRoot = "$ProjectRoot\package\AutoViz-UCRT64"
+cmake --install "$ProjectRoot\build" --prefix $PackageRoot
 & "$PackageRoot\bin\AutoViz.exe"
 ```
+
+### 4. 使用脚本增量构建并打包
+
+调试时可继续用 CLion 或 Qt Creator 配置、构建和运行 `AutoVizClient/build/`。以下脚本不重新
+配置 CMake、不删除 IDE 的构建缓存；它只对该目录执行 Release 增量构建，然后删除并重建
+`package/AutoViz-UCRT64/`。
+
+```powershell
+# 从仓库根目录执行；-Run 会在打包完成后启动程序。
+.\AutoVizClient\scripts\package_windows.ps1
+.\AutoVizClient\scripts\package_windows.ps1 -Run
+```
+
+脚本默认以 Windows 报告的逻辑核心数并行构建；可按需限制并行数，例如
+`.\AutoVizClient\scripts\package_windows.ps1 -Parallel 8`。首次运行前，`AutoVizClient/build/`
+必须已由同一套 MSYS2 UCRT64 MinGW、Qt6 和 protobuf 配置完成；脚本会检查其中的
+`CMakeCache.txt`，避免误把发布操作指向 IDE 以外的目录。
 
 发布目录包含 `bin/AutoViz.exe`、Qt/protobuf/MinGW DLL、`configs/`、`plugins/platforms/qwindows.dll`、
 `plugins/sqldrivers/qsqlite.dll` 和 `qt.conf`。`qsqlite.dll` 是本地 bag 回放所必需的。
