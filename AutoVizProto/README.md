@@ -64,7 +64,7 @@ Windows Client 的 protobuf SDK 必须使用与 Qt Client 相同的 MinGW runtim
 
 ```powershell
 .\AutoVizProto\scripts\bootstrap_proto.ps1 `
-  -CMakePrefixPath E:\SDK\protobuf-qt-mingw `
+  -CMakePrefixPath D:\protobuf-35.1-mingw1310 `
   -CxxCompiler D:\Qt6.10\Tools\mingw1310_64\bin\g++.exe
 ```
 
@@ -72,6 +72,13 @@ Windows Client 的 protobuf SDK 必须使用与 Qt Client 相同的 MinGW runtim
 `AutoVizClient\third_party\protobuf`，脚本会自动使用它。
 AutoVizProto 和 Client 必须使用兼容的编译器、架构与 protobuf。若 protobuf 放在
 `AutoVizClient\third_party\protobuf`，脚本会自动将其传给 CMake，不设置系统环境变量。
+
+当前 Windows 方案 1 已将 Qt MinGW 13.1、Qt Ninja、独立 CMake 和 `protoc 35.1` 放到用户
+`Path` 前端，并设置 `Protobuf_ROOT=D:\protobuf-35.1-mingw1310`、
+`Qt6_ROOT=D:\Qt6.10\6.10.0\mingw_64` 及
+`CMAKE_PREFIX_PATH=D:\Qt6.10\6.10.0\mingw_64;D:\protobuf-35.1-mingw1310`。
+因此重启终端后可直接运行不带参数的 `bootstrap_proto.ps1`。protobuf SDK 直接安装在该
+无空格路径中，以兼容 MinGW 资源编译器。
 
 ## CMakeLists 怎样阅读
 

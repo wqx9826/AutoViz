@@ -13,6 +13,7 @@ compile_commands.json
 
 # CMake generated files
 *.cmake
+!AutoVizClient/cmake/InstallRules.cmake
 */CMakeFiles/
 
 # Binary and object files

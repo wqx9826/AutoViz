@@ -122,20 +122,26 @@ cmake --build AutoVizClient\build --config Release
 AutoVizClient\third_party\AutoVizProto
 ```
 
-Client CMake 还会自动搜索：
+Client CMake 还会自动搜索自身携带的协议/依赖 SDK：
 
 ```text
 AutoVizClient\third_party\protobuf
-AutoVizClient\third_party\Qt6
-AutoVizClient\third_party\Qt5
 ```
+
+Qt 不放入上述搜索列表；Windows Qt6 路径由 Qt Creator Kit、CLion CMake Profile 或命令行
+环境提供，Linux Qt5 由系统开发包提供。
 
 本地 rosbag 回放使用 Qt SQL 的 SQLite 驱动。部署时除 Qt Widgets/Network 外，还需随
 应用携带 `plugins/sqldrivers/qsqlite.dll` 及其 SQLite 运行时依赖；不需要安装 ROS2。
 
-Windows Client 优先使用 Qt6；未找到 Qt6 时（例如当前 Linux 开发环境）自动回退 Qt5。
-因此可把 protobuf SDK、Qt kit（或指向 Qt kit 的目录链接）放到固定位置，不依赖
-系统环境变量。完整命令见 `AutoVizClient/README.md`。
+Windows Client 固定使用 Qt6，Linux Client 固定使用 Qt5。Qt 与编译器由当前 IDE Kit/
+Toolchain 或命令行 CMake 环境提供；Client CMake 不选择 Qt 安装或编译器。protobuf 与
+AutoVizProto SDK 仍必须和当前平台、架构及编译器 ABI 匹配。完整命令见
+`AutoVizClient/README.md`。
+
+当前 Windows 基线为 Qt 6.10、Qt Kit 自带 MinGW 13.1、protobuf 35.1 静态库。protobuf
+直接安装在无空格路径 `D:\protobuf-35.1-mingw1310`，以兼容 MinGW 资源编译器。不得把
+MSYS2 UCRT64 编译的 protobuf/Abseil DLL 混入该基线。
 
 切换到 Windows 前请只复制源码和对应 Windows SDK；不要复制 Linux 的 `build/` 或 Linux
 静态库。Client 的应用图标已内嵌在 `AutoVizClient/assets/autoviz_icon.png`，主题和车辆尺寸

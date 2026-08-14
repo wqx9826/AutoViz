@@ -5,8 +5,13 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 client_dir="$(cd -- "${script_dir}/.." && pwd)"
 
-package_dir="${client_dir}/package/AutoViz-Linux"
-program="${package_dir}/bin/AutoViz.bin"
+if [ -x "${script_dir}/AutoViz.bin" ]; then
+    package_dir="${client_dir}"
+    program="${script_dir}/AutoViz.bin"
+else
+    package_dir="${client_dir}/package/AutoViz-Linux"
+    program="${package_dir}/bin/AutoViz.bin"
+fi
 
 
 if [ ! -x "${program}" ]; then

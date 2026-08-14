@@ -8,8 +8,12 @@ AutoViz 是 C++/Qt 规划控制可视化调试工具。当前 Adapter 对接 rob
 | 工程 | 依赖 | 职责 |
 | --- | --- | --- |
 | AutoVizProto | C++17、protobuf | v2 schema、FrameCodec、协议 GTest、SDK |
-| AutoVizClient | C++17、Qt6（Windows 优先）/ Qt5（Linux 回退）、AutoVizProto | TCP、内部模型、DataManager、XY/T-Z/UI |
+| AutoVizClient | C++17、Qt6（Windows）/ Qt5（Linux）、AutoVizProto | TCP、内部模型、DataManager、XY/T-Z/UI |
 | AutoVizServer | ROS2 Humble、custom_msgs、Boost.Asio、AutoVizProto | robot_ws Adapter、缓存、完整快照 Server |
+
+Windows 开发基线统一为 Qt 6.10、Qt Kit 自带 MinGW 13.1 和同工具链编译的 protobuf 35.1
+静态库；Qt Creator/CLion 必须选择该编译器，禁止混入 MSYS2 UCRT64 的 protobuf/Abseil
+二进制。Linux Client 保持 Qt5，并使用 Linux 本机工具链重建自己的协议 SDK。
 
 协议为 2.0，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
 Envelope，最大 16 MiB。传输仅有 ClientHello、ServerHello、VisualizationSnapshot、

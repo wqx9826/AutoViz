@@ -41,7 +41,7 @@ cmake -S AutoVizClient -B AutoVizClient/build -DCMAKE_BUILD_TYPE=Release
 cmake --build AutoVizClient/build --parallel
 ```
 
-Linux 当前使用 Qt5。配置阶段会自动从当前 Qt kit 查找 Widgets、Network、Sql 和插件；需要
+Linux 固定使用 Qt5。配置阶段直接查找 Core、Widgets、Network 和 Sql；需要
 可用的 C++17 编译器、CMake、Qt5 开发包和 protobuf 开发包。
 
 ### 3. 运行开发版本
@@ -105,10 +105,112 @@ Qt/protobuf 开发环境的 Linux 目标机进行真实桌面显示和真实 Ser
 
 ## Windows：编译与打包
 
-Windows 发布包必须使用同一个工具链构建 Qt、protobuf、AutoVizProto 和 Client。推荐 MSYS2
-UCRT64 Qt6；不要将 Linux 的 `build/`、`package/` 或 `.so/.a` 文件带到 Windows。
+Windows 固定使用 Qt6。Qt 路径和编译器完全由 Qt Creator Kit、CLion Toolchain 或命令行
+CMake 参数提供；Client 的 `CMakeLists.txt` 不选择编译器，也不写死或探测 Qt/MSYS2/IDE
+安装路径。切换 Kit 后必须清除该 Kit 原有的 CMake 构建目录/缓存，并为新 Kit 提供 ABI
+匹配的 protobuf 与 AutoVizProto SDK。不要将 Linux 的 `build/`、`package/` 或 `.so/.a`
+文件带到 Windows。
 
-### 1. 安装依赖并准备协议 SDK
+### 方案 1（当前基线）：Qt Creator Qt 6.10 / MinGW 13.1
+
+当前 Windows 开发环境以 Qt Online Installer 安装的 Qt Creator Kit 为基准：
+
+```text
+Qt               D:\Qt6.10\6.10.0\mingw_64
+C/C++ 编译器     D:\Qt6.10\Tools\mingw1310_64\bin\gcc.exe / g++.exe
+Ninja            D:\Qt6.10\Tools\Ninja\ninja.exe
+protobuf         D:\protobuf-35.1-mingw1310
+```
+
+protobuf 35.1 使用上述 MinGW 13.1 编译为静态库，并直接安装在无空格路径
+`D:\protobuf-35.1-mingw1310`。该路径可避免 MinGW `windres` 编译 `assets/autoviz.rc` 时
+错误拆分带空格的传递 include 路径。
+
+当前用户环境已配置为：
+
+```text
+Protobuf_ROOT=D:\protobuf-35.1-mingw1310
+CMAKE_PREFIX_PATH=D:\Qt6.10\6.10.0\mingw_64;D:\protobuf-35.1-mingw1310
+Qt6_ROOT=D:\Qt6.10\6.10.0\mingw_64
+Path 前端依次为独立 CMake、Qt Ninja、Qt MinGW 13.1、protobuf bin
+```
+
+独立安装的 CMake 可以作为 Windows 默认 CMake；编译器则固定使用 Qt Kit 自带的
+MinGW 13.1。不要以另一套独立 MinGW 替换它，除非 Qt、protobuf 和 AutoVizProto 也全部
+用那一套编译器重新构建。
+
+修改用户环境变量后必须完全退出并重启 Qt Creator、CLion 和终端。协议或工具链变更后，
+在仓库根目录重新生成一次协议 SDK；正常修改 Client 不需要重复该步骤：
+
+```powershell
+.\AutoVizProto\scripts\bootstrap_proto.ps1
+```
+
+在新打开的 PowerShell 中，以下是 Windows 的基础编译方式；它直接使用
+`AutoVizClient\build` 根目录，已验证可用：
+
+```powershell
+Set-Location E:\Coding\AutoViz\AutoVizClient\build
+cmake -G "MinGW Makefiles" .. -DCMAKE_BUILD_TYPE=Release
+mingw32-make.exe -j 8
+```
+
+完成上述构建后，标准的发布命令为：
+
+```powershell
+cmake --install . --prefix ..\package\AutoViz-Qt6-MinGW
+```
+
+`scripts\package_windows.ps1` 仅封装上述 `cmake --build`/`cmake --install`；它不配置
+CMake、Qt 或编译器，因此首次运行前 `build` 中必须已有 `CMakeCache.txt`。当前默认输出目录
+为 `package\AutoViz-Qt6-MinGW`。
+
+首次从 MSYS2、Ninja、Visual Studio 或其他编译器切换到该流程时，必须先清除
+`AutoVizClient\build` 根目录的 CMake 缓存和生成文件；不同生成器、不同 MinGW 不能共享
+同一个构建目录。新终端中可用下列命令确认工具链：
+
+```powershell
+Get-Command cmake.exe, g++.exe, mingw32-make.exe
+```
+
+它们应分别来自 `D:\Program Files\CMake\bin`、
+`D:\Qt6.10\Tools\mingw1310_64\bin` 和同一 Qt MinGW 目录，而不是 `C:\msys64`。
+
+Qt Creator 的 Kit 选择上述 Qt 6.10、GCC/G++ 13.1、Ninja 和 CMake。首次切换时删除该 Kit
+旧构建目录，或执行“清除 CMake 配置”后重新配置。Qt Creator 会从 Kit 提供 Qt 路径，并从
+用户环境找到 protobuf；不需要给项目增加 Qt 路径变量。
+
+CLion 没有 Qt Creator 的 Qt Kit 概念，因此只需一次性完成以下设置：
+
+- Toolchain 的 C/C++ 编译器选择上述 `gcc.exe`/`g++.exe`，生成器选择 Ninja；
+- CMake Profile 增加 `-DCMAKE_PREFIX_PATH=D:/Qt6.10/6.10.0/mingw_64`；
+- 使用位于 `AutoVizClient/build/` 下的独立构建目录，不与 Qt Creator 共用缓存。
+
+IDE 会保存这些设置。当前用户环境已提供 Qt/protobuf 前缀；若在没有这些环境变量的其他
+终端中进行独立验证，可显式提供 Qt 前缀：
+
+```powershell
+$QtRoot = 'D:\Qt6.10\6.10.0\mingw_64'
+$ProtoRoot = [Environment]::GetEnvironmentVariable('CMAKE_PREFIX_PATH', 'User')
+$env:CMAKE_PREFIX_PATH = "$QtRoot;$ProtoRoot"
+
+cmake -S AutoVizClient -B AutoVizClient\build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build AutoVizClient\build --parallel
+
+$PackageRoot = 'E:\Coding\AutoViz\AutoVizClient\package\AutoViz-Qt6-MinGW'
+cmake --install AutoVizClient\build --prefix $PackageRoot
+```
+
+当前 protobuf 为静态库，因此 `AutoViz.exe` 不依赖 `libprotobuf.dll` 或 Abseil DLL；发布目录
+仍需包含 Qt6、MinGW runtime、`qwindows.dll`、`qsqlite.dll`、配置和 `qt.conf`，这些内容由
+`cmake --install` 收集。
+
+### 备选方案：原 MSYS2 UCRT64 手动流程（保留）
+
+下面保留原有 MSYS2 流程，适用于整套依赖均由 UCRT64 构建的独立 ABI 环境。它不能与上面
+Qt MinGW 13.1 编译的 protobuf、AutoVizProto 或 Client 构建目录混用。
+
+#### 1. 安装依赖并准备协议 SDK
 
 在 PowerShell 中执行：
 
@@ -122,7 +224,7 @@ $env:PATH = "$UcrtRoot\bin;$env:PATH"
   -CMakePrefixPath $UcrtRoot
 ```
 
-### 2. 用 MinGW Makefiles 配置并多线程编译 Release Client
+#### 2. 用 MinGW Makefiles 配置并多线程编译 Release Client
 
 ```powershell
 $ProjectRoot = 'E:\Coding\AutoViz\AutoVizClient'
@@ -147,7 +249,7 @@ mingw32-make.exe -j $env:NUMBER_OF_PROCESSORS
 cmake --build AutoVizClient\build --parallel $env:NUMBER_OF_PROCESSORS
 ```
 
-### 3. 生成发布目录并启动
+#### 3. 生成发布目录并启动
 
 `$PackageRoot` 必须是新建的空目录；发布时整体复制该目录，而不是只复制 `AutoViz.exe`。
 
@@ -160,11 +262,14 @@ cmake --install "$ProjectRoot\build" --prefix $PackageRoot
 & "$PackageRoot\bin\AutoViz.exe"
 ```
 
-### 4. 使用脚本增量构建并打包
+正常构建只定义 Client targets；安装、Qt/protobuf 运行库和插件收集规则位于
+`AutoVizClient/cmake/InstallRules.cmake`，仅在执行 `cmake --install` 时生效。
+
+#### 4. 使用脚本增量构建并打包
 
 调试时可继续用 CLion 或 Qt Creator 配置、构建和运行 `AutoVizClient/build/`。以下脚本不重新
 配置 CMake、不删除 IDE 的构建缓存；它只对该目录执行 Release 增量构建，然后删除并重建
-`package/AutoViz-UCRT64/`。
+`package/AutoViz-Qt6-MinGW/`。
 
 ```powershell
 # 从仓库根目录执行；-Run 会在打包完成后启动程序。
@@ -174,8 +279,8 @@ cmake --install "$ProjectRoot\build" --prefix $PackageRoot
 
 脚本默认以 Windows 报告的逻辑核心数并行构建；可按需限制并行数，例如
 `.\AutoVizClient\scripts\package_windows.ps1 -Parallel 8`。首次运行前，`AutoVizClient/build/`
-必须已由同一套 MSYS2 UCRT64 MinGW、Qt6 和 protobuf 配置完成；脚本会检查其中的
-`CMakeCache.txt`，避免误把发布操作指向 IDE 以外的目录。
+必须已由当前统一的 Qt MinGW 13.1、Qt6 和 protobuf 配置完成；脚本会检查其中的
+`CMakeCache.txt`，避免误把发布操作指向未配置的目录。
 
 发布目录包含 `bin/AutoViz.exe`、Qt/protobuf/MinGW DLL、`configs/`、`plugins/platforms/qwindows.dll`、
 `plugins/sqldrivers/qsqlite.dll` 和 `qt.conf`。`qsqlite.dll` 是本地 bag 回放所必需的。
