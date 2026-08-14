@@ -82,6 +82,17 @@ struct BmsRuntimeStatus {
     QVector<int> warningCodes;
 };
 
+enum class WaterTankState {
+    Unknown,
+    Idle,
+    Filling,
+    Draining,
+    ManualOverride,
+    Fault,
+    FillDone,
+    DrainDone
+};
+
 struct ChassisRuntimeStatus {
     bool valid = false;
     qint64 timestampMs = 0;
@@ -90,7 +101,7 @@ struct ChassisRuntimeStatus {
     int gearStatus = 0;
     int waterTankLevelStatus = 0;
     bool waterTankLevelIsRaw = false;
-    int waterTankStatus = 0;
+    WaterTankState waterTankState = WaterTankState::Unknown;
     int waterHeartbeat = 0;
     int crawlHeartbeat = 0;
     int leftTailActuatorStatus = 0;
@@ -104,6 +115,7 @@ struct ChassisRuntimeStatus {
     bool dccdcStatus = false;
     int highVoltageBmsSocStatus = 0;
     double smartPowerInputVoltageStatus = 0.0;
+    bool emergencyAscentActive = false;
     CrawlMotorRuntimeStatus leftCrawlMotor;
     CrawlMotorRuntimeStatus rightCrawlMotor;
     BmsRuntimeStatus bms;
@@ -123,7 +135,7 @@ struct ControlCommandStatus {
     double depth = 0.0;
     double height = 0.0;
     double heading = 0.0;
-    double diveSpeed = 0.0;
+    bool emergencyAscent = false;
     int leftWaterActuatorSpeed = 0;
     int rightWaterActuatorSpeed = 0;
     int buoyancyAdjust = 0;
@@ -154,6 +166,7 @@ struct ActionRuntimeStatus {
     double targetSpeed = 0.0;
     double targetHeading = 0.0;
     double targetAngularVelocity = 0.0;  // normalized to rad/s
+    bool emergencyAscent = false;
 };
 
 struct TaskRuntimeStatus {
@@ -163,6 +176,7 @@ struct TaskRuntimeStatus {
     int taskId = 0;
     bool taskEnable = false;
     bool emergencyStop = false;
+    bool releaseEmergencyAscent = false;
     int remoteMode = 0;
     int powerEnable = 0;
 };

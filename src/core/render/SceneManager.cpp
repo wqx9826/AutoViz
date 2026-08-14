@@ -22,6 +22,30 @@ namespace autoviz::render {
 namespace {
 constexpr double kRadToDeg = 57.29577951308232;
 
+QPen makeAdaptivePathPen(const VisualizationView* view,
+                         const QColor& color,
+                         qreal physicalWidth,
+                         qreal minimumPixels,
+                         qreal maximumPixels,
+                         Qt::PenStyle style = Qt::SolidLine)
+{
+    qreal sceneWidth = physicalWidth;
+    if (view != nullptr) {
+        const qreal pixelsPerMeter = std::abs(view->transform().m11());
+        if (pixelsPerMeter > 1.0e-6) {
+            const qreal screenWidth = std::clamp(physicalWidth * pixelsPerMeter,
+                                                 minimumPixels,
+                                                 maximumPixels);
+            sceneWidth = screenWidth / pixelsPerMeter;
+        }
+    }
+
+    QPen pen(color, sceneWidth, style);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    return pen;
+}
+
 QPainterPath buildTrajectoryPath(const autoviz::model::Trajectory& trajectory)
 {
     QPainterPath path;
@@ -109,13 +133,30 @@ LayerVisibility SceneManager::layerVisibility() const
 
 void SceneManager::setVehicleCenteredMode(bool enabled)
 {
+    if (m_vehicleCenteredMode == enabled) {
+        return;
+    }
     m_vehicleCenteredMode = enabled;
+    m_hasAutoFitTargetRegion = false;
     redraw();
 }
 
 bool SceneManager::vehicleCenteredMode() const
 {
     return m_vehicleCenteredMode;
+}
+
+void SceneManager::refitVisibleData()
+{
+    if (m_view == nullptr) {
+        return;
+    }
+
+    m_view->resetView();
+    m_hasAutoFitTargetRegion = false;
+    if (m_mainViewMode == MainViewMode::TopDownXY) {
+        autoFitAndCenter();
+    }
 }
 
 void SceneManager::setMainViewMode(MainViewMode mode)
@@ -157,6 +198,10 @@ void SceneManager::redraw()
 
 void SceneManager::redrawTopDownXY()
 {
+    m_visibleContentBounds = QRectF();
+    m_hasVisibleContentBounds = false;
+
+    // 原点只作为坐标参照，不能参与自动取景；否则远距离车辆会被原点拉得过小。
     auto* centerMarker = m_scene->addEllipse(-0.25, -0.25, 0.5, 0.5, QPen(QColor("#ffd166"), 0.0));
     centerMarker->setBrush(QBrush(QColor(255, 209, 102, 140)));
 
@@ -432,6 +477,7 @@ void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot&
                                   QBrush(QColor(247, 178, 103, 110)));
     body->setTransformOriginPoint(x, y);
     body->setRotation(-vehicleLocation.heading * kRadToDeg);
+    includeVisibleContentBounds(body->sceneBoundingRect());
 
     QPolygonF nose;
     nose << QPointF(x + vehicleConfig.vehicleLength * 0.35, y)
@@ -440,6 +486,15 @@ void SceneManager::drawVehicle(const autoviz::datacenter::VisualizationSnapshot&
     auto* headingMarker = m_scene->addPolygon(nose, QPen(QColor("#ffd166"), 0.0), QBrush(QColor("#ffd166")));
     headingMarker->setTransformOriginPoint(x, y);
     headingMarker->setRotation(-vehicleLocation.heading * kRadToDeg);
+    includeVisibleContentBounds(headingMarker->sceneBoundingRect());
+
+    // 总览缩小到千米级时，物理尺寸的车辆会缩成几个像素；该定位环保持屏幕尺寸。
+    auto* locator = m_scene->addEllipse(-7.0, -7.0, 14.0, 14.0,
+                                        QPen(QColor("#f97316"), 1.4),
+                                        QBrush(QColor(249, 115, 22, 45)));
+    locator->setPos(center);
+    locator->setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
+    locator->setZValue(50.0);
 }
 
 void SceneManager::drawHistoryTrail(const autoviz::model::Trajectory& trajectory)
@@ -449,10 +504,13 @@ void SceneManager::drawHistoryTrail(const autoviz::model::Trajectory& trajectory
         return;
     }
 
-    QPen pen(QColor(156, 163, 175, 150), 0.12);
-    pen.setCapStyle(Qt::RoundCap);
-    pen.setJoinStyle(Qt::RoundJoin);
-    m_scene->addPath(path, pen);
+    const QPen pen = makeAdaptivePathPen(m_view,
+                                         QColor(156, 163, 175, 150),
+                                         0.12,
+                                         1.0,
+                                         2.0);
+    auto* item = m_scene->addPath(path, pen);
+    includeVisibleContentBounds(path.boundingRect());
 }
 
 void SceneManager::drawTrajectory(const autoviz::model::Trajectory& trajectory, const QColor& color, qreal width)
@@ -462,7 +520,14 @@ void SceneManager::drawTrajectory(const autoviz::model::Trajectory& trajectory, 
         return;
     }
 
-    m_scene->addPath(path, QPen(color, width));
+    const bool isLocalPath = color == QColor("#ff7f50");
+    const QPen pen = makeAdaptivePathPen(m_view,
+                                         color,
+                                         width,
+                                         isLocalPath ? 2.0 : 1.5,
+                                         isLocalPath ? 4.0 : 3.0);
+    auto* item = m_scene->addPath(path, pen);
+    includeVisibleContentBounds(path.boundingRect());
 }
 
 void SceneManager::drawPathEndpoint(const autoviz::model::PathEndpointStatus& endpoint)
@@ -479,6 +544,7 @@ void SceneManager::drawPathEndpoint(const autoviz::model::PathEndpointStatus& en
                                        QPen(QColor("#22c55e"), 0.0),
                                        QBrush(QColor(34, 197, 94, 150)));
     marker->setZValue(10.0);
+    includeVisibleContentBounds(marker->sceneBoundingRect());
 
     auto* label = m_scene->addText(QStringLiteral("路径终点\n非 action goal\n非任务目标点"));
     label->setDefaultTextColor(QColor("#bbf7d0"));
@@ -494,9 +560,10 @@ void SceneManager::drawReferenceLine(const autoviz::model::ReferenceLine& refere
         return;
     }
 
-    QPen pen(QColor("#9ad1d4"), 0.12, Qt::DashLine);
+    QPen pen = makeAdaptivePathPen(m_view, QColor("#9ad1d4"), 0.12, 1.0, 2.0, Qt::DashLine);
     pen.setDashPattern({4.0, 3.0});
-    m_scene->addPath(path, pen);
+    auto* item = m_scene->addPath(path, pen);
+    includeVisibleContentBounds(path.boundingRect());
 }
 
 void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
@@ -507,7 +574,8 @@ void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
             for (const auto& point : obstacle.polygon.vertices) {
                 polygon << QPointF(point.x, -point.y);
             }
-            m_scene->addPolygon(polygon, QPen(QColor("#ef476f"), 0.0), QBrush(QColor(239, 71, 111, 120)));
+            auto* item = m_scene->addPolygon(polygon, QPen(QColor("#ef476f"), 0.0), QBrush(QColor(239, 71, 111, 120)));
+            includeVisibleContentBounds(item->sceneBoundingRect());
             continue;
         }
 
@@ -522,6 +590,7 @@ void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
                                       QBrush(QColor(239, 71, 111, 90)));
         rect->setTransformOriginPoint(x, y);
         rect->setRotation(-obstacle.position.theta * kRadToDeg);
+        includeVisibleContentBounds(rect->sceneBoundingRect());
         rect->setToolTip(QStringLiteral("%1\nid=%2 class=%3")
                              .arg(obstacle.sourceTopic.isEmpty() ? QStringLiteral("obstacle") : obstacle.sourceTopic)
                              .arg(obstacle.id)
@@ -545,28 +614,25 @@ void SceneManager::autoFitAndCenter()
         return;
     }
 
+    if (!m_hasVisibleContentBounds) {
+        // Topic 超时或图层全部关闭时保留最后视角，避免画面突跳回原点。
+        return;
+    }
+
     const QPointF vehicleCenter = toScenePoint(m_snapshot.vehicleLocation.position);
-    QRectF targetRegion;
-
-    const bool canCenterOnVehicle = m_vehicleCenteredMode && m_snapshot.runtimeStatus.hasVehicleLocationData;
+    const bool canCenterOnVehicle = m_vehicleCenteredMode
+                                    && m_layerVisibility.showVehicle
+                                    && m_snapshot.runtimeStatus.hasVehicleLocationData;
+    const QRectF targetRegion = canCenterOnVehicle
+                                    ? QRectF(vehicleCenter.x() - 18.0, vehicleCenter.y() - 12.0, 36.0, 24.0)
+                                    : fittedRegionFor(m_visibleContentBounds);
     if (canCenterOnVehicle) {
-        // 跟车视角优先显示车辆附近区域，不按整条路径做全局缩放。
-        targetRegion = QRectF(vehicleCenter.x() - 18.0, vehicleCenter.y() - 12.0, 36.0, 24.0);
-    } else {
-        targetRegion = m_scene->itemsBoundingRect();
-        if (m_snapshot.runtimeStatus.hasVehicleLocationData) {
-            const QRectF minimumVehicleRegion(vehicleCenter.x() - 8.0, vehicleCenter.y() - 6.0, 16.0, 12.0);
-            targetRegion = targetRegion.united(minimumVehicleRegion);
-        }
-        targetRegion.adjust(-4.0, -4.0, 4.0, 4.0);
+        // 跟车视角保持现有的局部观察尺度，并持续跟随车辆。
+        m_hasAutoFitTargetRegion = false;
     }
 
-    // QGraphicsView 无法将场景边缘上的点真正置于视口中心。每帧依据图元范围
-    // 重建带足够边距的 sceneRect，保证远距离车辆和路径端点都可被居中、平移。
-    QRectF sceneRegion = m_scene->itemsBoundingRect();
-    if (sceneRegion.isEmpty()) {
-        sceneRegion = targetRegion;
-    }
+    // 让远距离范围两侧仍保有可平移余量，但不再把原点标记算入数据边界。
+    QRectF sceneRegion = m_visibleContentBounds.united(targetRegion);
     const QRectF visibleRegion = m_view->mapToScene(m_view->viewport()->rect()).boundingRect();
     const qreal horizontalMargin = std::max<qreal>(100.0, visibleRegion.width());
     const qreal verticalMargin = std::max<qreal>(100.0, visibleRegion.height());
@@ -577,14 +643,62 @@ void SceneManager::autoFitAndCenter()
                                                  horizontalMargin * 2.0,
                                                  verticalMargin * 2.0));
     }
+    // 手动缩放/平移时，保留当前视口所在场景区域。否则每帧重建 sceneRect
+    // 会让 QGraphicsView 的滚动位置被重新夹紧，表现为缩放跳回原点。
+    if (!m_view->autoFitEnabled()) {
+        sceneRegion = sceneRegion.united(visibleRegion);
+    }
     m_scene->setSceneRect(sceneRegion);
 
-    m_view->fitToRegion(targetRegion);
-    // 手动缩放会关闭自动适配，但不应关闭“车辆居中显示”。开启该模式后，
-    // 仍持续跟随车辆；需要自由平移时由用户关闭车辆居中开关。
     if (canCenterOnVehicle) {
+        m_view->fitToRegion(targetRegion);
         m_view->centerOn(vehicleCenter);
+        return;
     }
+
+    if (m_view->autoFitEnabled() && hasMaterialVisibleBoundsChange(targetRegion)) {
+        m_view->fitToRegion(targetRegion);
+        m_lastAutoFitTargetRegion = targetRegion;
+        m_hasAutoFitTargetRegion = true;
+    }
+}
+
+void SceneManager::includeVisibleContentBounds(const QRectF& bounds)
+{
+    if (!bounds.isValid() || bounds.isEmpty()) {
+        return;
+    }
+    m_visibleContentBounds = m_hasVisibleContentBounds ? m_visibleContentBounds.united(bounds) : bounds;
+    m_hasVisibleContentBounds = true;
+}
+
+QRectF SceneManager::fittedRegionFor(const QRectF& contentBounds) const
+{
+    QRectF target = contentBounds;
+    const qreal marginX = std::max<qreal>(4.0, target.width() * 0.10);
+    const qreal marginY = std::max<qreal>(4.0, target.height() * 0.10);
+    target.adjust(-marginX, -marginY, marginX, marginY);
+
+    const QPointF center = target.center();
+    const qreal width = std::max<qreal>(36.0, target.width());
+    const qreal height = std::max<qreal>(24.0, target.height());
+    return QRectF(center.x() - width * 0.5, center.y() - height * 0.5, width, height);
+}
+
+bool SceneManager::hasMaterialVisibleBoundsChange(const QRectF& targetRegion) const
+{
+    if (!m_hasAutoFitTargetRegion) {
+        return true;
+    }
+
+    const qreal previousLongSide = std::max(m_lastAutoFitTargetRegion.width(), m_lastAutoFitTargetRegion.height());
+    const qreal centerThreshold = std::max<qreal>(5.0, previousLongSide * 0.10);
+    const bool centerChanged = QLineF(targetRegion.center(), m_lastAutoFitTargetRegion.center()).length() > centerThreshold;
+    const bool widthChanged = std::abs(targetRegion.width() - m_lastAutoFitTargetRegion.width())
+                              > std::max<qreal>(1.0, m_lastAutoFitTargetRegion.width() * 0.10);
+    const bool heightChanged = std::abs(targetRegion.height() - m_lastAutoFitTargetRegion.height())
+                               > std::max<qreal>(1.0, m_lastAutoFitTargetRegion.height() * 0.10);
+    return centerChanged || widthChanged || heightChanged;
 }
 
 QPointF SceneManager::toScenePoint(const autoviz::model::Point2D& point) const

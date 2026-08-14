@@ -174,7 +174,7 @@ void Ros2MsgSubsrcribe::callbackLocationMsg(const custom_msgs::msg::Location::Co
 - `/local_path` -> `Trajectory`
 - `/global_path` -> `Trajectory`
 
-其中 `/system_run_states.goal_uuid` 与 `/local_path.goal_uuid` 用于校验任务和局部路径绑定关系；`ChassisStates` 的履带电机、BMS、配电和心跳字段用于“运动总览”的硬件健康摘要及底盘详情。底盘 ROS 话题在线不等于每个 CAN 从设备帧都具备独立新鲜度，因此界面会区分“消息在线”和消息内的显式故障。
+其中 `/system_run_states.goal_uuid` 与 `/local_path.goal_uuid` 用于校验任务和局部路径绑定关系；`ChassisStates` 的履带电机、BMS、配电和心跳字段用于“运动总览”的硬件健康摘要及底盘详情。紧急上浮在界面中区分控制命令请求、Action 状态和底盘 CAN 实际执行；解除按钮仅显示当前采样，不能被解释为已经解除。底盘 ROS 话题在线不等于每个 CAN 从设备帧都具备独立的新鲜度，因此界面会区分“消息在线”和消息内的显式故障。
 
 如果当前没有某类输入，也应该主动写空值，例如：
 
@@ -217,10 +217,10 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 - 支持车辆、全局路径、局部路径、参考线、障碍物显示
 - 支持拖动和平移
 - 支持滚轮缩放
-- 启动时自动缩放到合适区域
-- 默认支持车辆居中视角
+- 启动时按当前可见图层自动适配；远距离路径不会因原点参与取景而压缩车辆
+- 支持车辆居中跟随，关闭后在数据范围明显变化时进行稳定的总览适配；拖动或缩放后保持手动视角，可通过“适配可见数据（F）”恢复
 
-“运动总览”是运行监视面板，优先显示任务链路、当前运动、控制指令（下发/反馈）、硬件健康、垂向状态、路径和感知告警。控制调参、路径终点以及原始底盘/BMS/电机字段放在详情页或图表中；topic 超时后对应旧的运行状态会被清除，避免继续显示过期数据。
+“运动总览”是运行监视面板，优先显示任务链路、当前运动、控制指令（下发/反馈）、硬件健康、垂向状态、路径和感知告警。总览遵循高效显示原则：单位和“当前/目标”“下发/反馈”等字段关系放在标签中，数值区只显示固定顺序的数据，不重复拼接字段说明；未解码的原始底盘、BMS、电机和配电通道码放在详情页或图表中。topic 超时后对应旧的运行状态会被清除，避免继续显示过期数据。
 
 坐标约定：
 
@@ -231,8 +231,8 @@ dataManager()->setControlCmd(autoviz::model::ControlCmd{});
 
 网格约定：
 
-- 细网格：`1m`
-- 粗网格：`5m`
+- 近景细网格：`1m`；近景粗网格：`5m`
+- 远景按 `5` 倍递进提高网格间距（如 `5m/25m`、`25m/125m`），基础网格仍为 `1m/5m`
 
 车辆尺寸目前来自：
 
@@ -275,7 +275,7 @@ source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
 mkdir -p build && cd build
 cmake .. -DAUTOVIZ_ENABLE_ROS2=ON
-make -j4
+make -j8
 ./AutoViz
 ```
 

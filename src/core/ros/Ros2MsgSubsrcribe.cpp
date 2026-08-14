@@ -54,6 +54,31 @@ double polylineLength(int count, PointAccessor pointAt)
     }
     return length;
 }
+
+#if AUTOVIZ_ENABLE_ROS2
+autoviz::model::WaterTankState toWaterTankState(uint8_t status)
+{
+    using Message = custom_msgs::msg::ChassisStates;
+    switch (status) {
+    case Message::WATER_TANK_IDLE:
+        return autoviz::model::WaterTankState::Idle;
+    case Message::WATER_TANK_FILLING:
+        return autoviz::model::WaterTankState::Filling;
+    case Message::WATER_TANK_DRAINING:
+        return autoviz::model::WaterTankState::Draining;
+    case Message::WATER_TANK_MANUAL_OVERRIDE:
+        return autoviz::model::WaterTankState::ManualOverride;
+    case Message::WATER_TANK_FAULT:
+        return autoviz::model::WaterTankState::Fault;
+    case Message::WATER_TANK_FILL_DONE:
+        return autoviz::model::WaterTankState::FillDone;
+    case Message::WATER_TANK_DRAIN_DONE:
+        return autoviz::model::WaterTankState::DrainDone;
+    default:
+        return autoviz::model::WaterTankState::Unknown;
+    }
+}
+#endif
 }
 
 Ros2MsgSubsrcribe::Ros2MsgSubsrcribe(datacenter::DataManager* dataManager)
@@ -317,7 +342,9 @@ void Ros2MsgSubsrcribe::callbackFinalTargetArrayMsg(const custom_msgs::msg::Fina
         obstacle.id = static_cast<int>(target.target_id);
         obstacle.type = autoviz::model::ObstacleType::Unknown;
         obstacle.sourceClass = static_cast<int>(target.final_class);
-        obstacle.classLabel = QString::fromStdString(target.final_class_label);
+        // 当前 custom_msgs::msg::FinalTarget 只提供 final_class 数值分类，
+        // 没有 final_class_label 字符串字段；渲染层会按 sourceClass 显示 class N。
+        obstacle.classLabel.clear();
         obstacle.sourceTopic = QStringLiteral("/targets/final_objects");
         obstacle.shape = autoviz::model::ObstacleShapeType::Box;
         obstacle.header.timestamp = currentTimestampMs();
@@ -378,7 +405,7 @@ void Ros2MsgSubsrcribe::callbackChassisCommandMsg(const custom_msgs::msg::Chassi
     status.depth = msg->depth;
     status.height = msg->height;
     status.heading = msg->heading;
-    status.diveSpeed = msg->dive_speed;
+    status.emergencyAscent = msg->emergency_ascent;
     status.leftWaterActuatorSpeed = msg->left_water_actuator_speed;
     status.rightWaterActuatorSpeed = msg->right_water_actuator_speed;
     status.buoyancyAdjust = msg->buoyancy_adjust;
@@ -408,7 +435,7 @@ void Ros2MsgSubsrcribe::callbackChassisStatesMsg(const custom_msgs::msg::Chassis
     status.gearStatus = msg->gear_status;
     status.waterTankLevelStatus = msg->water_tank_level_status;
     status.waterTankLevelIsRaw = msg->water_tank_level_is_raw;
-    status.waterTankStatus = msg->water_tank_status;
+    status.waterTankState = toWaterTankState(msg->water_tank_status);
     status.waterHeartbeat = msg->water_heartbeat;
     status.crawlHeartbeat = msg->crawl_heartbeat;
     status.leftTailActuatorStatus = msg->left_tail_actuator_status;
@@ -422,6 +449,7 @@ void Ros2MsgSubsrcribe::callbackChassisStatesMsg(const custom_msgs::msg::Chassis
     status.dccdcStatus = msg->dccdc_status;
     status.highVoltageBmsSocStatus = msg->high_voltage_bms_soc_status;
     status.smartPowerInputVoltageStatus = msg->smart_power_input_voltage_status;
+    status.emergencyAscentActive = msg->emergency_ascent_active;
 
     status.leftCrawlMotor.valid = true;
     status.leftCrawlMotor.speedRpm = msg->left_crawl_motor_speed_rpm;
@@ -529,6 +557,7 @@ void Ros2MsgSubsrcribe::callbackSystemRunStatesMsg(const custom_msgs::msg::Syste
     status.targetHeading = msg->target_heading;
     // custom_msgs publishes this field in deg/s; keep the internal model in rad/s.
     status.targetAngularVelocity = msg->target_angular_velocity * kDegreesToRadians;
+    status.emergencyAscent = msg->emergency_ascent;
     dataManager()->setActionRuntimeStatus(status);
 }
 
@@ -546,6 +575,7 @@ void Ros2MsgSubsrcribe::callbackTaskParamsMsg(const custom_msgs::msg::TaskParams
     status.taskId = msg->task_id;
     status.taskEnable = msg->task_enable;
     status.emergencyStop = msg->emergency_stop;
+    status.releaseEmergencyAscent = msg->release_emergency_ascent;
     status.remoteMode = msg->remote_mode;
     status.powerEnable = msg->power_enable;
     dataManager()->setTaskRuntimeStatus(status);

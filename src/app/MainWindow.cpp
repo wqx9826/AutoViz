@@ -10,6 +10,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QKeySequence>
 #include <QSettings>
 #include <QSizePolicy>
 #include <QSplitter>
@@ -204,6 +205,8 @@ void MainWindow::setupMenuBar()
 
     m_viewMenu = menuBar()->addMenu(tr("视图"));
     m_resetViewAction = m_viewMenu->addAction(tr("重置视图"));
+    m_fitVisibleDataAction = m_viewMenu->addAction(tr("适配可见数据"));
+    m_fitVisibleDataAction->setShortcut(QKeySequence(Qt::Key_F));
     m_clearHistoryTrailAction = m_viewMenu->addAction(tr("清空历史轨迹"));
     m_restoreLayoutAction = m_viewMenu->addAction(tr("恢复默认布局"));
     setupMainViewModeMenu();
@@ -273,8 +276,12 @@ void MainWindow::connectActions()
     connect(m_mainViewDisplayManageAction, &QAction::triggered, this, &MainWindow::openMainViewDisplayConfigDialog);
     connect(m_exitAction, &QAction::triggered, this, &QWidget::close);
     connect(m_resetViewAction, &QAction::triggered, this, [this]() {
-        m_visualizationView->resetView();
+        m_sceneManager->refitVisibleData();
         statusBar()->showMessage(tr("视图已重置"), 2000);
+    });
+    connect(m_fitVisibleDataAction, &QAction::triggered, this, [this]() {
+        m_sceneManager->refitVisibleData();
+        statusBar()->showMessage(tr("已适配当前可见数据"), 2000);
     });
     connect(m_clearHistoryTrailAction, &QAction::triggered, this, [this]() {
         m_dataManager->clearHistoryTrail();
@@ -564,7 +571,12 @@ void MainWindow::updateMainViewOverlay(const autoviz::datacenter::VisualizationS
     } else {
         overlayMessage += QStringLiteral("\n当前状态：已接收 %1 个通道").arg(receivedChannels.size());
     }
-    overlayMessage += QStringLiteral("\n网格：细格 1m / 粗格 5m");
+    const auto formatGridSpacing = [](double spacingMeters) {
+        return QString::number(spacingMeters, 'f', 0);
+    };
+    overlayMessage += QStringLiteral("\n网格：细格 %1m / 粗格 %2m（基础 1m / 5m）")
+                          .arg(formatGridSpacing(m_visualizationView->minorGridSpacingMeters()),
+                               formatGridSpacing(m_visualizationView->majorGridSpacingMeters()));
     overlayMessage += QStringLiteral("\n运行模式：%1").arg(autoviz::model::toDisplayString(snapshot.runVisualizationMode));
     overlayMessage += QStringLiteral("\n主视图：%1（%2）")
                           .arg(autoviz::render::toDisplayString(m_effectiveMainViewMode),

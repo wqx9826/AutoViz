@@ -83,7 +83,7 @@ void DataManager::initializeMockData()
     chassis.gearStatus = m_snapshot.vehicleChassisInfo.currentGearPosition;
     chassis.waterTankLevelStatus = 62;
     chassis.waterTankLevelIsRaw = false;
-    chassis.waterTankStatus = 0;
+    chassis.waterTankState = model::WaterTankState::Idle;
     chassis.waterHeartbeat = 42;
     chassis.crawlHeartbeat = 17;
     chassis.leftTailActuatorStatus = 0;

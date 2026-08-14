@@ -95,10 +95,10 @@ ROS2 topic
 | --- | --- |
 | `/location` | `VehicleLocation`、`LocalizationStatus` |
 | `/targets/final_objects` | `ObstacleList` |
-| `/chassis_command` | `ControlCmd`、`ControlCommandStatus` |
-| `/chassis_states` | `VehicleChassisInfo`、`ChassisRuntimeStatus`，包括履带电机、BMS、配电和心跳摘要 |
-| `/system_run_states` | `ActionRuntimeStatus` |
-| `/task_params` | `TaskRuntimeStatus` |
+| `/chassis_command` | `ControlCmd`、`ControlCommandStatus`，包括紧急上浮命令请求 |
+| `/chassis_states` | `VehicleChassisInfo`、`ChassisRuntimeStatus`，包括履带电机、BMS、配电、心跳和紧急上浮实际执行状态 |
+| `/system_run_states` | `ActionRuntimeStatus`，包括紧急上浮 Action 状态 |
+| `/task_params` | `TaskRuntimeStatus`，包括紧急上浮解除按钮的当前采样 |
 | `/local_path` | `Trajectory`、局部路径运行状态 |
 | `/global_path` | `Trajectory`、全局路径运行状态和路径终点状态 |
 
@@ -118,18 +118,21 @@ ROS2 topic
 - 垂向剖面视图：显示垂向动作段的时间-深度（T-Z）趋势，支持当前深度、目标深度、起始深度和急停事件标记；动作结束或数据超时后可以冻结上一段垂向动作。
 - 自动主视图模式会根据当前运行模式在 XY 与垂向剖面之间切换；也可以手动选择视图模式。
 - 图层显示可以分别开关车辆、历史轨迹、全局路径、参考线、局部路径和障碍物，并通过 `QSettings` 保存。
-- 支持车辆居中、自动适配、拖动/平移、滚轮缩放和视图重置。
-- 网格约定为细格 `1m`、粗格 `5m`。
+- 支持车辆居中、智能总览适配、拖动/平移、滚轮缩放和视图重置；总览按当前可见图层的空间范围取景，不把原点标记作为数据范围。
+- 路径采用分层自适应线宽：保留历史、参考、全局和局部路径的视觉层级，并把屏幕线宽限制在各自的最小/最大像素范围，保证远景可见而近景不过粗。
+- 近景网格为细格 `1m`、粗格 `5m`；远景按 `5` 倍递进提高间距以避免密线。
 - 车辆尺寸从 `configs/vehicle_params.json` 读取。
 
 ### 运行状态、详情和图表
 
-- “运动总览”显示任务链路、当前运动、控制指令下发/反馈、硬件健康、垂向状态、路径和感知告警。
+- “运动总览”显示任务链路、当前运动、控制指令下发/反馈、硬件健康、垂向状态、路径和感知告警；单位和字段关系放在标签中，数值区只显示固定顺序的数据，不重复显示“下发/反馈”等语义。
 - 详情页显示控制、路径、动作、垂向、底盘、电机、BMS、配电等更完整字段。
+- 未解码的原始配电通道状态码等诊断字段只在详情页展示，不作为总览运行结论。
 - ROS Topic 页显示消息数量、更新时间、年龄、频率和等待/超时状态。
 - 日志页显示运行日志。
 - 控制曲线面板提供速度跟踪、航向跟踪和路径误差曲线；支持暂停、清空、10/30/60 秒窗口和自动缩放。
 - UI 中角度、航向、俯仰、横滚、yaw 以及角速度统一以度或 `°/s` 显示；内部计算可以继续使用弧度，但显示出口必须转换单位。
+- `ChassisCommand.dive_speed` 已不属于当前消息接口；压载水箱状态 `3` 表示“手动阀门直控”。紧急上浮请求、Action 状态和底盘实际执行必须分开显示，解除按钮的高电平只代表边沿触发请求，不能代表操作已经完成。
 - 支持自动、浅色和深色主题。
 
 ## 当前限制
@@ -148,4 +151,3 @@ ROS2 topic
 - UI 和渲染层不得依赖 ROS 消息头文件。
 - 无数据或超时数据必须写入/呈现为空结构，不能保留旧显示。
 - 当前主线的首要目标仍是 ROS2 现场调试稳定性。
-

@@ -77,14 +77,29 @@ QString formatAngleDegrees(double radians, int precision = 1)
     return QStringLiteral("%1°").arg(formatNumber(qRadiansToDegrees(radians), precision));
 }
 
+QString formatAngleDegreesValue(double radians, int precision = 1)
+{
+    return formatNumber(qRadiansToDegrees(radians), precision);
+}
+
 QString formatAngularVelocityDegrees(double radiansPerSecond, int precision = 3)
 {
     return QStringLiteral("%1°/s").arg(formatNumber(qRadiansToDegrees(radiansPerSecond), precision));
 }
 
+QString formatAngularVelocityDegreesValue(double radiansPerSecond, int precision = 3)
+{
+    return formatNumber(qRadiansToDegrees(radiansPerSecond), precision);
+}
+
 QString displayAngleDegrees(bool valid, double radians, int precision = 1)
 {
     return valid ? formatAngleDegrees(radians, precision) : QStringLiteral("--");
+}
+
+QString displayAngleDegreesValue(bool valid, double radians, int precision = 1)
+{
+    return valid ? formatAngleDegreesValue(radians, precision) : QStringLiteral("--");
 }
 
 QString displayAngularVelocityDegrees(bool valid, double radiansPerSecond, int precision = 3)
@@ -102,39 +117,40 @@ QString displayInt64(bool valid, qint64 value)
     return valid ? QString::number(value) : QStringLiteral("--");
 }
 
-QString waterTankStatusText(bool valid, int status)
+QString waterTankStatusText(bool valid, autoviz::model::WaterTankState state)
 {
     if (!valid) {
         return QStringLiteral("--");
     }
 
     QString description;
-    switch (status) {
-    case 0:
+    switch (state) {
+    case autoviz::model::WaterTankState::Idle:
         description = QObject::tr("空闲/停止");
         break;
-    case 1:
+    case autoviz::model::WaterTankState::Filling:
         description = QObject::tr("注水中");
         break;
-    case 2:
+    case autoviz::model::WaterTankState::Draining:
         description = QObject::tr("排水中");
         break;
-    case 3:
-        description = QObject::tr("重置中");
+    case autoviz::model::WaterTankState::ManualOverride:
+        description = QObject::tr("手动阀门直控");
         break;
-    case 4:
+    case autoviz::model::WaterTankState::Fault:
         description = QObject::tr("故障");
         break;
-    case 5:
+    case autoviz::model::WaterTankState::FillDone:
         description = QObject::tr("注水完成");
         break;
-    case 6:
+    case autoviz::model::WaterTankState::DrainDone:
         description = QObject::tr("排水完成");
         break;
+    case autoviz::model::WaterTankState::Unknown:
     default:
-        return QObject::tr("未知状态（%1）").arg(status);
+        return QObject::tr("未知状态");
     }
-    return QStringLiteral("%1（%2）").arg(description).arg(status);
+    return description;
 }
 
 QString waterTankLevelText(bool valid, int level, bool isRaw)
@@ -160,6 +176,35 @@ QString displayText(bool valid, const QString& text)
         return QStringLiteral("--");
     }
     return text;
+}
+
+QString detailCaption(const QString& text)
+{
+    return QStringLiteral("<span style=\"color:#60758A; font-weight:400;\">%1</span>")
+        .arg(text.toHtmlEscaped());
+}
+
+QString detailActual(const QString& text, bool warning = false)
+{
+    const QString color = warning ? QStringLiteral("#C44A00") : QStringLiteral("#182B40");
+    return QStringLiteral("<span style=\"color:%1; font-weight:700;\">%2</span>")
+        .arg(color, text.toHtmlEscaped());
+}
+
+QString detailActualWithColor(const QString& text, const QString& color)
+{
+    return QStringLiteral("<span style=\"color:%1; font-weight:700;\">%2</span>")
+        .arg(color, text.toHtmlEscaped());
+}
+
+QString detailField(const QString& caption, const QString& value, bool warning = false)
+{
+    return QStringLiteral("%1 %2").arg(detailCaption(caption), detailActual(value, warning));
+}
+
+QString joinDetailFields(const QStringList& fields, const QString& separator = QStringLiteral("&nbsp;&nbsp;·&nbsp;&nbsp;"))
+{
+    return fields.join(separator);
 }
 
 QTableWidgetItem* makeItem(const QString& text)
@@ -236,12 +281,14 @@ QString topicStateText(const autoviz::model::TopicStatus* status)
     return status->timedOut ? QStringLiteral("超时/未更新") : QStringLiteral("在线");
 }
 
-QString compactTopicStateText(const autoviz::model::TopicStatus* status)
+QString topicFreshnessText(const autoviz::model::TopicStatus* status)
 {
     if (status == nullptr || status->messageCount == 0) {
         return QStringLiteral("等待");
     }
-    return status->timedOut ? QStringLiteral("超时") : QStringLiteral("在线");
+    const QString age = formatAge(status->ageMs);
+    return status->timedOut ? QStringLiteral("超时（%1）").arg(age)
+                            : QStringLiteral("在线（%1）").arg(age);
 }
 
 QString dataSourceText(autoviz::datacenter::VisualizationInputSource inputSource)
@@ -259,7 +306,6 @@ QString dataSourceText(autoviz::datacenter::VisualizationInputSource inputSource
 
 bool isCrawlMode(const autoviz::model::ControlCommandStatus& control);
 bool isSailingMode(const autoviz::model::ControlCommandStatus& control);
-QString targetSpeedText(const autoviz::model::ControlCommandStatus& control);
 QString gearText(bool valid, int gear);
 
 QString actionStateText(bool valid, int state)
@@ -300,17 +346,6 @@ QString actionOwnerText(bool valid, int owner)
     }
 }
 
-double normalizeAngleRadians(double radians)
-{
-    while (radians > M_PI) {
-        radians -= 2.0 * M_PI;
-    }
-    while (radians < -M_PI) {
-        radians += 2.0 * M_PI;
-    }
-    return radians;
-}
-
 int explicitChassisFaultCount(const autoviz::model::ChassisRuntimeStatus& chassis)
 {
     if (!chassis.valid) {
@@ -340,8 +375,60 @@ int explicitChassisFaultCount(const autoviz::model::ChassisRuntimeStatus& chassi
     count += crawlMotorFault ? 1 : 0;
     count += bmsFault ? 1 : 0;
     count += bmsWarning ? 1 : 0;
-    count += chassis.waterTankStatus == 4 ? 1 : 0;
+    count += chassis.waterTankState == autoviz::model::WaterTankState::Fault ? 1 : 0;
     return count;
+}
+
+QStringList explicitChassisFaultReasons(const autoviz::model::ChassisRuntimeStatus& chassis)
+{
+    if (!chassis.valid) {
+        return {};
+    }
+
+    QStringList reasons;
+    if (chassis.leftTailActuatorStatus != 0
+        || chassis.rightTailActuatorStatus != 0
+        || chassis.leftVerticalActuatorStatus != 0
+        || chassis.rightVerticalActuatorStatus != 0
+        || chassis.backVerticalActuatorStatus != 0) {
+        reasons << QStringLiteral("水推执行器故障");
+    }
+    if (chassis.leftCrawlActuatorFaultCode != 0 || chassis.rightCrawlActuatorFaultCode != 0) {
+        reasons << QStringLiteral("履带控制器故障");
+    }
+    if (chassis.leftCrawlMotor.fault || chassis.rightCrawlMotor.fault
+        || chassis.leftCrawlMotor.faultCode != 0 || chassis.rightCrawlMotor.faultCode != 0) {
+        QStringList sides;
+        if (chassis.leftCrawlMotor.fault || chassis.leftCrawlMotor.faultCode != 0) {
+            sides << QStringLiteral("左");
+        }
+        if (chassis.rightCrawlMotor.fault || chassis.rightCrawlMotor.faultCode != 0) {
+            sides << QStringLiteral("右");
+        }
+        reasons << QStringLiteral("履带电机状态故障（%1）").arg(sides.join(QStringLiteral("/")));
+    }
+    if (chassis.highVoltageBmsStatus != 0
+        || (chassis.bms.valid && chassis.bms.selfCheckStatus != 0)) {
+        reasons << QStringLiteral("BMS 自检故障");
+    }
+    if (chassis.bms.valid && std::any_of(chassis.bms.warningCodes.cbegin(),
+                                         chassis.bms.warningCodes.cend(),
+                                         [](int code) { return code != 0; })) {
+        reasons << QStringLiteral("BMS 告警");
+    }
+    if (chassis.waterTankState == autoviz::model::WaterTankState::Fault) {
+        reasons << QStringLiteral("压载水箱故障");
+    }
+    return reasons;
+}
+
+QString chassisFaultSummaryText(const autoviz::model::ChassisRuntimeStatus& chassis)
+{
+    if (!chassis.valid) {
+        return QStringLiteral("--");
+    }
+    const QStringList reasons = explicitChassisFaultReasons(chassis);
+    return reasons.isEmpty() ? QStringLiteral("无显式故障") : reasons.join(QStringLiteral("；"));
 }
 
 QString chassisHealthText(const autoviz::model::ChassisRuntimeStatus& chassis,
@@ -356,7 +443,8 @@ QString chassisHealthText(const autoviz::model::ChassisRuntimeStatus& chassis,
     if (!chassis.valid) {
         return QStringLiteral("等待底盘状态");
     }
-    return QStringLiteral("消息在线 / 显式故障 %1").arg(explicitChassisFaultCount(chassis));
+    return explicitChassisFaultCount(chassis) == 0 ? QStringLiteral("消息在线 / 无显式故障")
+                                                   : QStringLiteral("消息在线 / 有显式故障");
 }
 
 QString bmsSummaryText(const autoviz::model::ChassisRuntimeStatus& chassis)
@@ -379,15 +467,12 @@ QString bmsSummaryText(const autoviz::model::ChassisRuntimeStatus& chassis)
         .arg(soc);
 }
 
-QString powerSummaryText(const autoviz::model::ChassisRuntimeStatus& chassis)
+QString powerInputVoltageText(const autoviz::model::ChassisRuntimeStatus& chassis)
 {
     if (!chassis.valid) {
         return QStringLiteral("--");
     }
-    const QString channelText = chassis.powerSupplyStatuses.isEmpty()
-                                    ? QStringLiteral("通道状态未映射")
-                                    : QStringLiteral("%1 路状态码").arg(chassis.powerSupplyStatuses.size());
-    return QStringLiteral("输入 %1 V / %2").arg(formatNumber(chassis.smartPowerInputVoltageStatus, 1), channelText);
+    return formatNumber(chassis.smartPowerInputVoltageStatus, 1);
 }
 
 QString motorFeedbackText(const autoviz::model::CrawlMotorRuntimeStatus& motor)
@@ -395,11 +480,11 @@ QString motorFeedbackText(const autoviz::model::CrawlMotorRuntimeStatus& motor)
     if (!motor.valid) {
         return QStringLiteral("--");
     }
-    return QStringLiteral("%1 rpm / %2 °C / %3 V / 故障码 %4")
-        .arg(formatNumber(motor.speedRpm, 1))
-        .arg(motor.temperature)
-        .arg(formatNumber(motor.busVoltage, 1))
-        .arg(motor.faultCode);
+    return joinDetailFields({detailField(QStringLiteral("转速"), QStringLiteral("%1 rpm").arg(formatNumber(motor.speedRpm, 1))),
+                             detailField(QStringLiteral("温度"), QStringLiteral("%1 °C").arg(motor.temperature)),
+                             detailField(QStringLiteral("母线电压"), QStringLiteral("%1 V").arg(formatNumber(motor.busVoltage, 1))),
+                             detailField(QStringLiteral("故障状态"), motor.fault ? QStringLiteral("是") : QStringLiteral("否"), motor.fault),
+                             detailField(QStringLiteral("故障码"), QString::number(motor.faultCode), motor.faultCode != 0)});
 }
 
 QString motorControllerText(const autoviz::model::CrawlMotorRuntimeStatus& left,
@@ -408,11 +493,14 @@ QString motorControllerText(const autoviz::model::CrawlMotorRuntimeStatus& left,
     if (!left.valid && !right.valid) {
         return QStringLiteral("--");
     }
-    return QStringLiteral("左 就绪/%1 / 输出/%2；右 就绪/%3 / 输出/%4")
-        .arg(left.controllerReady ? QStringLiteral("是") : QStringLiteral("否"))
-        .arg(left.outputEnabled ? QStringLiteral("是") : QStringLiteral("否"))
-        .arg(right.controllerReady ? QStringLiteral("是") : QStringLiteral("否"))
-        .arg(right.outputEnabled ? QStringLiteral("是") : QStringLiteral("否"));
+    return joinDetailFields({QStringLiteral("%1：%2，%3")
+                                 .arg(detailCaption(QStringLiteral("左")),
+                                      detailField(QStringLiteral("就绪"), left.controllerReady ? QStringLiteral("是") : QStringLiteral("否")),
+                                      detailField(QStringLiteral("输出"), left.outputEnabled ? QStringLiteral("是") : QStringLiteral("否"))),
+                             QStringLiteral("%1：%2，%3")
+                                 .arg(detailCaption(QStringLiteral("右")),
+                                      detailField(QStringLiteral("就绪"), right.controllerReady ? QStringLiteral("是") : QStringLiteral("否")),
+                                      detailField(QStringLiteral("输出"), right.outputEnabled ? QStringLiteral("是") : QStringLiteral("否")))});
 }
 
 QString motorCommandText(const autoviz::model::CrawlMotorRuntimeStatus& left,
@@ -421,13 +509,16 @@ QString motorCommandText(const autoviz::model::CrawlMotorRuntimeStatus& left,
     if (!left.valid && !right.valid) {
         return QStringLiteral("--");
     }
-    return QStringLiteral("左 %1 / %2 / %3 rpm；右 %4 / %5 / %6 rpm")
-        .arg(left.commandEnable ? QStringLiteral("使能") : QStringLiteral("关闭"))
-        .arg(left.commandSpeedMode ? QStringLiteral("速度") : QStringLiteral("转矩"))
-        .arg(formatNumber(left.commandSpeedRpm, 1))
-        .arg(right.commandEnable ? QStringLiteral("使能") : QStringLiteral("关闭"))
-        .arg(right.commandSpeedMode ? QStringLiteral("速度") : QStringLiteral("转矩"))
-        .arg(formatNumber(right.commandSpeedRpm, 1));
+    return joinDetailFields({QStringLiteral("%1：%2，%3，%4")
+                                 .arg(detailCaption(QStringLiteral("左")),
+                                      detailField(QStringLiteral("使能"), left.commandEnable ? QStringLiteral("是") : QStringLiteral("否")),
+                                      detailField(QStringLiteral("模式"), left.commandSpeedMode ? QStringLiteral("速度") : QStringLiteral("转矩")),
+                                      detailField(QStringLiteral("目标速度"), QStringLiteral("%1 rpm").arg(formatNumber(left.commandSpeedRpm, 1)))),
+                             QStringLiteral("%1：%2，%3，%4")
+                                 .arg(detailCaption(QStringLiteral("右")),
+                                      detailField(QStringLiteral("使能"), right.commandEnable ? QStringLiteral("是") : QStringLiteral("否")),
+                                      detailField(QStringLiteral("模式"), right.commandSpeedMode ? QStringLiteral("速度") : QStringLiteral("转矩")),
+                                      detailField(QStringLiteral("目标速度"), QStringLiteral("%1 rpm").arg(formatNumber(right.commandSpeedRpm, 1))))});
 }
 
 QString bmsPackText(const autoviz::model::ChassisRuntimeStatus& chassis)
@@ -435,10 +526,12 @@ QString bmsPackText(const autoviz::model::ChassisRuntimeStatus& chassis)
     if (!chassis.valid || !chassis.bms.valid) {
         return QStringLiteral("--");
     }
-    return QStringLiteral("%1 V / %2 A / 状态码 %3")
-        .arg(formatNumber(chassis.bms.packVoltage, 2))
-        .arg(formatNumber(chassis.bms.packCurrent, 2))
-        .arg(chassis.bms.currentStatus);
+    const QString state = chassis.bms.currentStatus == 0 ? QStringLiteral("输出断开（0）")
+                                                          : chassis.bms.currentStatus == 1 ? QStringLiteral("上电完成（1）")
+                                                                                          : QStringLiteral("未知（%1）").arg(chassis.bms.currentStatus);
+    return joinDetailFields({detailField(QStringLiteral("组电压"), QStringLiteral("%1 V").arg(formatNumber(chassis.bms.packVoltage, 2))),
+                             detailField(QStringLiteral("组电流"), QStringLiteral("%1 A").arg(formatNumber(chassis.bms.packCurrent, 2))),
+                             detailField(QStringLiteral("当前状态"), state)});
 }
 
 QString bmsCellText(const autoviz::model::ChassisRuntimeStatus& chassis)
@@ -474,7 +567,8 @@ QString bmsWarningCodesText(const autoviz::model::ChassisRuntimeStatus& chassis)
     for (const int code : chassis.bms.warningCodes) {
         codes.push_back(QString::number(code));
     }
-    return QStringLiteral("等级 %1 / 原始码 [%2]").arg(chassis.bms.alarmLevel).arg(codes.join(QStringLiteral(", ")));
+    return joinDetailFields({detailField(QStringLiteral("告警等级"), QString::number(chassis.bms.alarmLevel), chassis.bms.alarmLevel != 0),
+                             detailField(QStringLiteral("原始码"), QStringLiteral("[%1]").arg(codes.join(QStringLiteral(", "))))});
 }
 
 QString powerSupplyStatusText(const autoviz::model::ChassisRuntimeStatus& chassis)
@@ -482,11 +576,42 @@ QString powerSupplyStatusText(const autoviz::model::ChassisRuntimeStatus& chassi
     if (!chassis.valid || chassis.powerSupplyStatuses.isEmpty()) {
         return QStringLiteral("--");
     }
-    QStringList codes;
+    const auto powerState = [](int code) {
+        switch (code) {
+        case 0:
+            return qMakePair(QStringLiteral("关闭"), QStringLiteral("#182B40"));
+        case 1:
+            return qMakePair(QStringLiteral("接通"), QStringLiteral("#078A55"));
+        case 2:
+            return qMakePair(QStringLiteral("过流"), QStringLiteral("#C44A00"));
+        case 3:
+            return qMakePair(QStringLiteral("短路"), QStringLiteral("#B77A00"));
+        default:
+            return qMakePair(QStringLiteral("未知（%1）").arg(code), QStringLiteral("#C44A00"));
+        }
+    };
+
+    QStringList states;
     for (int index = 0; index < chassis.powerSupplyStatuses.size(); ++index) {
-        codes.push_back(QStringLiteral("%1:%2").arg(index + 1).arg(chassis.powerSupplyStatuses.at(index)));
+        const auto state = powerState(chassis.powerSupplyStatuses.at(index));
+        states.push_back(detailActualWithColor(QString::number(index + 1), state.second));
     }
-    return codes.join(QStringLiteral(" / "));
+    const int firstLineCount = qMin(8, states.size());
+    const QString firstLine = joinDetailFields(states.mid(0, firstLineCount));
+    const QString secondLine = states.size() > firstLineCount
+                                   ? joinDetailFields(states.mid(firstLineCount), QStringLiteral("&nbsp;&nbsp;·&nbsp;&nbsp;"))
+                                   : QString();
+    return secondLine.isEmpty() ? firstLine : QStringLiteral("%1<br>%2").arg(firstLine, secondLine);
+}
+
+QString powerSupplyLegendText()
+{
+    return QStringLiteral("%1 %2&nbsp;&nbsp;%3&nbsp;&nbsp;%4&nbsp;&nbsp;%5")
+        .arg(detailCaption(QStringLiteral("颜色说明：")),
+             detailActualWithColor(QStringLiteral("关闭"), QStringLiteral("#182B40")),
+             detailActualWithColor(QStringLiteral("接通"), QStringLiteral("#078A55")),
+             detailActualWithColor(QStringLiteral("过流"), QStringLiteral("#C44A00")),
+             detailActualWithColor(QStringLiteral("短路"), QStringLiteral("#B77A00")));
 }
 
 QString pathStatusText(const autoviz::model::PathRuntimeStatus& path)
@@ -520,21 +645,9 @@ QString headingSummaryText(const autoviz::model::LocalizationStatus& localizatio
         hasTarget = true;
     }
 
-    const QString feedback = displayAngleDegrees(localization.valid, localization.heading);
-    if (!hasTarget) {
-        return feedback == QStringLiteral("--") ? QStringLiteral("--")
-                                                 : QStringLiteral("反馈 %1").arg(feedback);
-    }
-    const QString command = formatAngleDegrees(targetHeading);
-    if (!localization.valid) {
-        return QStringLiteral("下发 %1 / 反馈 --").arg(command);
-    }
-
-    const double error = normalizeAngleRadians(targetHeading - localization.heading);
-    return QStringLiteral("下发 %1 / 反馈 %2 / 误差 %3")
-        .arg(command)
-        .arg(feedback)
-        .arg(formatAngleDegrees(error));
+    const QString command = hasTarget ? formatAngleDegreesValue(targetHeading) : QStringLiteral("--");
+    const QString feedback = displayAngleDegreesValue(localization.valid, localization.heading);
+    return QStringLiteral("%1 / %2").arg(command, feedback);
 }
 
 QString angularVelocitySummaryText(const autoviz::model::LocalizationStatus& localization,
@@ -551,14 +664,11 @@ QString angularVelocitySummaryText(const autoviz::model::LocalizationStatus& loc
         target = action.targetAngularVelocity;
         hasTarget = true;
     }
-    const QString feedback = chassis.valid
-                                 ? displayAngularVelocityDegrees(true, chassis.currentAngularVelocity)
-                                 : displayAngularVelocityDegrees(localization.valid, localization.omegaZ);
-    if (!hasTarget && feedback == QStringLiteral("--")) {
-        return QStringLiteral("--");
-    }
-    return hasTarget ? QStringLiteral("下发 %1 / 反馈 %2").arg(formatAngularVelocityDegrees(target), feedback)
-                     : QStringLiteral("反馈 %1").arg(feedback);
+    const bool hasFeedback = chassis.valid || localization.valid;
+    const double feedbackValue = chassis.valid ? chassis.currentAngularVelocity : localization.omegaZ;
+    const QString command = hasTarget ? formatAngularVelocityDegreesValue(target) : QStringLiteral("--");
+    const QString feedback = hasFeedback ? formatAngularVelocityDegreesValue(feedbackValue) : QStringLiteral("--");
+    return QStringLiteral("%1 / %2").arg(command, feedback);
 }
 
 QString speedSummaryText(const autoviz::model::ControlCommandStatus& control,
@@ -566,20 +676,23 @@ QString speedSummaryText(const autoviz::model::ControlCommandStatus& control,
                          const autoviz::model::ChassisRuntimeStatus& chassis,
                          const autoviz::model::ActionRuntimeStatus& action)
 {
-    QString target = targetSpeedText(control);
-    if (target == QStringLiteral("--") && action.valid) {
-        target = formatNumber(action.targetSpeed, 2);
+    bool hasTarget = false;
+    double target = 0.0;
+    if (isCrawlMode(control) || isSailingMode(control)) {
+        hasTarget = true;
+        target = control.speed;
+    } else if (action.valid) {
+        hasTarget = true;
+        target = action.targetSpeed;
     }
-    QString actual;
-    if (isCrawlMode(control) || (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode))) {
-        actual = displayNumber(chassis.valid, chassis.currentSpeed, 2);
-    } else {
-        actual = displayNumber(localization.valid, localization.velocity, 2);
-    }
-    if (target == QStringLiteral("--")) {
-        return actual == QStringLiteral("--") ? QStringLiteral("--") : QStringLiteral("反馈 %1 m/s").arg(actual);
-    }
-    return QStringLiteral("下发 %1 / 反馈 %2 m/s").arg(target, actual);
+
+    const bool useCrawlFeedback = isCrawlMode(control)
+                                   || (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode));
+    const bool hasFeedback = useCrawlFeedback ? chassis.valid : localization.valid;
+    const double feedback = useCrawlFeedback ? chassis.currentSpeed : localization.velocity;
+    const QString targetText = hasTarget ? formatNumber(target, 2) : QStringLiteral("--");
+    const QString feedbackText = hasFeedback ? formatNumber(feedback, 2) : QStringLiteral("--");
+    return QStringLiteral("%1 / %2").arg(targetText, feedbackText);
 }
 
 QString gearSummaryText(const autoviz::model::ControlCommandStatus& control,
@@ -590,17 +703,7 @@ QString gearSummaryText(const autoviz::model::ControlCommandStatus& control,
     if (target == QStringLiteral("--") && actual == QStringLiteral("--")) {
         return QStringLiteral("--");
     }
-    return QStringLiteral("下发 %1 / 反馈 %2").arg(target, actual);
-}
-
-QString linkSummaryText(const autoviz::datacenter::VisualizationSnapshot& snapshot)
-{
-    const auto* location = findTopicStatus(snapshot.topicStatuses, QStringLiteral("/location"));
-    const auto* control = findTopicStatus(snapshot.topicStatuses, QStringLiteral("/chassis_command"));
-    const auto* chassis = findTopicStatus(snapshot.topicStatuses, QStringLiteral("/chassis_states"));
-    const auto* action = findTopicStatus(snapshot.topicStatuses, QStringLiteral("/system_run_states"));
-    return QStringLiteral("定位 %1 / 控制 %2 / 底盘 %3 / 任务 %4")
-        .arg(compactTopicStateText(location), compactTopicStateText(control), compactTopicStateText(chassis), compactTopicStateText(action));
+    return QStringLiteral("%1 / %2").arg(target, actual);
 }
 
 QString overallStateText(const autoviz::datacenter::VisualizationSnapshot& snapshot)
@@ -619,6 +722,14 @@ QString overallStateText(const autoviz::datacenter::VisualizationSnapshot& snaps
 
     if (snapshot.taskRuntimeStatus.valid && snapshot.taskRuntimeStatus.emergencyStop) {
         return QStringLiteral("急停");
+    }
+
+    if (snapshot.chassisRuntimeStatus.valid && snapshot.chassisRuntimeStatus.emergencyAscentActive) {
+        return QStringLiteral("紧急上浮执行中");
+    }
+    if ((snapshot.controlCommandStatus.valid && snapshot.controlCommandStatus.emergencyAscent)
+        || (snapshot.actionRuntimeStatus.valid && snapshot.actionRuntimeStatus.emergencyAscent)) {
+        return QStringLiteral("紧急上浮请求");
     }
 
     const auto* chassis = findTopicStatus(snapshot.topicStatuses, QStringLiteral("/chassis_states"));
@@ -760,21 +871,10 @@ bool isSailingMode(const autoviz::model::ControlCommandStatus& control)
     return control.valid && autoviz::model::isSailingChassisMode(control.mode);
 }
 
-QString targetSpeedText(const autoviz::model::ControlCommandStatus& control)
-{
-    if (isCrawlMode(control)) {
-        return formatNumber(control.speed, 2);
-    }
-    if (isSailingMode(control)) {
-        return formatNumber(control.speed, 2);
-    }
-    return QStringLiteral("--");
-}
-
 bool isOverviewBadgeKey(const QString& key)
 {
     return key == QStringLiteral("system.state")
-           || key == QStringLiteral("system.links")
+           || key == QStringLiteral("system.emergency_ascent")
            || key == QStringLiteral("system.action")
            || key == QStringLiteral("command.state")
            || key == QStringLiteral("path.global")
@@ -817,9 +917,11 @@ QString overviewBadgeObjectName(const QString& text)
     const bool hasFault = text.contains(QStringLiteral("故障"))
                           && !text.contains(QStringLiteral("故障 0"))
                           && !text.contains(QStringLiteral("故障项 0"))
-                          && !text.contains(QStringLiteral("显式故障 0"));
+                          && !text.contains(QStringLiteral("显式故障 0"))
+                          && !text.contains(QStringLiteral("无显式故障"));
     const bool hasWarning = text.contains(QStringLiteral("告警")) && !text.contains(QStringLiteral("告警 0"));
     if (text.contains(QStringLiteral("急停")) ||
+        text.contains(QStringLiteral("紧急上浮")) ||
         text.contains(QStringLiteral("超时")) ||
         text.contains(QStringLiteral("失配")) ||
         text.contains(QStringLiteral("已中止")) ||
@@ -948,26 +1050,26 @@ void BottomStatusPanel::setupOverviewTab()
                                            {QStringLiteral("system.action"), tr("任务执行")},
                                            {QStringLiteral("system.owner"), tr("控制归属")},
                                            {QStringLiteral("system.task"), tr("任务类型/ID")},
-                                           {QStringLiteral("system.links"), tr("关键链路")},
                                            {QStringLiteral("system.estop"), tr("急停状态")},
+                                           {QStringLiteral("system.emergency_ascent"), tr("紧急上浮（命令/执行）")},
                                            {QStringLiteral("system.enable"), tr("动作使能")}}),
                       0,
                       0);
     layout->addWidget(createOverviewGroup(tab,
                                           tr("当前运动"),
                                           {{QStringLiteral("control.mode"), tr("底盘模式")},
-                                           {QStringLiteral("control.speed"), tr("当前速度 (m/s)")},
-                                           {QStringLiteral("control.heading"), tr("当前航向 (°)")},
-                                           {QStringLiteral("control.angular"), tr("当前角速度 (°/s)")},
+                                           {QStringLiteral("control.speed"), tr("当前速度（m/s）")},
+                                           {QStringLiteral("control.heading"), tr("当前航向（°）")},
+                                           {QStringLiteral("control.angular"), tr("当前角速度（°/s）")},
                                            {QStringLiteral("control.gear"), tr("当前档位")},
                                            {QStringLiteral("pose.age"), tr("定位延迟")}}),
                       0,
                       1);
     layout->addWidget(createOverviewGroup(tab,
                                           tr("控制指令"),
-                                          {{QStringLiteral("command.speed"), tr("速度（下发/反馈）")},
-                                           {QStringLiteral("command.heading"), tr("航向（下发/反馈）")},
-                                           {QStringLiteral("command.angular"), tr("角速度（下发/反馈）")},
+                                          {{QStringLiteral("command.speed"), tr("速度（m/s，cmd/rev）")},
+                                           {QStringLiteral("command.heading"), tr("航向（°，cmd/rev）")},
+                                           {QStringLiteral("command.angular"), tr("角速度（°/s，cmd/rev）")},
                                            {QStringLiteral("command.gear"), tr("档位（下发/反馈）")},
                                            {QStringLiteral("command.state"), tr("指令状态")}}),
                       0,
@@ -975,8 +1077,8 @@ void BottomStatusPanel::setupOverviewTab()
     layout->addWidget(createOverviewGroup(tab,
                                           tr("垂向与浮力"),
                                           {{QStringLiteral("vertical.navi_mode"), tr("航行依赖")},
-                                           {QStringLiteral("vertical.depth"), tr("深度 (m)")},
-                                           {QStringLiteral("vertical.height"), tr("高度 (m)")},
+                                           {QStringLiteral("vertical.depth"), tr("深度（m，当前/目标）")},
+                                           {QStringLiteral("vertical.height"), tr("高度（m，当前/目标）")},
                                            {QStringLiteral("vertical.tank_level"), tr("水箱液位")},
                                            {QStringLiteral("vertical.tank_state"), tr("水箱状态")}}),
                       1,
@@ -994,10 +1096,10 @@ void BottomStatusPanel::setupOverviewTab()
     layout->addWidget(createOverviewGroup(tab,
                                           tr("硬件健康"),
                                           {{QStringLiteral("hardware.feedback"), tr("底盘反馈")},
-                                           {QStringLiteral("hardware.faults"), tr("显式故障项")},
+                                           {QStringLiteral("hardware.faults"), tr("显式故障")},
                                            {QStringLiteral("hardware.bms"), tr("BMS")},
                                            {QStringLiteral("hardware.dcdc"), tr("DCDC")},
-                                           {QStringLiteral("hardware.power"), tr("配电输入")},
+                                           {QStringLiteral("hardware.power"), tr("配电输入（V）")},
                                            {QStringLiteral("hardware.heartbeat"), tr("控制器心跳")}}),
                       1,
                       2);
@@ -1041,8 +1143,9 @@ QGroupBox* BottomStatusPanel::createOverviewGroup(QWidget* parent,
         valueLabel->setProperty("class", QVariant(isOverviewBadgeKey(field.first) ? QStringLiteral("status-badge") : QStringLiteral("status-value")));
         valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         valueLabel->setTextInteractionFlags(Qt::NoTextInteraction);
+        valueLabel->setWordWrap(field.first == QStringLiteral("hardware.faults"));
         valueLabel->setMinimumWidth(scale.scaled(132));
-        valueLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        valueLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         layout->addWidget(keyLabel, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
         layout->addWidget(valueLabel, row, 2, Qt::AlignRight | Qt::AlignVCenter);
         m_overviewValues.insert(field.first, valueLabel);
@@ -1059,6 +1162,7 @@ void BottomStatusPanel::setOverviewValue(const QString& key, const QString& valu
         return;
     }
     label->setText(value);
+    label->setToolTip(value);
     if (isOverviewBadgeKey(key)) {
         label->setProperty("class", QVariant(QStringLiteral("status-badge")));
         label->setObjectName(overviewBadgeObjectName(value));
@@ -1119,6 +1223,7 @@ QGroupBox* BottomStatusPanel::createDetailGroup(QWidget* parent,
     layout->setColumnStretch(1, 1);
     layout->setColumnStretch(2, 0);
     layout->setColumnMinimumWidth(2, scale.scaled(150));
+    const bool wrapLongValues = title == tr("履带驱动回采");
 
     int row = 0;
     for (const auto& field : fields) {
@@ -1133,11 +1238,12 @@ QGroupBox* BottomStatusPanel::createDetailGroup(QWidget* parent,
         valueLabel->setProperty("class", QVariant(QStringLiteral("status-value")));
         valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        valueLabel->setWordWrap(wrapLongValues);
         valueLabel->setMinimumWidth(scale.scaled(150));
-        valueLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        valueLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
         layout->addWidget(keyLabel, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
-        layout->addWidget(valueLabel, row, 2, Qt::AlignRight | Qt::AlignVCenter);
+        layout->addWidget(valueLabel, row, 1, 1, 2);
         m_detailValues.insert(field.first, valueLabel);
         ++row;
     }
@@ -1252,6 +1358,7 @@ void BottomStatusPanel::setupStateTabs()
                     {{tr("基础状态"),
                       {{QStringLiteral("loc.state"), tr("数据状态")},
                        {QStringLiteral("loc.time"), tr("更新时间")},
+                       {QStringLiteral("loc.topic"), tr("/location 状态")},
                        {QStringLiteral("loc.gps_time"), tr("GPS 时间")},
                        {QStringLiteral("loc.status_error"), tr("定位状态/错误码")}}},
                      {tr("空间姿态"),
@@ -1274,13 +1381,15 @@ void BottomStatusPanel::setupStateTabs()
                      {tr("压载与电源"),
                       {{QStringLiteral("chassis.tank_level"), tr("水箱液位状态")},
                        {QStringLiteral("chassis.tank_state"), tr("压载水箱状态")},
+                       {QStringLiteral("chassis.emergency_ascent"), tr("紧急上浮实际执行")},
                        {QStringLiteral("chassis.bms_dcdc"), tr("高压 BMS / DCDC")},
                        {QStringLiteral("chassis.bms_soc"), tr("高压 BMS SOC")},
                        {QStringLiteral("chassis.bms_pack"), tr("BMS 电池组 V/A")},
                        {QStringLiteral("chassis.bms_cell"), tr("BMS 单体电压")},
                        {QStringLiteral("chassis.bms_temperature"), tr("BMS 温度")},
                        {QStringLiteral("chassis.bms_warning"), tr("BMS 告警码")},
-                       {QStringLiteral("chassis.power_channels"), tr("配电通道状态码")},
+                       {QStringLiteral("chassis.power_channels"), tr("配电通道状态")},
+                       {QStringLiteral("chassis.power_legend"), tr("配电状态说明")},
                        {QStringLiteral("chassis.input_voltage"), tr("智能电源输入电压")}}},
                      {tr("履带驱动回采"),
                       {{QStringLiteral("chassis.left_motor"), tr("左履带电机")},
@@ -1288,10 +1397,11 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("chassis.motor_controller"), tr("控制器就绪/输出")},
                        {QStringLiteral("chassis.motor_command"), tr("指令回采")}}},
                      {tr("执行器与故障"),
-                      {{QStringLiteral("chassis.heartbeat"), tr("水面/爬行心跳")},
+                     {{QStringLiteral("chassis.heartbeat"), tr("水面/爬行心跳")},
                        {QStringLiteral("chassis.tail_actuator"), tr("尾部执行器 L/R")},
                        {QStringLiteral("chassis.vertical_actuator"), tr("垂向执行器 L/R/B")},
-                       {QStringLiteral("chassis.crawl_fault"), tr("爬行故障 L/R")}}}});
+                       {QStringLiteral("chassis.crawl_fault"), tr("爬行故障 L/R")}}}},
+                    1);
 
     createDetailTab(tr("控制"),
                     {{tr("控制使能"),
@@ -1305,7 +1415,7 @@ void BottomStatusPanel::setupStateTabs()
                       {{QStringLiteral("control.crawl_velocity"), tr("爬行线速度/角速度 (m/s, °/s)")},
                        {QStringLiteral("control.speed_heading"), tr("期望速度/航向 (m/s, °)")},
                        {QStringLiteral("control.depth_height"), tr("期望深度/高度")},
-                       {QStringLiteral("control.dive_speed"), tr("下潜速度")}}},
+                       {QStringLiteral("control.emergency_ascent"), tr("紧急上浮命令")}}},
                      {tr("执行器指令"),
                       {{QStringLiteral("control.water_actuator"), tr("水面执行器 L/R")},
                        {QStringLiteral("control.buoyancy"), tr("浮力调节步长")},
@@ -1335,6 +1445,7 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("action.mode"), tr("运行模式")},
                        {QStringLiteral("action.state"), tr("数据状态")},
                        {QStringLiteral("action.time"), tr("更新时间")},
+                       {QStringLiteral("action.topic"), tr("/system_run_states 状态")},
                        {QStringLiteral("action.owner"), tr("控制归属")},
                        {QStringLiteral("action.goal_uuid"), tr("Goal UUID")},
                        {QStringLiteral("action.run_state"), tr("运行状态码")}}},
@@ -1345,12 +1456,14 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("action.target_speed"), tr("期望前向速度")},
                        {QStringLiteral("action.target_attitude"), tr("目标航向/角速度 (°, °/s)")},
                        {QStringLiteral("action.target_vertical"), tr("目标深度/高度")},
-                       {QStringLiteral("action.buoyancy"), tr("浮力调节步长")}}},
+                       {QStringLiteral("action.buoyancy"), tr("浮力调节步长")},
+                       {QStringLiteral("action.emergency_ascent"), tr("紧急上浮状态")}}},
                      {tr("任务参数"),
                       {{QStringLiteral("task.state"), tr("任务数据状态")},
                        {QStringLiteral("task.type_id"), tr("任务类型/ID")},
                        {QStringLiteral("task.enable_estop"), tr("任务使能/急停")},
-                       {QStringLiteral("task.remote_power"), tr("遥控模式/电源使能")}}}});
+                       {QStringLiteral("task.remote_power"), tr("遥控模式/电源使能")},
+                       {QStringLiteral("task.release_emergency_ascent"), tr("紧急上浮解除按钮")}}}});
 
     createDetailTab(tr("垂向"),
                     {{tr("垂向反馈"),
@@ -1384,8 +1497,15 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
     setOverviewValue(QStringLiteral("system.action"), actionStateText(action.valid, action.state));
     setOverviewValue(QStringLiteral("system.owner"), actionOwnerText(action.valid, action.owner));
     setOverviewValue(QStringLiteral("system.estop"), displayBool(task.valid, task.emergencyStop));
+    const bool emergencyAscentRequested = (control.valid && control.emergencyAscent)
+                                          || (action.valid && action.emergencyAscent);
+    const QString emergencyAscentText = !control.valid && !action.valid && !chassis.valid
+                                            ? QStringLiteral("--")
+                                            : QStringLiteral("%1 / %2")
+                                                  .arg(emergencyAscentRequested ? tr("紧急上浮请求") : tr("无请求"),
+                                                       chassis.valid && chassis.emergencyAscentActive ? tr("执行中") : tr("未执行"));
+    setOverviewValue(QStringLiteral("system.emergency_ascent"), emergencyAscentText);
     setOverviewValue(QStringLiteral("system.task"), taskTypeAndIdText(task));
-    setOverviewValue(QStringLiteral("system.links"), linkSummaryText(snapshot));
     setOverviewValue(QStringLiteral("system.enable"), control.valid ? displayBool(true, control.isEnable)
                                                                       : displayBool(action.valid, action.isEnable));
 
@@ -1400,12 +1520,13 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
                                       : displayNumber(loc.valid, loc.velocity, 2);
     setOverviewValue(QStringLiteral("control.speed"), feedbackSpeed == QStringLiteral("--")
                                                             ? QStringLiteral("--")
-                                                            : QStringLiteral("%1 m/s").arg(feedbackSpeed));
-    setOverviewValue(QStringLiteral("control.heading"), displayAngleDegrees(loc.valid, loc.heading));
-    const QString feedbackAngular = chassis.valid
-                                        ? displayAngularVelocityDegrees(true, chassis.currentAngularVelocity)
-                                        : displayAngularVelocityDegrees(loc.valid, loc.omegaZ);
-    setOverviewValue(QStringLiteral("control.angular"), feedbackAngular);
+                                                            : feedbackSpeed);
+    setOverviewValue(QStringLiteral("control.heading"), displayAngleDegreesValue(loc.valid, loc.heading));
+    const bool hasAngularFeedback = chassis.valid || loc.valid;
+    const double angularFeedback = chassis.valid ? chassis.currentAngularVelocity : loc.omegaZ;
+    setOverviewValue(QStringLiteral("control.angular"), hasAngularFeedback
+                                                              ? formatAngularVelocityDegreesValue(angularFeedback)
+                                                              : QStringLiteral("--"));
     setOverviewValue(QStringLiteral("control.gear"), gearText(chassis.valid, chassis.gearStatus));
 
     setOverviewValue(QStringLiteral("command.speed"), speedSummaryText(control, loc, chassis, action));
@@ -1420,11 +1541,10 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
     setOverviewValue(QStringLiteral("command.state"), commandState);
 
     setOverviewValue(QStringLiteral("hardware.feedback"), chassisHealthText(chassis, chassisTopic));
-    const int faultCount = explicitChassisFaultCount(chassis);
-    setOverviewValue(QStringLiteral("hardware.faults"), faultCount < 0 ? QStringLiteral("--") : QStringLiteral("故障项 %1").arg(faultCount));
+    setOverviewValue(QStringLiteral("hardware.faults"), chassisFaultSummaryText(chassis));
     setOverviewValue(QStringLiteral("hardware.bms"), bmsSummaryText(chassis));
     setOverviewValue(QStringLiteral("hardware.dcdc"), displayBool(chassis.valid, chassis.dccdcStatus));
-    setOverviewValue(QStringLiteral("hardware.power"), powerSummaryText(chassis));
+    setOverviewValue(QStringLiteral("hardware.power"), powerInputVoltageText(chassis));
     setOverviewValue(QStringLiteral("hardware.heartbeat"), chassis.valid
                                                                ? QStringLiteral("水推 %1 / 履带 %2").arg(chassis.waterHeartbeat).arg(chassis.crawlHeartbeat)
                                                                : QStringLiteral("--"));
@@ -1436,12 +1556,12 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
     const QString targetHeight = displayNumber(action.valid, action.targetHeight, 2);
     setOverviewValue(QStringLiteral("vertical.depth"), currentDepth == QStringLiteral("--") && targetDepth == QStringLiteral("--")
                                                             ? QStringLiteral("--")
-                                                            : QStringLiteral("当前 %1 / 目标 %2").arg(currentDepth, targetDepth));
+                                                            : QStringLiteral("%1 / %2").arg(currentDepth, targetDepth));
     setOverviewValue(QStringLiteral("vertical.height"), currentHeight == QStringLiteral("--") && targetHeight == QStringLiteral("--")
                                                              ? QStringLiteral("--")
-                                                             : QStringLiteral("当前 %1 / 目标 %2").arg(currentHeight, targetHeight));
+                                                             : QStringLiteral("%1 / %2").arg(currentHeight, targetHeight));
     setOverviewValue(QStringLiteral("vertical.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
-    setOverviewValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankStatus));
+    setOverviewValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
 
     setOverviewValue(QStringLiteral("path.global"), pathStatusText(globalPath));
     setOverviewValue(QStringLiteral("path.local"), pathStatusText(localPath));
@@ -1492,6 +1612,7 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     const auto& loc = snapshot.localizationStatus;
     setDetailValue(QStringLiteral("loc.state"), validText(loc.valid));
     setDetailValue(QStringLiteral("loc.time"), formatTime(loc.timestampMs));
+    setDetailValue(QStringLiteral("loc.topic"), topicFreshnessText(findTopicStatus(snapshot.topicStatuses, QStringLiteral("/location"))));
     setDetailValue(QStringLiteral("loc.gps_time"), displayInt64(loc.valid, loc.gpsTime));
     setDetailValue(QStringLiteral("loc.status_error"), loc.valid ? QStringLiteral("%1 / %2").arg(loc.status).arg(loc.error) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.odom"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.odomX), formatNumber(loc.odomY), formatNumber(loc.odomZ)) : QStringLiteral("--"));
@@ -1509,22 +1630,38 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("chassis.angular"), displayAngularVelocityDegrees(chassis.valid, chassis.currentAngularVelocity));
     setDetailValue(QStringLiteral("chassis.gear"), displayInt(chassis.valid, chassis.gearStatus));
     setDetailValue(QStringLiteral("chassis.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
-    setDetailValue(QStringLiteral("chassis.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankStatus));
-    setDetailValue(QStringLiteral("chassis.bms_dcdc"), chassis.valid ? QStringLiteral("自检码 %1 / DCDC %2")
-                                                                     .arg(chassis.bms.valid ? chassis.bms.selfCheckStatus : chassis.highVoltageBmsStatus)
-                                                                     .arg(chassis.dccdcStatus ? tr("开启") : tr("关闭"))
-                                                               : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("chassis.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
+    setDetailValue(QStringLiteral("chassis.emergency_ascent"), displayBool(chassis.valid, chassis.emergencyAscentActive));
+    const int bmsSelfCheck = chassis.bms.valid ? chassis.bms.selfCheckStatus : chassis.highVoltageBmsStatus;
+    setDetailValue(QStringLiteral("chassis.bms_dcdc"), chassis.valid
+                                                         ? joinDetailFields({detailField(QStringLiteral("自检码"), QString::number(bmsSelfCheck), bmsSelfCheck != 0),
+                                                                             detailField(QStringLiteral("DCDC"), chassis.dccdcStatus ? tr("开启") : tr("关闭"))})
+                                                         : QStringLiteral("--"));
     setDetailValue(QStringLiteral("chassis.bms_soc"), displayInt(chassis.valid, chassis.highVoltageBmsSocStatus));
     setDetailValue(QStringLiteral("chassis.bms_pack"), bmsPackText(chassis));
     setDetailValue(QStringLiteral("chassis.bms_cell"), bmsCellText(chassis));
     setDetailValue(QStringLiteral("chassis.bms_temperature"), bmsTemperatureText(chassis));
     setDetailValue(QStringLiteral("chassis.bms_warning"), bmsWarningCodesText(chassis));
     setDetailValue(QStringLiteral("chassis.power_channels"), powerSupplyStatusText(chassis));
+    setDetailValue(QStringLiteral("chassis.power_legend"), chassis.valid ? powerSupplyLegendText() : QStringLiteral("--"));
     setDetailValue(QStringLiteral("chassis.input_voltage"), displayNumber(chassis.valid, chassis.smartPowerInputVoltageStatus));
-    setDetailValue(QStringLiteral("chassis.heartbeat"), chassis.valid ? QStringLiteral("%1 / %2").arg(chassis.waterHeartbeat).arg(chassis.crawlHeartbeat) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("chassis.tail_actuator"), chassis.valid ? QStringLiteral("%1 / %2").arg(chassis.leftTailActuatorStatus).arg(chassis.rightTailActuatorStatus) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("chassis.vertical_actuator"), chassis.valid ? QStringLiteral("%1 / %2 / %3").arg(chassis.leftVerticalActuatorStatus).arg(chassis.rightVerticalActuatorStatus).arg(chassis.backVerticalActuatorStatus) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("chassis.crawl_fault"), chassis.valid ? QStringLiteral("%1 / %2").arg(chassis.leftCrawlActuatorFaultCode).arg(chassis.rightCrawlActuatorFaultCode) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("chassis.heartbeat"), chassis.valid
+                                                           ? joinDetailFields({detailField(QStringLiteral("水推"), QString::number(chassis.waterHeartbeat)),
+                                                                               detailField(QStringLiteral("履带"), QString::number(chassis.crawlHeartbeat))})
+                                                           : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("chassis.tail_actuator"), chassis.valid
+                                                              ? joinDetailFields({detailField(QStringLiteral("左"), QString::number(chassis.leftTailActuatorStatus), chassis.leftTailActuatorStatus != 0),
+                                                                                  detailField(QStringLiteral("右"), QString::number(chassis.rightTailActuatorStatus), chassis.rightTailActuatorStatus != 0)})
+                                                              : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("chassis.vertical_actuator"), chassis.valid
+                                                                  ? joinDetailFields({detailField(QStringLiteral("左"), QString::number(chassis.leftVerticalActuatorStatus), chassis.leftVerticalActuatorStatus != 0),
+                                                                                      detailField(QStringLiteral("右"), QString::number(chassis.rightVerticalActuatorStatus), chassis.rightVerticalActuatorStatus != 0),
+                                                                                      detailField(QStringLiteral("后"), QString::number(chassis.backVerticalActuatorStatus), chassis.backVerticalActuatorStatus != 0)})
+                                                                  : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("chassis.crawl_fault"), chassis.valid
+                                                            ? joinDetailFields({detailField(QStringLiteral("左故障码"), QString::number(chassis.leftCrawlActuatorFaultCode), chassis.leftCrawlActuatorFaultCode != 0),
+                                                                                detailField(QStringLiteral("右故障码"), QString::number(chassis.rightCrawlActuatorFaultCode), chassis.rightCrawlActuatorFaultCode != 0)})
+                                                            : QStringLiteral("--"));
     setDetailValue(QStringLiteral("chassis.left_motor"), motorFeedbackText(chassis.leftCrawlMotor));
     setDetailValue(QStringLiteral("chassis.right_motor"), motorFeedbackText(chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_controller"), motorControllerText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
@@ -1540,7 +1677,7 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("control.crawl_velocity"), control.valid ? QStringLiteral("%1 / %2").arg(formatNumber(control.speed), formatAngularVelocityDegrees(control.angularVelocity)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("control.speed_heading"), control.valid ? QStringLiteral("%1 / %2").arg(formatNumber(control.speed), formatAngleDegrees(control.heading)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("control.depth_height"), control.valid ? QStringLiteral("%1 / %2").arg(formatNumber(control.depth), formatNumber(control.height)) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("control.dive_speed"), displayNumber(control.valid, control.diveSpeed));
+    setDetailValue(QStringLiteral("control.emergency_ascent"), displayBool(control.valid, control.emergencyAscent));
     setDetailValue(QStringLiteral("control.water_actuator"), control.valid ? QStringLiteral("%1 / %2").arg(control.leftWaterActuatorSpeed).arg(control.rightWaterActuatorSpeed) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("control.buoyancy"), displayInt(control.valid, control.buoyancyAdjust));
     setDetailValue(QStringLiteral("control.sonar"), control.valid ? (control.isOpenSonarPower ? tr("开启") : tr("关闭")) : QStringLiteral("--"));
@@ -1564,10 +1701,11 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
 
     const auto& action = snapshot.actionRuntimeStatus;
     const auto& task = snapshot.taskRuntimeStatus;
-    setDetailValue(QStringLiteral("action.source"), tr("/system_run_states + /task_params"));
+    setDetailValue(QStringLiteral("action.source"), tr("状态：/system_run_states；参数：/task_params"));
     setDetailValue(QStringLiteral("action.mode"), autoviz::model::toDisplayString(snapshot.runVisualizationMode));
     setDetailValue(QStringLiteral("action.state"), validText(action.valid));
     setDetailValue(QStringLiteral("action.time"), formatTime(action.timestampMs));
+    setDetailValue(QStringLiteral("action.topic"), topicFreshnessText(findTopicStatus(snapshot.topicStatuses, QStringLiteral("/system_run_states"))));
     setDetailValue(QStringLiteral("action.owner"), displayInt(action.valid, action.owner));
     setDetailValue(QStringLiteral("action.goal_uuid"), displayText(action.valid, action.goalUuid));
     setDetailValue(QStringLiteral("action.run_state"), displayInt(action.valid, action.state));
@@ -1578,16 +1716,22 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("action.target_attitude"), action.valid ? QStringLiteral("%1 / %2").arg(formatAngleDegrees(action.targetHeading), formatAngularVelocityDegrees(action.targetAngularVelocity)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("action.target_vertical"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("action.buoyancy"), displayInt(action.valid, action.buoyancyAdjust));
+    setDetailValue(QStringLiteral("action.emergency_ascent"), displayBool(action.valid, action.emergencyAscent));
     setDetailValue(QStringLiteral("task.state"), validText(task.valid));
     setDetailValue(QStringLiteral("task.type_id"), taskTypeAndIdText(task));
     setDetailValue(QStringLiteral("task.enable_estop"), task.valid ? QStringLiteral("%1 / %2").arg(displayBool(true, task.taskEnable), displayBool(true, task.emergencyStop)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("task.remote_power"), task.valid ? QStringLiteral("%1 / %2").arg(task.remoteMode).arg(task.powerEnable) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.release_emergency_ascent"), task.valid
+                                                                         ? (task.releaseEmergencyAscent
+                                                                                ? tr("按下（仅上升沿触发请求）")
+                                                                                : tr("未按下（不代表已解除）"))
+                                                                         : QStringLiteral("--"));
 
     setDetailValue(QStringLiteral("vertical.source"), tr("定位/底盘/任务状态融合"));
     setDetailValue(QStringLiteral("vertical.mode"), autoviz::model::toDisplayString(snapshot.runVisualizationMode));
     setDetailValue(QStringLiteral("vertical.depth_height"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.depth), formatNumber(loc.height)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("vertical.target"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("vertical.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
-    setDetailValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankStatus));
+    setDetailValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
     setDetailValue(QStringLiteral("vertical.buoyancy"), displayInt(action.valid, action.buoyancyAdjust));
 }
