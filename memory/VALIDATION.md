@@ -3,6 +3,32 @@
 日期：2026-08-13。所有写入仅发生在 `AutoViz-feature`；robot_ws、Tcptest、main 和 rosbag
 仅作读取/运行输入。
 
+## 2026-08-14 Linux Client 发布包验证
+
+- 清除了从旧 worktree 复制而来的 Client/Server CMake 缓存，按当前工作树重新配置 Client
+  Release 构建，并在 `AutoVizServer` 内重新 `colcon build`。不修改 robot_ws、bag 或 main。
+- 新增 `AutoVizClient/scripts/package_linux.sh`。它将 Client 安装到固定的
+  `package/AutoViz-Linux/` 目录；包内携带
+  Qt5、Qt5XcbQpa、protobuf、`qxcb`、`qoffscreen`、`qsqlite`、配置和 `qt.conf`。`bin/AutoViz`
+  是启动器，仅向运行时追加包内 `lib/`，`AutoViz.bin` 不直接作为交付入口。
+- 实际生成 `/tmp/autoviz-linux-package-20260814`。`ldd` 在包内库路径下确认 Qt5 Network/Sql/
+  Widgets/Gui/Core 与 protobuf 全部解析到该发布目录；以 `env -i`、无开发环境变量和
+  `QT_QPA_PLATFORM=offscreen` 启动成功，日志写入包内 `bin/log/`。
+- 将现有 `AutoVizClientPlaybackTests` 临时置入该发布目录并只使用包内 `lib/`、`plugins/`，对
+  `rosbag2_2026_08_12-06_33_29` 通过 CDR 自检并成功读取 141,982 条支持消息，证明包内
+  `qsqlite` 可用。测试工具未保留在交付目录。
+- 当前源码重建后执行 `tcp_server_test`：7/7 通过，覆盖握手+最新全量快照、major 拒绝、两个
+  独立 Client 与上限、心跳/超时、重启 session 及慢 Client 最新快照合并。首次在受限沙箱内
+  的 `listen` 返回 `Operation not permitted`；在授权的 localhost 测试环境重跑通过。
+- 发布脚本已统一放到 `AutoVizClient/scripts/`：`package_linux.sh` 固定重建
+  `package/AutoViz-Linux/`，并在打包前清理该目录。仓库入口 `scripts/AutoViz.sh` 与交付入口
+  `package/AutoViz-Linux/bin/AutoViz` 均在清空环境变量、offscreen 平台下启动成功。
+  `qt.conf` 只保留 `scripts/qt.conf` 一个来源，CMake 安装时复制为发布包 `bin/qt.conf`。
+  Windows 打包说明已恢复到 Client README，但仍待 Windows 实机验收。
+
+该发布方案针对 Ubuntu 22.04 兼容 ABI，不尝试打包 glibc、X11/Wayland 基础库或显卡驱动。
+仍需在一台不安装 Qt/protobuf 开发环境的 Linux 目标机完成真实桌面和真实 Server 的人工验收。
+
 ## 当前提交前状态
 
 - Linux 使用 `AutoVizProto/scripts/bootstrap_proto.sh` 引导协议 SDK：从脚本位置解析仓库，

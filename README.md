@@ -81,6 +81,16 @@ cmake --build AutoVizClient/build -j4
 ./AutoVizClient/build/AutoViz
 ```
 
+生成 Linux 发布包（含 Qt/protobuf 与 qsqlite 插件）并运行：
+
+```bash
+./AutoVizClient/scripts/package_linux.sh
+./AutoVizClient/scripts/AutoViz.sh
+```
+
+完整的 Client 编译、打包、发布目录和目标机要求见
+[`AutoVizClient/README.md`](AutoVizClient/README.md)。
+
 ## Linux：为 Server 准备 AutoVizProto
 
 ```bash

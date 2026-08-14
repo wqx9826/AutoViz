@@ -50,6 +50,26 @@ if(WIN32)
     find_package(Qt6 REQUIRED COMPONENTS Network Sql Widgets)
 else()
     find_package(Qt5 REQUIRED COMPONENTS Network Sql Widgets)
+
+    # 从当前实际使用的 Qt kit 查询插件目录。发布时只复制运行所需的
+    # QPA（桌面 xcb / 验收 offscreen）和 SQLite 驱动，不依赖开发机的
+    # QT_PLUGIN_PATH 或系统 Qt 插件搜索路径。
+    get_target_property(AUTOVIZ_QMAKE_EXECUTABLE Qt5::qmake IMPORTED_LOCATION)
+    if(NOT AUTOVIZ_QMAKE_EXECUTABLE)
+        message(FATAL_ERROR "Cannot locate Qt5 qmake to determine the plugin directory")
+    endif()
+    execute_process(
+        COMMAND "${AUTOVIZ_QMAKE_EXECUTABLE}" -query QT_INSTALL_PLUGINS
+        OUTPUT_VARIABLE AUTOVIZ_QT_PLUGINS_DIR_DETECTED
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE AUTOVIZ_QT_PLUGINS_QUERY_RESULT
+    )
+    if(NOT AUTOVIZ_QT_PLUGINS_QUERY_RESULT EQUAL 0 OR
+       NOT EXISTS "${AUTOVIZ_QT_PLUGINS_DIR_DETECTED}")
+        message(FATAL_ERROR "Cannot determine a valid Qt5 plugin directory")
+    endif()
+    set(AUTOVIZ_QT_PLUGINS_DIR "${AUTOVIZ_QT_PLUGINS_DIR_DETECTED}"
+        CACHE PATH "Qt 5 plugin directory used for the Linux package")
 endif()
 
 set(AUTOVIZ_CLIENT_SOURCES
@@ -147,16 +167,27 @@ add_custom_command(
 )
 
 include(GNUInstallDirs)
-install(TARGETS AutoViz
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-)
+if(WIN32)
+    install(TARGETS AutoViz
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
+else()
+    # Qt's distribution plugins often have no ELF RPATH slot to rewrite.  The
+    # launcher gives the executable and every dlopen'ed plugin the package lib/
+    # directory without depending on the developer machine's LD_LIBRARY_PATH.
+    install(CODE "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")\nfile(COPY_FILE \"${CMAKE_CURRENT_BINARY_DIR}/AutoViz\" \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/AutoViz.bin\" ONLY_IF_DIFFERENT)\nfile(CHMOD \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/AutoViz.bin\" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)")
+    install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/AutoViz.sh"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME AutoViz
+    )
+endif()
 install(DIRECTORY configs/
     DESTINATION "${CMAKE_INSTALL_BINDIR}/configs"
 )
 
 # MSYS2 Qt 的编译期插件目录位于 share/qt6/plugins。发布包必须用 qt.conf
 # 将插件搜索根重定向到应用目录中的 plugins/，否则双击启动无法发现 qwindows.dll。
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/deploy/qt.conf"
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/scripts/qt.conf"
     DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
@@ -199,6 +230,53 @@ if(WIN32)
         "${AUTOVIZ_QT_PLUGINS_DIR}/sqldrivers/qsqlite.dll"
         DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/sqldrivers"
     )
+else()
+    # 这是面向同 ABI 发行版的可复制发布目录，而非试图携带 glibc、显示服务器
+    # 或显卡驱动的通用容器。库由包内启动器加入运行时搜索路径，因此从任意工作
+    # 目录启动时不会回退到构建机的 Qt / protobuf 路径。
+    install(FILES
+        "${AUTOVIZ_QT_PLUGINS_DIR}/platforms/libqxcb.so"
+        "${AUTOVIZ_QT_PLUGINS_DIR}/platforms/libqoffscreen.so"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/platforms"
+    )
+    install(FILES
+        "${AUTOVIZ_QT_PLUGINS_DIR}/sqldrivers/libqsqlite.so"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/sqldrivers"
+    )
+    install(CODE [=[
+        set(autoviz_runtime_plugins
+            "${CMAKE_INSTALL_PREFIX}/bin/plugins/platforms/libqxcb.so"
+            "${CMAKE_INSTALL_PREFIX}/bin/plugins/platforms/libqoffscreen.so"
+            "${CMAKE_INSTALL_PREFIX}/bin/plugins/sqldrivers/libqsqlite.so"
+        )
+        file(GET_RUNTIME_DEPENDENCIES
+            EXECUTABLES "${CMAKE_INSTALL_PREFIX}/bin/AutoViz.bin"
+            LIBRARIES ${autoviz_runtime_plugins}
+            RESOLVED_DEPENDENCIES_VAR autoviz_runtime_dependencies
+            UNRESOLVED_DEPENDENCIES_VAR autoviz_unresolved_dependencies
+        )
+        foreach(autoviz_dependency IN LISTS autoviz_runtime_dependencies)
+            # Qt and protobuf are the only non-system runtime libraries this package owns.
+            # libQt5XcbQpa is discovered through libqxcb and is included by this pattern.
+            if(autoviz_dependency MATCHES "/libQt5[^/]*\\.so" OR
+               autoviz_dependency MATCHES "/libprotobuf[^/]*\\.so")
+                # Debian-style SDKs report the SONAME symlink here. Resolve it
+                # first so the package receives both the real ELF file and the
+                # SONAME link rather than a dangling link alone.
+                file(REAL_PATH "${autoviz_dependency}" autoviz_dependency_real)
+                file(INSTALL
+                    DESTINATION "${CMAKE_INSTALL_PREFIX}/lib"
+                    TYPE SHARED_LIBRARY
+                    FILES "${autoviz_dependency_real}"
+                )
+                get_filename_component(autoviz_dependency_soname "${autoviz_dependency}" NAME)
+                get_filename_component(autoviz_dependency_realname "${autoviz_dependency_real}" NAME)
+                file(CREATE_LINK "${autoviz_dependency_realname}"
+                    "${CMAKE_INSTALL_PREFIX}/lib/${autoviz_dependency_soname}"
+                    SYMBOLIC COPY_ON_ERROR)
+            endif()
+        endforeach()
+    ]=])
 endif()
 
 add_executable(AutoVizClientPlaybackTests
