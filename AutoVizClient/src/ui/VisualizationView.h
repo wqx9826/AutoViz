@@ -32,6 +32,7 @@ public:
         bool frozen = false;
         bool emergencyStop = false;
         QString modeText;
+        QString quantityText = QStringLiteral("深度");
         double elapsedSec = 0.0;
         double currentDepth = 0.0;
         bool hasCurrentDepth = false;

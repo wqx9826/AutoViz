@@ -58,6 +58,7 @@ private:
     void clear(::autoviz::DataKind dataKind);
 
     ::autoviz::VisualizationSnapshot m_snapshot;
+    ::autoviz::ActionState m_recentTerminalAction;
     std::vector<TopicMonitor> m_topics;
     std::uint64_t m_timeoutNs{5000000000ULL};
     bool m_dirty{true};

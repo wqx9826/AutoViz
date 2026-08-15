@@ -55,6 +55,46 @@ wire::BuoyancyCommand buoyancyCommand(std::uint8_t value)
     }
 }
 
+wire::VerticalControlMode verticalControlMode(std::uint8_t navigationMode)
+{
+    if (navigationMode == 1) {
+        return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD;
+    }
+    if (navigationMode == 2) {
+        return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD;
+    }
+    return wire::VERTICAL_CONTROL_MODE_NONE;
+}
+
+// DepthCommand action 在 SystemRunStates 中以 owner=2 和 chassis_mode=1/2 表示。
+// 实机发布的该 action 可以将 navi_mode 留为 0，不能因此丢失定深/定高语义。
+wire::VerticalControlMode actionVerticalControlMode(std::uint8_t owner,
+                                                    std::uint8_t chassisMode,
+                                                    std::uint8_t navigationMode)
+{
+    if (owner == 2) {
+        if (chassisMode == 1) {
+            return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD;
+        }
+        if (chassisMode == 2) {
+            return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD;
+        }
+    }
+    return verticalControlMode(navigationMode);
+}
+
+std::string actionName(std::uint8_t owner)
+{
+    switch (owner) {
+    case 1:
+        return "custom_msgs/action/Move";
+    case 2:
+        return "custom_msgs/action/DepthCommand";
+    default:
+        return {};
+    }
+}
+
 wire::WaterTankState waterTankState(std::uint8_t value)
 {
     switch (value) {
@@ -237,6 +277,9 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
     command.set_mode(crawl ? wire::ControlCommand::MODE_CRAWL
                            : (sailing ? wire::ControlCommand::MODE_SAILING
                                       : wire::ControlCommand::MODE_UNKNOWN));
+    command.set_maneuver((message.mode == 10 || message.mode == 11 || message.expected_gear == 4)
+                             ? wire::ControlCommand::MANEUVER_YAW_IN_PLACE
+                             : wire::ControlCommand::MANEUVER_NONE);
     command.set_enabled(message.is_enable);
     command.set_target_speed_mps(message.speed);
     command.set_target_yaw_rate_radps(message.angular_velocity);
@@ -250,6 +293,8 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
     underwater->set_left_thruster_command(message.left_water_actuator_speed);
     underwater->set_right_thruster_command(message.right_water_actuator_speed);
     underwater->set_buoyancy_command(buoyancyCommand(message.buoyancy_adjust));
+    underwater->set_vertical_control_mode(
+        verticalControlMode(message.navi_mode));
     underwater->set_sonar_power_enabled(message.is_open_sonar_power);
     underwater->set_emergency_ascent(message.emergency_ascent);
     return command;
@@ -376,6 +421,8 @@ wire::ActionState RobotWsProtoConverter::actionState(
     state.set_owner(message.owner);
     state.set_state(message.state);
     state.set_goal_id(message.goal_uuid);
+    state.set_message(message.message);
+    state.set_action_name(actionName(message.owner));
     state.set_chassis_mode(message.chassis_mode);
     state.set_enabled(message.is_enable);
     state.set_navigation_mode(message.navi_mode);
@@ -387,6 +434,8 @@ wire::ActionState RobotWsProtoConverter::actionState(
     underwater->set_target_depth_m(message.target_depth);
     underwater->set_target_height_above_bottom_m(message.target_height);
     underwater->set_buoyancy_command(buoyancyCommand(message.buoyancy_adjust));
+    underwater->set_vertical_control_mode(
+        actionVerticalControlMode(message.owner, message.chassis_mode, message.navi_mode));
     underwater->set_emergency_ascent(message.emergency_ascent);
     return state;
 }

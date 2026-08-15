@@ -13,6 +13,10 @@
 #include <custom_msgs/msg/system_run_states.hpp>
 #include <custom_msgs/msg/task_params.hpp>
 #include <custom_msgs/msg/trajectory_msg.hpp>
+#include <custom_msgs/action/depth_command.hpp>
+#include <custom_msgs/action/move.hpp>
+#include <action_msgs/msg/goal_status_array.hpp>
+#include <unique_identifier_msgs/msg/uuid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -38,6 +42,10 @@ private:
         std::string taskState;
         std::string localPath;
         std::string globalPath;
+        std::string depthActionStatus;
+        std::string depthActionFeedback;
+        std::string moveActionStatus;
+        std::string moveActionFeedback;
     };
 
     std::uint64_t nowNs() const;
@@ -52,6 +60,11 @@ private:
     void onTask(custom_msgs::msg::TaskParams::ConstSharedPtr message);
     void onLocalPath(custom_msgs::msg::TrajectoryMsg::ConstSharedPtr message);
     void onGlobalPath(nav_msgs::msg::Path::ConstSharedPtr message);
+    void onActionStatus(action_msgs::msg::GoalStatusArray::ConstSharedPtr message);
+    void onDepthActionFeedback(custom_msgs::action::DepthCommand::Impl::FeedbackMessage::ConstSharedPtr message);
+    void onMoveActionFeedback(custom_msgs::action::Move::Impl::FeedbackMessage::ConstSharedPtr message);
+    void updateActionNativeStatus(const std::string& goalId, std::int32_t status, std::uint64_t receiveTimeNs);
+    void updateActionProgress(const std::string& goalId, double progress, std::uint64_t receiveTimeNs);
 
     TopicNames m_topics;
     std::unique_ptr<SnapshotStore> m_store;
@@ -70,7 +83,13 @@ private:
     rclcpp::Subscription<custom_msgs::msg::TaskParams>::SharedPtr m_taskSubscription;
     rclcpp::Subscription<custom_msgs::msg::TrajectoryMsg>::SharedPtr m_localPathSubscription;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr m_globalPathSubscription;
+    rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr m_depthActionStatusSubscription;
+    rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr m_moveActionStatusSubscription;
+    rclcpp::Subscription<custom_msgs::action::DepthCommand::Impl::FeedbackMessage>::SharedPtr m_depthActionFeedbackSubscription;
+    rclcpp::Subscription<custom_msgs::action::Move::Impl::FeedbackMessage>::SharedPtr m_moveActionFeedbackSubscription;
     rclcpp::TimerBase::SharedPtr m_publishTimer;
+    ::autoviz::ActionState m_latestActionState;
+    bool m_hasLatestActionState{false};
 };
 
 }  // namespace autoviz_server

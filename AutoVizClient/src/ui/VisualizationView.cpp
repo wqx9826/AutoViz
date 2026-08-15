@@ -434,11 +434,12 @@ void VisualizationView::drawVerticalProfileForeground(QPainter* painter) const
                      scale.scaled(34));
     painter->setFont(titleFont);
     painter->setPen(palette.text);
-    painter->drawText(titleRect, Qt::AlignCenter, tr("垂向动作段深度趋势图"));
+    painter->drawText(titleRect, Qt::AlignCenter, tr("垂向动作段%1趋势图").arg(m_verticalProfileFrame.quantityText));
 
-    const QString summary = tr("模式：%1    已执行：%2 s    深度：%3 m -> 目标 %4 m")
+    const QString summary = tr("模式：%1    已执行：%2 s    %3：%4 m -> 目标 %5 m")
                                 .arg(m_verticalProfileFrame.modeText.isEmpty() ? tr("--") : m_verticalProfileFrame.modeText,
                                      QString::number(m_verticalProfileFrame.elapsedSec, 'f', 1),
+                                     m_verticalProfileFrame.quantityText,
                                      m_verticalProfileFrame.hasCurrentDepth ? QString::number(m_verticalProfileFrame.currentDepth, 'f', 2) : QStringLiteral("--"),
                                      m_verticalProfileFrame.hasTargetDepth ? QString::number(m_verticalProfileFrame.targetDepth, 'f', 2) : QStringLiteral("--"));
     QRectF summaryRect(titleRect.left(),
@@ -493,7 +494,7 @@ void VisualizationView::drawVerticalProfileForeground(QPainter* painter) const
     painter->rotate(-90);
     painter->drawText(QRectF(-plotRect.height() * 0.5, -scale.scaled(12), plotRect.height(), scale.scaled(24)),
                       Qt::AlignCenter,
-                      tr("depth / m"));
+                      tr("%1 / m").arg(m_verticalProfileFrame.quantityText));
     painter->restore();
 
     const VerticalProfileSample* latestDepthSample = nullptr;
@@ -593,9 +594,9 @@ void VisualizationView::drawVerticalProfileForeground(QPainter* painter) const
                           Qt::AlignLeft | Qt::AlignVCenter,
                           text);
     };
-    drawLegendRow(0, depthColor, tr("当前深度"), Qt::SolidLine);
-    drawLegendRow(1, targetColor, tr("目标深度"), Qt::DashLine);
-    drawLegendRow(2, startColor, tr("起始深度"), Qt::DashLine);
+    drawLegendRow(0, depthColor, tr("当前%1").arg(m_verticalProfileFrame.quantityText), Qt::SolidLine);
+    drawLegendRow(1, targetColor, tr("目标%1").arg(m_verticalProfileFrame.quantityText), Qt::DashLine);
+    drawLegendRow(2, startColor, tr("起始%1").arg(m_verticalProfileFrame.quantityText), Qt::DashLine);
 
     painter->setPen(palette.mutedText);
     painter->drawText(QRectF(viewportRect.left() + margin,

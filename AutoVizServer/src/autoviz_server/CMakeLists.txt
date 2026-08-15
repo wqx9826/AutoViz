@@ -22,6 +22,8 @@ list(PREPEND CMAKE_PREFIX_PATH
 )
 
 find_package(ament_cmake REQUIRED)
+find_package(action_msgs REQUIRED)
+find_package(unique_identifier_msgs REQUIRED)
 find_package(AutoVizProto CONFIG REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(Threads REQUIRED)
@@ -40,6 +42,8 @@ add_executable(autoviz_server_node
 )
 target_include_directories(autoviz_server_node PRIVATE include)
 ament_target_dependencies(autoviz_server_node
+    action_msgs
+    unique_identifier_msgs
     custom_msgs
     geometry_msgs
     nav_msgs
@@ -72,6 +76,8 @@ if(BUILD_TESTING)
     )
     target_include_directories(robot_ws_converter_test PRIVATE include)
     ament_target_dependencies(robot_ws_converter_test
+        action_msgs
+        unique_identifier_msgs
         custom_msgs
         geometry_msgs
         nav_msgs

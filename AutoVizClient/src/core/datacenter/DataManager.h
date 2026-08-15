@@ -52,6 +52,7 @@ struct VisualizationSnapshot {
     model::PathRuntimeStatus localPathStatus;
     model::PathEndpointStatus pathEndpointStatus;
     model::ActionRuntimeStatus actionRuntimeStatus;
+    model::ActionRuntimeStatus recentTerminalActionStatus;
     model::TaskRuntimeStatus taskRuntimeStatus;
     model::RunVisualizationMode runVisualizationMode = model::RunVisualizationMode::Unknown;
     VisualizationRuntimeStatus runtimeStatus;

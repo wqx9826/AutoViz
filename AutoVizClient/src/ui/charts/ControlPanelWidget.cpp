@@ -108,6 +108,26 @@ ControlPanelWidget::ControlPanelWidget(QWidget* parent)
 
 void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
+    const auto& action = snapshot.actionRuntimeStatus;
+    const bool actionIsActive = action.valid && action.state == 1;
+    const bool actionChanged = actionIsActive
+                               && (!m_actionWasActive || action.goalUuid != m_activeActionGoalId
+                                   || action.chassisMode != m_activeActionMode);
+    if (actionChanged) {
+        // 曲线窗口表达当前动作，不应把 Client 启动至今的历史混入本动作的横轴。
+        m_buffer.clear();
+        m_firstSampleTimestampMs = 0;
+        m_lastBufferedTimestampMs = -1;
+        m_speedPlot->clearFrozenRange();
+        m_yawPlot->clearFrozenRange();
+        m_pathErrorPlot->clearFrozenRange();
+    }
+    m_actionWasActive = actionIsActive;
+    if (actionIsActive) {
+        m_activeActionGoalId = action.goalUuid;
+        m_activeActionMode = action.chassisMode;
+    }
+
     m_latestData = buildDebugData(snapshot);
     // reset/restart bag 时主线程会先看见 sourceTimeMs 为 0 的空快照。不能把
     // 当前墙钟当作回放曲线起点：录制时间通常早于今天，后续虚拟时间会全部被

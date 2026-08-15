@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 #include "ui/charts/ControlDebugData.h"
@@ -47,6 +48,9 @@ private:
     ControlDebugData m_latestData;
     qint64 m_firstSampleTimestampMs = 0;
     qint64 m_lastBufferedTimestampMs = -1;
+    QString m_activeActionGoalId;
+    int m_activeActionMode = 0;
+    bool m_actionWasActive = false;
     bool m_paused = false;
     bool m_renderingSuspended = false;
 };

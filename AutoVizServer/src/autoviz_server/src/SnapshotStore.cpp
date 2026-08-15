@@ -77,6 +77,15 @@ void SnapshotStore::updateObstacles(wire::ObstacleSet value, std::uint64_t recei
 
 void SnapshotStore::updateActionState(wire::ActionState value, std::uint64_t receiveTimeNs)
 {
+    // SystemRunStates: 2=canceling, 3=succeeded, 4=aborted. 只保存最近一次
+    // 终态，用于详情页；当前快照仍始终表达最新公开聚合状态。
+    if (value.state() == 2 || value.state() == 3 || value.state() == 4) {
+        m_recentTerminalAction = value;
+        m_recentTerminalAction.clear_recent_terminal();
+    }
+    if (m_recentTerminalAction.has_header()) {
+        value.mutable_recent_terminal()->CopyFrom(m_recentTerminalAction);
+    }
     m_snapshot.mutable_action_state()->Swap(&value);
     record(wire::DATA_KIND_ACTION_STATE, receiveTimeNs);
 }
@@ -202,6 +211,7 @@ void SnapshotStore::clear(wire::DataKind dataKind)
         break;
     case wire::DATA_KIND_ACTION_STATE:
         m_snapshot.clear_action_state();
+        m_recentTerminalAction.Clear();
         break;
     case wire::DATA_KIND_TASK_STATE:
         m_snapshot.clear_task_state();

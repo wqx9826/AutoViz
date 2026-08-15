@@ -134,6 +134,51 @@ double trajectoryLength(const wire::Trajectory& t)
     double sum=0; for(int i=1;i<t.point_size();++i){ const auto&a=t.point(i-1).path_point().position(); const auto&b=t.point(i).path_point().position(); sum+=std::hypot(b.x_m()-a.x_m(),b.y_m()-a.y_m()); } return sum;
 }
 
+wire::VerticalControlMode verticalMode(quint8 navigationMode)
+{ if(navigationMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(navigationMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return wire::VERTICAL_CONTROL_MODE_NONE; }
+
+wire::VerticalControlMode actionVerticalMode(quint8 owner, quint8 chassisMode, quint8 navigationMode)
+{ if(owner==2&&chassisMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(owner==2&&chassisMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return verticalMode(navigationMode); }
+
+QString actionName(quint8 owner)
+{ return owner==1?QStringLiteral("custom_msgs/action/Move"):owner==2?QStringLiteral("custom_msgs/action/DepthCommand"):QString{}; }
+
+bool readUuid(CdrReader& r, QString& value, QString* error)
+{
+    QString result;
+    result.reserve(32);
+    for (int index=0; index<16; ++index) {
+        quint8 byte=0;
+        if (!r.u8(byte,error)) return false;
+        result += QStringLiteral("%1").arg(byte,2,16,QLatin1Char('0'));
+    }
+    value=result;
+    return true;
+}
+
+bool updateActionFeedback(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* snapshot, QString* error)
+{
+    QString goal; double progress=0.0;
+    if(!readUuid(r,goal,error)||!r.f64(progress,error))return false;
+    if(snapshot->has_action_state() && snapshot->action_state().goal_id()==goal.toStdString()) {
+        auto* action=snapshot->mutable_action_state(); action->set_feedback_progress(progress); action->set_feedback_time_ns(ts);
+    }
+    return true;
+}
+
+bool updateActionStatus(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* snapshot, QString* error)
+{
+    qint32 sec=0; quint32 nsec=0; QString frame; quint32 count=0;
+    if(!readHeader(r,sec,nsec,frame,error)||!r.sequenceSize(count,error))return false;
+    const QString current=snapshot->has_action_state()?QString::fromStdString(snapshot->action_state().goal_id()):QString{};
+    for(quint32 index=0;index<count;++index) {
+        QString goal; qint32 stampSec=0; quint32 stampNs=0; qint8 status=0;
+        if(!readUuid(r,goal,error)||!r.i32(stampSec,error)||!r.u32(stampNs,error)||!r.i8(status,error))return false;
+        if(!current.isEmpty() && goal==current) { auto* action=snapshot->mutable_action_state(); action->set_native_status(status); action->set_native_status_time_ns(ts); }
+    }
+    return true;
+}
+
 bool readPose(CdrReader& r, double& px,double& py,double& pz,double& qx,double& qy,double& qz,double& qw,QString*e)
 { return r.f64(px,e)&&r.f64(py,e)&&r.f64(pz,e)&&r.f64(qx,e)&&r.f64(qy,e)&&r.f64(qz,e)&&r.f64(qw,e); }
 
@@ -169,8 +214,8 @@ bool decodeCommand(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*
     if(!r.i8(left,e)||!r.i8(right,e)||!r.u8(buoy,e)||!r.boolean(sonar,e))return false;
     auto*c=s->mutable_control_command(); fillHeader(c->mutable_header(),ts,ts,"robot_ws.chassis_command");
     const bool crawl=mode==6||mode==8||mode==11, sailing=(mode>=1&&mode<=5)||mode==7||mode==10;
-    c->set_mode(crawl?wire::ControlCommand::MODE_CRAWL:sailing?wire::ControlCommand::MODE_SAILING:wire::ControlCommand::MODE_UNKNOWN); c->set_enabled(enabled); c->set_target_speed_mps(speed); c->set_target_yaw_rate_radps(rate); c->set_target_heading_rad(heading); c->set_target_gear(gear);
-    auto*u=c->mutable_underwater();u->set_water_actuator_enabled(useWater);u->set_navigation_mode(navi);u->set_target_depth_m(depth);u->set_target_height_above_bottom_m(height);u->set_left_thruster_command(left);u->set_right_thruster_command(right);u->set_buoyancy_command(buoyancy(buoy));u->set_sonar_power_enabled(sonar);u->set_emergency_ascent(emergency); return true;
+    c->set_mode(crawl?wire::ControlCommand::MODE_CRAWL:sailing?wire::ControlCommand::MODE_SAILING:wire::ControlCommand::MODE_UNKNOWN); c->set_maneuver((mode==10||mode==11||gear==4)?wire::ControlCommand::MANEUVER_YAW_IN_PLACE:wire::ControlCommand::MANEUVER_NONE); c->set_enabled(enabled); c->set_target_speed_mps(speed); c->set_target_yaw_rate_radps(rate); c->set_target_heading_rad(heading); c->set_target_gear(gear);
+    auto*u=c->mutable_underwater();u->set_water_actuator_enabled(useWater);u->set_navigation_mode(navi);u->set_target_depth_m(depth);u->set_target_height_above_bottom_m(height);u->set_left_thruster_command(left);u->set_right_thruster_command(right);u->set_buoyancy_command(buoyancy(buoy));u->set_vertical_control_mode(verticalMode(navi));u->set_sonar_power_enabled(sonar);u->set_emergency_ascent(emergency); return true;
 }
 
 struct Motor { double speed=0,torque=0,bus=0,cmdSpeed=0,cmdTorque=0; qint16 temp=0,utemp=0,vtemp=0; bool ready=false,output=false,fault=false,cmdEnable=false,cmdSpeedMode=false,cmdReverse=false; quint8 faultCode=0; };
@@ -196,7 +241,15 @@ bool decodeAction(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e
 {
     quint8 owner,state,mode,navi,buoy;QString goal,message;bool enabled,emergency;double depth,height,speed,heading,rate;
     if(!r.u8(owner,e)||!r.string(goal,e)||!r.u8(state,e)||!r.string(message,e)||!r.u8(mode,e)||!r.boolean(enabled,e)||!r.boolean(emergency,e)||!r.u8(navi,e)||!r.f64(depth,e)||!r.f64(height,e)||!r.u8(buoy,e)||!r.f64(speed,e)||!r.f64(heading,e)||!r.f64(rate,e))return false;
-    auto*a=s->mutable_action_state();fillHeader(a->mutable_header(),ts,ts,"robot_ws.system_run_states");a->set_owner(owner);a->set_state(state);a->set_goal_id(goal.toStdString());a->set_chassis_mode(mode);a->set_enabled(enabled);a->set_navigation_mode(navi);a->set_target_speed_mps(speed);a->set_target_heading_rad(heading);a->set_target_yaw_rate_radps(rate*kDegreesToRadians);auto*u=a->mutable_underwater();u->set_navigation_mode(navi);u->set_target_depth_m(depth);u->set_target_height_above_bottom_m(height);u->set_buoyancy_command(buoyancy(buoy));u->set_emergency_ascent(emergency);return true;
+    wire::ActionState next;fillHeader(next.mutable_header(),ts,ts,"robot_ws.system_run_states");next.set_owner(owner);next.set_state(state);next.set_goal_id(goal.toStdString());next.set_message(message.toStdString());next.set_action_name(actionName(owner).toStdString());next.set_chassis_mode(mode);next.set_enabled(enabled);next.set_navigation_mode(navi);next.set_target_speed_mps(speed);next.set_target_heading_rad(heading);next.set_target_yaw_rate_radps(rate*kDegreesToRadians);auto*u=next.mutable_underwater();u->set_navigation_mode(navi);u->set_target_depth_m(depth);u->set_target_height_above_bottom_m(height);u->set_buoyancy_command(buoyancy(buoy));u->set_vertical_control_mode(actionVerticalMode(owner,mode,navi));u->set_emergency_ascent(emergency);
+    if(s->has_action_state()&&s->action_state().goal_id()==goal.toStdString()){
+        const auto& previous=s->action_state();
+        if(previous.has_native_status()){next.set_native_status(previous.native_status());next.set_native_status_time_ns(previous.native_status_time_ns());}
+        if(previous.has_feedback_progress()){next.set_feedback_progress(previous.feedback_progress());next.set_feedback_time_ns(previous.feedback_time_ns());}
+    }
+    if(state==2||state==3||state==4){wire::ActionState terminal=next;terminal.clear_recent_terminal();next.mutable_recent_terminal()->CopyFrom(terminal);}
+    else if(s->has_action_state()&&s->action_state().has_recent_terminal())next.mutable_recent_terminal()->CopyFrom(s->action_state().recent_terminal());
+    s->mutable_action_state()->Swap(&next);return true;
 }
 
 bool decodeTask(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
@@ -231,11 +284,11 @@ bool decodeObstacles(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QStrin
 
 QString RobotWsCdrDecoder::expectedType(const QString& topic)
 {
-    static const QMap<QString,QString> m={{"/location","custom_msgs/msg/Location"},{"/targets/final_objects","custom_msgs/msg/FinalTargetArray"},{"/chassis_command","custom_msgs/msg/ChassisCommand"},{"/chassis_states","custom_msgs/msg/ChassisStates"},{"/system_run_states","custom_msgs/msg/SystemRunStates"},{"/task_params","custom_msgs/msg/TaskParams"},{"/local_path","custom_msgs/msg/TrajectoryMsg"},{"/global_path","nav_msgs/msg/Path"}};return m.value(topic);
+    static const QMap<QString,QString> m={{"/location","custom_msgs/msg/Location"},{"/targets/final_objects","custom_msgs/msg/FinalTargetArray"},{"/chassis_command","custom_msgs/msg/ChassisCommand"},{"/chassis_states","custom_msgs/msg/ChassisStates"},{"/system_run_states","custom_msgs/msg/SystemRunStates"},{"/task_params","custom_msgs/msg/TaskParams"},{"/local_path","custom_msgs/msg/TrajectoryMsg"},{"/global_path","nav_msgs/msg/Path"},{"/depth_command_action/_action/status","action_msgs/msg/GoalStatusArray"},{"/move_action/_action/status","action_msgs/msg/GoalStatusArray"},{"/depth_command_action/_action/feedback","custom_msgs/action/DepthCommand_FeedbackMessage"},{"/move_action/_action/feedback","custom_msgs/action/Move_FeedbackMessage"}};return m.value(topic);
 }
 bool RobotWsCdrDecoder::isSupported(const QString&t,const QString&type){return !expectedType(t).isEmpty()&&expectedType(t)==type;}
-QStringList RobotWsCdrDecoder::supportedTopics(){return {"/location","/targets/final_objects","/chassis_command","/chassis_states","/system_run_states","/task_params","/local_path","/global_path"};}
-wire::DataKind RobotWsCdrDecoder::dataKind(const QString&t){if(t=="/location")return wire::DATA_KIND_VEHICLE_STATE;if(t=="/targets/final_objects")return wire::DATA_KIND_OBSTACLES;if(t=="/chassis_command")return wire::DATA_KIND_CONTROL_COMMAND;if(t=="/chassis_states")return wire::DATA_KIND_CHASSIS_STATE;if(t=="/system_run_states")return wire::DATA_KIND_ACTION_STATE;if(t=="/task_params")return wire::DATA_KIND_TASK_STATE;if(t=="/local_path")return wire::DATA_KIND_LOCAL_TRAJECTORY;if(t=="/global_path")return wire::DATA_KIND_GLOBAL_TRAJECTORY;return wire::DATA_KIND_UNKNOWN;}
+QStringList RobotWsCdrDecoder::supportedTopics(){return {"/location","/targets/final_objects","/chassis_command","/chassis_states","/system_run_states","/task_params","/local_path","/global_path","/depth_command_action/_action/status","/move_action/_action/status","/depth_command_action/_action/feedback","/move_action/_action/feedback"};}
+wire::DataKind RobotWsCdrDecoder::dataKind(const QString&t){if(t=="/location")return wire::DATA_KIND_VEHICLE_STATE;if(t=="/targets/final_objects")return wire::DATA_KIND_OBSTACLES;if(t=="/chassis_command")return wire::DATA_KIND_CONTROL_COMMAND;if(t=="/chassis_states")return wire::DATA_KIND_CHASSIS_STATE;if(t=="/system_run_states"||t.contains("/_action/"))return wire::DATA_KIND_ACTION_STATE;if(t=="/task_params")return wire::DATA_KIND_TASK_STATE;if(t=="/local_path")return wire::DATA_KIND_LOCAL_TRAJECTORY;if(t=="/global_path")return wire::DATA_KIND_GLOBAL_TRAJECTORY;return wire::DATA_KIND_UNKNOWN;}
 
 bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByteArray&payload,quint64 ts,wire::VisualizationSnapshot*snapshot,QString*error)
 {
@@ -247,12 +300,11 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
     else if(topic=="/targets/final_objects") snapshot->clear_obstacles();
     else if(topic=="/chassis_command") snapshot->clear_control_command();
     else if(topic=="/chassis_states") snapshot->clear_chassis_state();
-    else if(topic=="/system_run_states") snapshot->clear_action_state();
     else if(topic=="/task_params") snapshot->clear_task_state();
     else if(topic=="/local_path") snapshot->clear_local_trajectory();
     else if(topic=="/global_path") snapshot->clear_global_trajectory();
     bool ok=false;
-    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);
+    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error);
     if(!ok)return false;return r.finished(error);
 }
 

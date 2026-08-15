@@ -256,8 +256,7 @@ void SceneManager::redrawTopDownXY()
 
 bool SceneManager::isVerticalMode(autoviz::model::RunVisualizationMode mode) const
 {
-    return mode == autoviz::model::RunVisualizationMode::VerticalMotion
-           || mode == autoviz::model::RunVisualizationMode::BuoyancyAdjust;
+    return mode == autoviz::model::RunVisualizationMode::VerticalMotion;
 }
 
 bool SceneManager::shouldStartNewVerticalSegment(const autoviz::datacenter::VisualizationSnapshot& snapshot) const
@@ -298,7 +297,9 @@ void SceneManager::startVerticalMotionSegment(const autoviz::datacenter::Visuali
     m_verticalSegment.active = true;
     m_verticalSegment.frozen = false;
     m_verticalSegment.emergencyStop = task.valid && task.emergencyStop;
-    m_verticalSegment.startTimestampMs = loc.valid && loc.timestampMs > 0 ? loc.timestampMs : nowMs;
+    // T-Z 横轴定义为 action 起始时刻；不能使用可能早于动作的最新定位时间。
+    m_verticalSegment.startTimestampMs = action.valid && action.timestampMs > 0
+                                            ? action.timestampMs : nowMs;
     m_verticalSegment.lastVerticalTimestampMs = nowMs;
     m_verticalSegment.startDepth = loc.depth;
     m_verticalSegment.hasStartDepth = loc.valid;
@@ -337,7 +338,9 @@ void SceneManager::appendVerticalMotionSample(const autoviz::datacenter::Visuali
     bool emergencyChanged = false;
     if (!m_verticalSegment.samples.isEmpty()) {
         const auto& last = m_verticalSegment.samples.constLast();
-        const bool targetChanged = action.valid && (!last.hasTargetDepth || std::abs(action.targetDepth - last.targetDepth) > 1.0e-6);
+        const bool targetChanged = action.valid
+                                   && ((!last.hasTargetDepth || std::abs(action.targetDepth - last.targetDepth) > 1.0e-6)
+                                       || (!last.hasTargetHeight || std::abs(action.targetHeight - last.targetHeight) > 1.0e-6));
         emergencyChanged = task.valid && task.emergencyStop && !last.emergencyStop;
         if (elapsedSec - last.elapsedSec < 0.10 && !targetChanged && !emergencyChanged) {
             return;
@@ -439,6 +442,9 @@ void SceneManager::redrawVerticalProfile()
     frame.visible = true;
     frame.frozen = m_verticalSegment.frozen;
     frame.emergencyStop = m_verticalSegment.emergencyStop;
+    const bool useHeight = m_snapshot.actionRuntimeStatus.verticalControlMode
+                           == autoviz::model::VerticalControlMode::HeightHold;
+    frame.quantityText = useHeight ? QStringLiteral("离底高度") : QStringLiteral("深度");
 
     QString modeText = autoviz::model::toDisplayString(m_snapshot.runVisualizationMode);
     if (m_verticalSegment.frozen) {
@@ -447,8 +453,8 @@ void SceneManager::redrawVerticalProfile()
         modeText = QStringLiteral("急停");
     }
     frame.modeText = modeText;
-    frame.startDepth = m_verticalSegment.startDepth;
-    frame.hasStartDepth = m_verticalSegment.hasStartDepth;
+    frame.startDepth = useHeight ? m_verticalSegment.startHeight : m_verticalSegment.startDepth;
+    frame.hasStartDepth = useHeight ? m_verticalSegment.hasStartHeight : m_verticalSegment.hasStartDepth;
     frame.emergencyEventTimes = m_verticalSegment.emergencyEventTimes;
 
     const VerticalMotionSegmentSample* latestDepthSample = nullptr;
@@ -456,19 +462,19 @@ void SceneManager::redrawVerticalProfile()
     for (const auto& sample : m_verticalSegment.samples) {
         VisualizationView::VerticalProfileSample viewSample;
         viewSample.elapsedSec = sample.elapsedSec;
-        viewSample.depth = sample.depth;
-        viewSample.hasDepth = sample.hasDepth;
-        viewSample.targetDepth = sample.targetDepth;
-        viewSample.hasTargetDepth = sample.hasTargetDepth;
+        viewSample.depth = useHeight ? sample.height : sample.depth;
+        viewSample.hasDepth = useHeight ? sample.hasHeight : sample.hasDepth;
+        viewSample.targetDepth = useHeight ? sample.targetHeight : sample.targetDepth;
+        viewSample.hasTargetDepth = useHeight ? sample.hasTargetHeight : sample.hasTargetDepth;
         viewSample.emergencyStop = sample.emergencyStop;
         frame.samples.push_back(viewSample);
     }
     for (int index = m_verticalSegment.samples.size() - 1; index >= 0; --index) {
         const auto& sample = m_verticalSegment.samples.at(index);
-        if (latestDepthSample == nullptr && sample.hasDepth) {
+        if (latestDepthSample == nullptr && (useHeight ? sample.hasHeight : sample.hasDepth)) {
             latestDepthSample = &sample;
         }
-        if (latestTargetSample == nullptr && sample.hasTargetDepth) {
+        if (latestTargetSample == nullptr && (useHeight ? sample.hasTargetHeight : sample.hasTargetDepth)) {
             latestTargetSample = &sample;
         }
         if (latestDepthSample != nullptr && latestTargetSample != nullptr) {
@@ -477,16 +483,23 @@ void SceneManager::redrawVerticalProfile()
     }
     if (latestDepthSample != nullptr) {
         frame.elapsedSec = latestDepthSample->elapsedSec;
-        frame.currentDepth = latestDepthSample->depth;
+        frame.currentDepth = useHeight ? latestDepthSample->height : latestDepthSample->depth;
         frame.hasCurrentDepth = true;
     } else if (!m_verticalSegment.samples.isEmpty()) {
         frame.elapsedSec = m_verticalSegment.samples.constLast().elapsedSec;
     }
     if (latestTargetSample != nullptr) {
-        frame.targetDepth = latestTargetSample->targetDepth;
+        frame.targetDepth = useHeight ? latestTargetSample->targetHeight : latestTargetSample->targetDepth;
         frame.hasTargetDepth = true;
     }
 
+    if (!m_verticalSegment.active && m_verticalSegment.samples.isEmpty()) {
+        m_view->setVerticalStatusMessage(QStringLiteral("等待垂向 action/定位反馈"));
+    } else if (!frame.hasCurrentDepth) {
+        m_view->setVerticalStatusMessage(QStringLiteral("已接收垂向目标，等待定位反馈"));
+    } else {
+        m_view->setVerticalStatusMessage(QString());
+    }
     m_view->setVerticalProfileFrame(frame);
     return;
     }

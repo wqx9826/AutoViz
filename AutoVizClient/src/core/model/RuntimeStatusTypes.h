@@ -109,6 +109,12 @@ enum class WaterTankState {
     DrainDone
 };
 
+enum class VerticalControlMode {
+    None,
+    DepthHold,
+    HeightHold
+};
+
 struct ChassisRuntimeStatus {
     bool valid = false;
     qint64 timestampMs = 0;
@@ -148,6 +154,7 @@ struct ControlCommandStatus {
     int expectedGear = 0;
     bool isUseWaterActuator = false;
     int naviMode = 0;
+    VerticalControlMode verticalControlMode = VerticalControlMode::None;
     double depth = 0.0;
     double height = 0.0;
     double heading = 0.0;
@@ -173,9 +180,12 @@ struct ActionRuntimeStatus {
     int owner = 0;
     int state = 0;
     QString goalUuid;
+    QString message;
+    QString actionName;
     int chassisMode = 0;
     bool isEnable = false;
     int naviMode = 0;
+    VerticalControlMode verticalControlMode = VerticalControlMode::None;
     double targetDepth = 0.0;
     double targetHeight = 0.0;
     int buoyancyAdjust = 0;
@@ -183,6 +193,12 @@ struct ActionRuntimeStatus {
     double targetHeading = 0.0;
     double targetAngularVelocity = 0.0;  // normalized to rad/s
     bool emergencyAscent = false;
+    bool hasNativeStatus = false;
+    int nativeStatus = 0;
+    qint64 nativeStatusTimestampMs = 0;
+    bool hasFeedbackProgress = false;
+    double feedbackProgress = 0.0;
+    qint64 feedbackTimestampMs = 0;
 };
 
 struct TaskRuntimeStatus {
@@ -201,7 +217,6 @@ enum class RunVisualizationMode {
     Idle,
     HorizontalMotion,
     VerticalMotion,
-    BuoyancyAdjust,
     EmergencyStop,
     Unknown
 };
@@ -233,8 +248,6 @@ inline QString toDisplayString(RunVisualizationMode mode)
         return QStringLiteral("水平运动");
     case RunVisualizationMode::VerticalMotion:
         return QStringLiteral("垂向动作");
-    case RunVisualizationMode::BuoyancyAdjust:
-        return QStringLiteral("浮力调节");
     case RunVisualizationMode::EmergencyStop:
         return QStringLiteral("急停");
     case RunVisualizationMode::Unknown:
@@ -259,8 +272,9 @@ inline RunVisualizationMode inferRunVisualizationMode(const ActionRuntimeStatus&
     }
 
     if (action.valid) {
-        if (action.chassisMode == 3 || action.buoyancyAdjust == 1 || action.buoyancyAdjust == 2) {
-            return RunVisualizationMode::BuoyancyAdjust;
+        if (action.verticalControlMode == VerticalControlMode::DepthHold
+            || action.verticalControlMode == VerticalControlMode::HeightHold) {
+            return RunVisualizationMode::VerticalMotion;
         }
         if (action.owner == 1 || action.chassisMode == 4 || action.chassisMode == 5
             || action.chassisMode == 6 || action.chassisMode == 7 || action.chassisMode == 8

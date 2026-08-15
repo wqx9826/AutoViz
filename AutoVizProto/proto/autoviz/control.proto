@@ -12,6 +12,13 @@ message ControlCommand {
     MODE_SAILING = 2;
   }
 
+  // 与推进平台正交的通用动作语义。YAW_IN_PLACE 表示车辆原地/中心转向；
+  // 具体显示为航行或爬行中心转向由 mode 决定，不暴露 robot_ws 的 mode 数值。
+  enum Maneuver {
+    MANEUVER_NONE = 0;
+    MANEUVER_YAW_IN_PLACE = 1;
+  }
+
   optional Header header = 1;
   optional Mode mode = 2 [default = MODE_UNKNOWN];
   optional bool enabled = 3;
@@ -24,6 +31,7 @@ message ControlCommand {
   optional bool hand_brake = 10;
   optional UnderwaterCommand underwater = 11;
   reserved 12 to 14;
+  optional Maneuver maneuver = 15 [default = MANEUVER_NONE];
 }
 
 message ActionState {
@@ -39,6 +47,17 @@ message ActionState {
   optional double target_yaw_rate_radps = 10;
   optional UnderwaterCommand underwater = 11;
   reserved 12;
+  // 来自公开聚合状态的运行说明；主界面状态以本字段和上述聚合字段为准。
+  optional string message = 13;
+  // Adapter 归一化后的原生 action 名称，例如 custom_msgs/action/DepthCommand。
+  optional string action_name = 14;
+  // 可选原生 action 诊断。隐藏 ROS topic 缺失时字段不存在，不能影响主状态。
+  optional sint32 native_status = 15;
+  optional double feedback_progress = 16;
+  optional uint64 native_status_time_ns = 17;
+  optional uint64 feedback_time_ns = 18;
+  // 当前 action 之外，保留本会话最近一次终态 action；不保存无限历史。
+  optional ActionState recent_terminal = 19;
 }
 
 message TaskState {

@@ -101,7 +101,6 @@ bool runModeHasMainViewCandidate(autoviz::model::RunVisualizationMode runMode,
         *mode = autoviz::render::MainViewMode::TopDownXY;
         return true;
     case autoviz::model::RunVisualizationMode::VerticalMotion:
-    case autoviz::model::RunVisualizationMode::BuoyancyAdjust:
         *mode = autoviz::render::MainViewMode::VerticalProfile;
         return true;
     case autoviz::model::RunVisualizationMode::EmergencyStop:
@@ -414,13 +413,10 @@ void MainWindow::updateMainViewMode(const autoviz::datacenter::VisualizationSnap
         return;
     }
 
-    const bool verticalAvailable =
-        snapshot.runtimeStatus.inputSource == autoviz::datacenter::VisualizationInputSource::Mock
-        || snapshot.runtimeStatus.hasVerticalMotionCapability;
     if (m_verticalProfileMainViewModeAction != nullptr) {
-        m_verticalProfileMainViewModeAction->setEnabled(verticalAvailable);
-        m_verticalProfileMainViewModeAction->setToolTip(
-            verticalAvailable ? QString{} : tr("当前 Server 未声明垂向运动能力"));
+        // 手动查看 T-Z 不依赖 Server capability；无数据时 SceneManager 显示等待态。
+        m_verticalProfileMainViewModeAction->setEnabled(true);
+        m_verticalProfileMainViewModeAction->setToolTip(tr("手动查看垂向剖面（可在无实时数据时使用）"));
     }
 
     if (m_requestedMainViewMode != autoviz::render::MainViewMode::Auto) {
@@ -437,9 +433,6 @@ void MainWindow::updateMainViewMode(const autoviz::datacenter::VisualizationSnap
     if (!runModeHasMainViewCandidate(snapshot.runVisualizationMode, &candidate)) {
         m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
         return;
-    }
-    if (candidate == autoviz::render::MainViewMode::VerticalProfile && !verticalAvailable) {
-        candidate = autoviz::render::MainViewMode::TopDownXY;
     }
 
     if (candidate == m_effectiveMainViewMode) {
@@ -729,7 +722,9 @@ void MainWindow::updateMainViewOverlay(const autoviz::datacenter::VisualizationS
                                m_requestedMainViewMode == autoviz::render::MainViewMode::Auto ? QStringLiteral("自动") : QStringLiteral("手动"));
 
     m_visualizationView->setOverlayMessage(overlayMessage);
-    m_visualizationView->setVerticalStatusMessage(QString());
+    if (m_effectiveMainViewMode != autoviz::render::MainViewMode::VerticalProfile) {
+        m_visualizationView->setVerticalStatusMessage(QString());
+    }
 }
 
 void MainWindow::updateMainViewDisplayDialog(const autoviz::datacenter::VisualizationSnapshot& snapshot)

@@ -5,7 +5,7 @@
 namespace autoviz {
 
 inline constexpr std::uint32_t kProtocolMajor = 2;
-inline constexpr std::uint32_t kProtocolMinor = 0;
+inline constexpr std::uint32_t kProtocolMinor = 1;
 
 inline constexpr bool isProtocolMajorCompatible(std::uint32_t peerMajor)
 {

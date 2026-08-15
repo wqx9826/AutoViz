@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.0
+# AutoViz Protocol v2.1
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
@@ -71,6 +71,25 @@ Client                         Server
 
 `DataKind` 只稳定标识来源健康状态，不承担订阅。UI 可能显示 topic/type，但不得用其字符串
 做业务判断。履带、BMS、DCDC、配电使用 typed 结构；`DiagnosticMetric` 仅保留扩展诊断。
+
+`ControlCommand.maneuver` 使用 field 15（12..14 已保留），当前取值为 `NONE` 或
+`YAW_IN_PLACE`。它与 `ControlCommand.mode` 正交：前者表达原地/中心转向，后者表达
+`CRAWL` 或 `SAILING` 平台类型；UI 据此显示“爬行中心转向”或“航行中心转向”。robot_ws
+Adapter 将 `ChassisCommand.mode` 的 10/11，以及 `expected_gear` 的 4，统一映射为该语义。
+
+`UnderwaterCommand.vertical_control_mode` 使用 field 10，取值为 `NONE`、`DEPTH_HOLD`、
+`HEIGHT_HOLD`。它是唯一决定垂向目标量和 UI 趋势轴的协议语义；`BuoyancyCommand`
+只表达定深/定高动作附带的水箱指令，不单独构成一种动作。`navigation_mode` 保留为 Adapter
+诊断信息，业务显示不得再依赖其数值。对于 robot_ws 的 `SystemRunStates`，Adapter 优先以
+`owner=2`（DepthCommand）和 `chassis_mode=1/2` 判定定深/定高；实机该 action 可将
+`navi_mode` 发布为 0。
+
+`/system_run_states` 是可回放的 action 聚合状态，包含 owner、goal UUID、生命周期、垂向目标
+及伴随水箱指令。DepthCommand/Move 的 ROS2 action status、feedback 是隐藏 topic；`ros2 bag
+record -a` 不会记录它们。如需回放 action feedback（例如 progress），录制时必须额外使用
+`--include-hidden-topics`。协议 `ActionState` 的公开聚合字段始终是主界面与 T-Z 的唯一必需
+契约；`message`、原生 status、feedback progress 和最近终态仅为详情诊断字段，缺失时不得影响
+主状态。Server 与本地 bag 仅在 UUID 匹配当前 action 时合并这些隐藏 topic 字段。
 
 ## 单位和兼容
 

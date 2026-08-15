@@ -42,7 +42,7 @@ compile_commands.json
 # Misc
 .DS_Store
 
-/message/
+/offline-packages/
 
 # Local third-party SDKs (keep only usage documentation)
 AutoVizClient/third_party/*

@@ -64,6 +64,10 @@ Client                                      Server
 | `/local_path` | local Trajectory | pose、航向、速度、加速度、相对/绝对时间、goal ID、长度 |
 | `/global_path` | global Trajectory | pose、四元数航向、长度 |
 
+`/system_run_states` 是主界面所需的 action 聚合状态。Server 还会可选监听
+`/depth_command_action`、`/move_action` 的隐藏 status/feedback topic，仅补充 Action 详情页的
+原生状态和 progress；这些 topic 缺失、超时或 UUID 不匹配均不会影响主界面或垂向曲线。
+
 默认 capability 为通用 XY、垂向运动、水下系统和平台诊断。参考线仍是可选通用协议字段，
 robot_ws 当前没有对应输入，不伪造 topic。
 

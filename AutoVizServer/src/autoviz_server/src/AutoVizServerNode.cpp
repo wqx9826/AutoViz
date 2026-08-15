@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -10,6 +12,18 @@
 
 namespace autoviz_server {
 namespace wire = ::autoviz;
+
+namespace {
+std::string uuidToString(const unique_identifier_msgs::msg::UUID& uuid)
+{
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (const auto byte : uuid.uuid) {
+        stream << std::setw(2) << static_cast<unsigned>(byte);
+    }
+    return stream.str();
+}
+}  // namespace
 
 AutoVizServerNode::AutoVizServerNode()
     : Node("autoviz_server")
@@ -39,6 +53,14 @@ AutoVizServerNode::AutoVizServerNode()
         "topics.task_state", "/task_params");
     m_topics.localPath = declare_parameter<std::string>("topics.local_path", "/local_path");
     m_topics.globalPath = declare_parameter<std::string>("topics.global_path", "/global_path");
+    m_topics.depthActionStatus = declare_parameter<std::string>(
+        "topics.depth_action_status", "/depth_command_action/_action/status");
+    m_topics.depthActionFeedback = declare_parameter<std::string>(
+        "topics.depth_action_feedback", "/depth_command_action/_action/feedback");
+    m_topics.moveActionStatus = declare_parameter<std::string>(
+        "topics.move_action_status", "/move_action/_action/status");
+    m_topics.moveActionFeedback = declare_parameter<std::string>(
+        "topics.move_action_feedback", "/move_action/_action/feedback");
 
     std::vector<SnapshotStore::TopicSpec> topicSpecs{
         {m_topics.location, "custom_msgs/msg/Location", wire::DATA_KIND_VEHICLE_STATE},
@@ -132,6 +154,19 @@ void AutoVizServerNode::createSubscriptions()
     m_globalPathSubscription = create_subscription<nav_msgs::msg::Path>(
         m_topics.globalPath, qos,
         std::bind(&AutoVizServerNode::onGlobalPath, this, std::placeholders::_1));
+    // 原生 action topic 仅补充详情诊断；公开 SystemRunStates 才是主界面契约。
+    m_depthActionStatusSubscription = create_subscription<action_msgs::msg::GoalStatusArray>(
+        m_topics.depthActionStatus, qos,
+        std::bind(&AutoVizServerNode::onActionStatus, this, std::placeholders::_1));
+    m_moveActionStatusSubscription = create_subscription<action_msgs::msg::GoalStatusArray>(
+        m_topics.moveActionStatus, qos,
+        std::bind(&AutoVizServerNode::onActionStatus, this, std::placeholders::_1));
+    m_depthActionFeedbackSubscription = create_subscription<custom_msgs::action::DepthCommand::Impl::FeedbackMessage>(
+        m_topics.depthActionFeedback, qos,
+        std::bind(&AutoVizServerNode::onDepthActionFeedback, this, std::placeholders::_1));
+    m_moveActionFeedbackSubscription = create_subscription<custom_msgs::action::Move::Impl::FeedbackMessage>(
+        m_topics.moveActionFeedback, qos,
+        std::bind(&AutoVizServerNode::onMoveActionFeedback, this, std::placeholders::_1));
 }
 
 void AutoVizServerNode::publishSnapshot()
@@ -182,8 +217,68 @@ void AutoVizServerNode::onAction(custom_msgs::msg::SystemRunStates::ConstSharedP
 {
     if (!message) return;
     const auto receiveTimeNs = nowNs();
-    m_store->updateActionState(
-        RobotWsProtoConverter::actionState(*message, receiveTimeNs), receiveTimeNs);
+    auto next = RobotWsProtoConverter::actionState(*message, receiveTimeNs);
+    // 聚合状态的更新频率可高于隐藏 feedback/status；同一 UUID 上保留已收到的可选诊断。
+    if (m_hasLatestActionState && next.goal_id() == m_latestActionState.goal_id()) {
+        if (m_latestActionState.has_native_status()) {
+            next.set_native_status(m_latestActionState.native_status());
+            next.set_native_status_time_ns(m_latestActionState.native_status_time_ns());
+        }
+        if (m_latestActionState.has_feedback_progress()) {
+            next.set_feedback_progress(m_latestActionState.feedback_progress());
+            next.set_feedback_time_ns(m_latestActionState.feedback_time_ns());
+        }
+    }
+    m_latestActionState = std::move(next);
+    m_hasLatestActionState = true;
+    m_store->updateActionState(m_latestActionState, receiveTimeNs);
+}
+
+void AutoVizServerNode::onActionStatus(action_msgs::msg::GoalStatusArray::ConstSharedPtr message)
+{
+    if (!message || !m_hasLatestActionState || m_latestActionState.goal_id().empty()) return;
+    const auto receiveTimeNs = nowNs();
+    for (const auto& item : message->status_list) {
+        const auto goalId = uuidToString(item.goal_info.goal_id);
+        if (goalId == m_latestActionState.goal_id()) {
+            updateActionNativeStatus(goalId, item.status, receiveTimeNs);
+            return;
+        }
+    }
+}
+
+void AutoVizServerNode::onDepthActionFeedback(
+    custom_msgs::action::DepthCommand::Impl::FeedbackMessage::ConstSharedPtr message)
+{
+    if (!message) return;
+    updateActionProgress(uuidToString(message->goal_id), message->feedback.progress, nowNs());
+}
+
+void AutoVizServerNode::onMoveActionFeedback(
+    custom_msgs::action::Move::Impl::FeedbackMessage::ConstSharedPtr message)
+{
+    if (!message) return;
+    updateActionProgress(uuidToString(message->goal_id), message->feedback.progress, nowNs());
+}
+
+void AutoVizServerNode::updateActionNativeStatus(const std::string& goalId,
+                                                  std::int32_t status,
+                                                  std::uint64_t receiveTimeNs)
+{
+    if (!m_hasLatestActionState || goalId.empty() || goalId != m_latestActionState.goal_id()) return;
+    m_latestActionState.set_native_status(status);
+    m_latestActionState.set_native_status_time_ns(receiveTimeNs);
+    m_store->updateActionState(m_latestActionState, receiveTimeNs);
+}
+
+void AutoVizServerNode::updateActionProgress(const std::string& goalId,
+                                              double progress,
+                                              std::uint64_t receiveTimeNs)
+{
+    if (!m_hasLatestActionState || goalId.empty() || goalId != m_latestActionState.goal_id()) return;
+    m_latestActionState.set_feedback_progress(progress);
+    m_latestActionState.set_feedback_time_ns(receiveTimeNs);
+    m_store->updateActionState(m_latestActionState, receiveTimeNs);
 }
 
 void AutoVizServerNode::onTask(custom_msgs::msg::TaskParams::ConstSharedPtr message)

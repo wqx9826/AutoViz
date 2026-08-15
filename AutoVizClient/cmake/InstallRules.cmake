@@ -67,38 +67,81 @@ if(WIN32)
         ]=])
     endif()
 else()
-    if(NOT TARGET Qt5::QXcbIntegrationPlugin OR
-       NOT TARGET Qt5::QOffscreenIntegrationPlugin OR
-       NOT TARGET Qt5::QSQLiteDriverPlugin)
-        install(CODE [=[
-            message(FATAL_ERROR
-                "The selected Qt5 package does not export the xcb/offscreen/qsqlite plugin targets")
-        ]=])
-    else()
-        install(FILES
+    if(TARGET Qt5::QXcbIntegrationPlugin AND
+       TARGET Qt5::QOffscreenIntegrationPlugin AND
+       TARGET Qt5::QSQLiteDriverPlugin)
+        set(autoviz_qt5_plugin_files
             "$<TARGET_FILE:Qt5::QXcbIntegrationPlugin>"
             "$<TARGET_FILE:Qt5::QOffscreenIntegrationPlugin>"
-            DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/platforms"
-        )
-        install(FILES
             "$<TARGET_FILE:Qt5::QSQLiteDriverPlugin>"
-            DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/sqldrivers"
         )
+        set(autoviz_qt5_runtime_plugins ${autoviz_qt5_plugin_files})
+        set(autoviz_qt5_library_dir "$<TARGET_FILE_DIR:Qt5::Core>")
+    else()
+        # Ubuntu's Qt5 CMake package can ship the plugins without importing
+        # their targets.  Query the Qt selected by find_package(), rather than
+        # assuming a system or /opt installation layout.
+        get_target_property(autoviz_qt5_qmake Qt5::qmake IMPORTED_LOCATION)
+        if(NOT autoviz_qt5_qmake)
+            message(FATAL_ERROR "The selected Qt5 package does not provide qmake for plugin discovery")
+        endif()
 
-        install(CODE [=[
-        set(autoviz_runtime_plugins
-            "${CMAKE_INSTALL_PREFIX}/bin/plugins/platforms/libqxcb.so"
-            "${CMAKE_INSTALL_PREFIX}/bin/plugins/platforms/libqoffscreen.so"
-            "${CMAKE_INSTALL_PREFIX}/bin/plugins/sqldrivers/libqsqlite.so"
+        execute_process(
+            COMMAND "${autoviz_qt5_qmake}" -query QT_INSTALL_PLUGINS
+            RESULT_VARIABLE autoviz_qt5_plugins_result
+            OUTPUT_VARIABLE autoviz_qt5_plugins_dir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
         )
+        execute_process(
+            COMMAND "${autoviz_qt5_qmake}" -query QT_INSTALL_LIBS
+            RESULT_VARIABLE autoviz_qt5_libs_result
+            OUTPUT_VARIABLE autoviz_qt5_library_dir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(NOT autoviz_qt5_plugins_result EQUAL 0 OR
+           NOT autoviz_qt5_libs_result EQUAL 0)
+            message(FATAL_ERROR "Unable to query plugin paths from the selected Qt5 qmake: ${autoviz_qt5_qmake}")
+        endif()
+
+        set(autoviz_qt5_plugin_files
+            "${autoviz_qt5_plugins_dir}/platforms/libqxcb.so"
+            "${autoviz_qt5_plugins_dir}/platforms/libqoffscreen.so"
+            "${autoviz_qt5_plugins_dir}/sqldrivers/libqsqlite.so"
+        )
+        foreach(autoviz_qt5_plugin IN LISTS autoviz_qt5_plugin_files)
+            if(NOT EXISTS "${autoviz_qt5_plugin}")
+                message(FATAL_ERROR "The selected Qt5 installation is missing required plugin: ${autoviz_qt5_plugin}")
+            endif()
+        endforeach()
+        set(autoviz_qt5_runtime_plugins ${autoviz_qt5_plugin_files})
+    endif()
+
+    list(GET autoviz_qt5_plugin_files 0 1 autoviz_qt5_platform_plugin_files)
+    list(GET autoviz_qt5_plugin_files 2 autoviz_qt5_sql_plugin_file)
+    install(FILES
+        ${autoviz_qt5_platform_plugin_files}
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/platforms"
+    )
+    install(FILES
+        "${autoviz_qt5_sql_plugin_file}"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins/sqldrivers"
+    )
+
+        # Inspect the original plugin files: after they are copied below bin/,
+        # their relative RPATH no longer resolves to the selected Qt tree and
+        # CMake may instead find a system Qt with the same SONAME.
+        install(CODE "set(autoviz_runtime_plugins [==[${autoviz_qt5_runtime_plugins}]==])\nset(autoviz_runtime_search_dirs [==[${autoviz_qt5_library_dir}]==])")
+        install(CODE [=[
         file(GET_RUNTIME_DEPENDENCIES
             EXECUTABLES "${CMAKE_INSTALL_PREFIX}/bin/AutoViz.bin"
             LIBRARIES ${autoviz_runtime_plugins}
+            DIRECTORIES ${autoviz_runtime_search_dirs}
             RESOLVED_DEPENDENCIES_VAR autoviz_runtime_dependencies
             UNRESOLVED_DEPENDENCIES_VAR autoviz_unresolved_dependencies
         )
         foreach(autoviz_dependency IN LISTS autoviz_runtime_dependencies)
             if(autoviz_dependency MATCHES "/libQt5[^/]*\\.so" OR
+               autoviz_dependency MATCHES "/libicu[^/]*\\.so" OR
                autoviz_dependency MATCHES "/libprotobuf[^/]*\\.so")
                 file(REAL_PATH "${autoviz_dependency}" autoviz_dependency_real)
                 file(INSTALL
@@ -116,5 +159,4 @@ else()
             endif()
         endforeach()
         ]=])
-    endif()
 endif()

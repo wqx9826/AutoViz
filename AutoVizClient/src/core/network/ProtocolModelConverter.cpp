@@ -82,6 +82,19 @@ model::WaterTankState convertWaterTankState(wire::WaterTankState state)
     }
 }
 
+model::VerticalControlMode convertVerticalControlMode(wire::VerticalControlMode mode)
+{
+    switch (mode) {
+    case wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD:
+        return model::VerticalControlMode::DepthHold;
+    case wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD:
+        return model::VerticalControlMode::HeightHold;
+    case wire::VERTICAL_CONTROL_MODE_NONE:
+    default:
+        return model::VerticalControlMode::None;
+    }
+}
+
 int convertBuoyancyCommand(wire::BuoyancyCommand command)
 {
     switch (command) {
@@ -419,9 +432,18 @@ model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& sou
     target.valid = true;
     target.timestampMs = source.has_header() ? timestampMs(source.header())
                                              : QDateTime::currentMSecsSinceEpoch();
+    const bool yawInPlace = source.maneuver()
+                            == wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
+    const auto verticalMode = source.has_underwater()
+                                  ? convertVerticalControlMode(source.underwater().vertical_control_mode())
+                                  : model::VerticalControlMode::None;
     target.mode = source.mode() == wire::ControlCommand::MODE_CRAWL
-                      ? 6
-                      : (source.mode() == wire::ControlCommand::MODE_SAILING ? 4 : 0);
+                      ? (yawInPlace ? 11 : 6)
+                      : (source.mode() == wire::ControlCommand::MODE_SAILING
+                             ? (yawInPlace ? 10
+                                           : (verticalMode == model::VerticalControlMode::HeightHold ? 5
+                                              : (verticalMode == model::VerticalControlMode::DepthHold ? 4 : 0)))
+                             : 0);
     target.isEnable = source.enabled();
     target.speed = source.target_speed_mps();
     target.angularVelocity = source.target_yaw_rate_radps();
@@ -431,6 +453,7 @@ model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& sou
         const auto& underwater = source.underwater();
         target.isUseWaterActuator = underwater.water_actuator_enabled();
         target.naviMode = underwater.navigation_mode();
+        target.verticalControlMode = convertVerticalControlMode(underwater.vertical_control_mode());
         target.depth = underwater.target_depth_m();
         target.height = underwater.target_height_above_bottom_m();
         target.leftWaterActuatorSpeed = underwater.left_thruster_command();
@@ -451,15 +474,24 @@ model::ActionRuntimeStatus convertAction(const wire::ActionState& source)
     target.owner = source.owner();
     target.state = source.state();
     target.goalUuid = QString::fromStdString(source.goal_id());
+    target.message = QString::fromStdString(source.message());
+    target.actionName = QString::fromStdString(source.action_name());
     target.chassisMode = source.chassis_mode();
     target.isEnable = source.enabled();
     target.naviMode = source.navigation_mode();
     target.targetSpeed = source.target_speed_mps();
     target.targetHeading = source.target_heading_rad();
     target.targetAngularVelocity = source.target_yaw_rate_radps();
+    target.hasNativeStatus = source.has_native_status();
+    target.nativeStatus = source.native_status();
+    target.nativeStatusTimestampMs = static_cast<qint64>(source.native_status_time_ns() / 1000000ULL);
+    target.hasFeedbackProgress = source.has_feedback_progress();
+    target.feedbackProgress = source.feedback_progress();
+    target.feedbackTimestampMs = static_cast<qint64>(source.feedback_time_ns() / 1000000ULL);
     if (source.has_underwater()) {
         const auto& underwater = source.underwater();
         target.naviMode = underwater.navigation_mode();
+        target.verticalControlMode = convertVerticalControlMode(underwater.vertical_control_mode());
         target.targetDepth = underwater.target_depth_m();
         target.targetHeight = underwater.target_height_above_bottom_m();
         target.buoyancyAdjust = convertBuoyancyCommand(underwater.buoyancy_command());
@@ -580,6 +612,9 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     }
     if (source.has_action_state()) {
         target.actionRuntimeStatus = convertAction(source.action_state());
+        if (source.action_state().has_recent_terminal()) {
+            target.recentTerminalActionStatus = convertAction(source.action_state().recent_terminal());
+        }
     }
     if (source.has_task_state()) {
         target.taskRuntimeStatus = convertTask(source.task_state());

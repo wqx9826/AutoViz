@@ -1,7 +1,16 @@
 @PACKAGE_INIT@
 
-include(CMakeFindDependencyMacro)
-find_dependency(Protobuf CONFIG)
+# Ubuntu 的 libprotobuf-dev 没有 ProtobufConfig.cmake；其 CMake 自带的
+# FindProtobuf 模块仍会提供 protobuf::libprotobuf 等 imported targets。
+find_package(Protobuf CONFIG QUIET)
+if(NOT Protobuf_FOUND)
+    if(WIN32)
+        message(FATAL_ERROR
+            "AutoVizProto requires a MinGW-compatible Protobuf Config package."
+        )
+    endif()
+    find_package(Protobuf REQUIRED MODULE)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/AutoVizProtoTargets.cmake")
 

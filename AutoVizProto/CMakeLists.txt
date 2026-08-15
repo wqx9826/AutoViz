@@ -32,9 +32,20 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # protobuf::protoc 用于生成代码；protobuf::libprotobuf 用于编译和链接。
-# 前缀必须由调用方或本地 third_party 显式提供，不能自动选中 MSYS2 UCRT64：
+# Windows 必须从调用方指定的 SDK 前缀读取 Config 包，不能意外选中 MSYS2 UCRT64：
 # Client 的 Qt MinGW runtime 与该目录中的 GCC runtime 可能不同。
-find_package(Protobuf REQUIRED CONFIG)
+# Ubuntu 的 libprotobuf-dev 不提供 ProtobufConfig.cmake，但 CMake 自带的
+# FindProtobuf 模块会创建同名 imported targets，因此 Linux 使用模块模式回退。
+find_package(Protobuf CONFIG QUIET)
+if(NOT Protobuf_FOUND)
+    if(WIN32)
+        message(FATAL_ERROR
+            "Protobuf Config package not found. Set CMAKE_PREFIX_PATH to the intended "
+            "MinGW-compatible protobuf SDK."
+        )
+    endif()
+    find_package(Protobuf REQUIRED MODULE)
+endif()
 
 # =============================================================================
 # 2. 将 *.proto 生成 *.pb.h 和 *.pb.cc

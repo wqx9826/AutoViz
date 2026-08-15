@@ -350,6 +350,20 @@ QString actionOwnerText(bool valid, int owner)
     }
 }
 
+QString nativeActionStatusText(bool valid, int status)
+{
+    if (!valid) return QStringLiteral("未接入/未录制");
+    switch (status) {
+    case 1: return QStringLiteral("已接受");
+    case 2: return QStringLiteral("执行中");
+    case 3: return QStringLiteral("取消中");
+    case 4: return QStringLiteral("已成功");
+    case 5: return QStringLiteral("已取消");
+    case 6: return QStringLiteral("已中止");
+    default: return QStringLiteral("未知(%1)").arg(status);
+    }
+}
+
 int explicitChassisFaultCount(const autoviz::model::ChassisRuntimeStatus& chassis)
 {
     if (!chassis.valid) {
@@ -641,11 +655,12 @@ QString headingSummaryText(const autoviz::model::LocalizationStatus& localizatio
 {
     double targetHeading = 0.0;
     bool hasTarget = false;
-    if (isSailingMode(control)) {
-        targetHeading = control.heading;
-        hasTarget = true;
-    } else if (action.valid && autoviz::model::isSailingChassisMode(action.chassisMode)) {
+    if (action.valid && action.state == 1
+        && autoviz::model::isSailingChassisMode(action.chassisMode)) {
         targetHeading = action.targetHeading;
+        hasTarget = true;
+    } else if (isSailingMode(control)) {
+        targetHeading = control.heading;
         hasTarget = true;
     }
 
@@ -661,11 +676,12 @@ QString angularVelocitySummaryText(const autoviz::model::LocalizationStatus& loc
 {
     double target = 0.0;
     bool hasTarget = false;
-    if (isCrawlMode(control)) {
-        target = control.angularVelocity;
-        hasTarget = true;
-    } else if (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
+    if (action.valid && action.state == 1
+        && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
         target = action.targetAngularVelocity;
+        hasTarget = true;
+    } else if (isCrawlMode(control)) {
+        target = control.angularVelocity;
         hasTarget = true;
     }
     const bool hasFeedback = chassis.valid || localization.valid;
@@ -682,16 +698,17 @@ QString speedSummaryText(const autoviz::model::ControlCommandStatus& control,
 {
     bool hasTarget = false;
     double target = 0.0;
-    if (isCrawlMode(control) || isSailingMode(control)) {
-        hasTarget = true;
-        target = control.speed;
-    } else if (action.valid) {
+    if (action.valid && action.state == 1) {
         hasTarget = true;
         target = action.targetSpeed;
+    } else if (isCrawlMode(control) || isSailingMode(control)) {
+        hasTarget = true;
+        target = control.speed;
     }
 
-    const bool useCrawlFeedback = isCrawlMode(control)
-                                   || (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode));
+    const bool useCrawlFeedback = (action.valid && action.state == 1
+                                   && autoviz::model::isCrawlChassisMode(action.chassisMode))
+                                  || isCrawlMode(control);
     const bool hasFeedback = useCrawlFeedback ? chassis.valid : localization.valid;
     const double feedback = useCrawlFeedback ? chassis.currentSpeed : localization.velocity;
     const QString targetText = hasTarget ? formatNumber(target, 2) : QStringLiteral("--");
@@ -1453,6 +1470,26 @@ void BottomStatusPanel::setupStateTabs()
                       {{QStringLiteral("path.endpoint_note"), tr("终点说明")},
                        {QStringLiteral("path.endpoint_xy"), tr("终点 X/Y")}}}});
 
+    createDetailTab(tr("Action 信息"),
+                    {{tr("当前 Action（公开聚合状态）"),
+                      {{QStringLiteral("action_detail.current_type"), tr("Action 类型")},
+                       {QStringLiteral("action_detail.current_uuid"), tr("Goal UUID")},
+                       {QStringLiteral("action_detail.current_state"), tr("生命周期")},
+                       {QStringLiteral("action_detail.current_message"), tr("说明")},
+                       {QStringLiteral("action_detail.current_target"), tr("目标深度/高度")},
+                       {QStringLiteral("action_detail.current_buoyancy"), tr("伴随水箱指令")}}},
+                     {tr("原生 Action 诊断（可选隐藏 Topic）"),
+                      {{QStringLiteral("action_detail.native_status"), tr("原生状态")},
+                       {QStringLiteral("action_detail.native_status_time"), tr("状态更新时间")},
+                       {QStringLiteral("action_detail.progress"), tr("反馈进度")},
+                       {QStringLiteral("action_detail.progress_time"), tr("反馈更新时间")}}},
+                     {tr("最近终态"),
+                      {{QStringLiteral("action_detail.recent_type"), tr("Action 类型")},
+                       {QStringLiteral("action_detail.recent_uuid"), tr("Goal UUID")},
+                       {QStringLiteral("action_detail.recent_state"), tr("生命周期")},
+                       {QStringLiteral("action_detail.recent_message"), tr("说明")},
+                       {QStringLiteral("action_detail.recent_time"), tr("更新时间")}}}});
+
     createDetailTab(tr("任务状态"),
                     {{tr("运行状态"),
                       {{QStringLiteral("action.source"), tr("数据来源")},
@@ -1525,10 +1562,15 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
 
     setOverviewValue(QStringLiteral("pose.age"), locationTopic != nullptr ? formatAge(locationTopic->ageMs) : QStringLiteral("--"));
 
-    const int controlMode = control.valid ? control.mode : (action.valid ? action.chassisMode : 0);
+    const bool activeAction = action.valid && action.state == 1;
+    const int controlMode = activeAction ? action.chassisMode
+                                             : (control.valid ? control.mode
+                                                              : (action.valid ? action.chassisMode : 0));
     setOverviewValue(QStringLiteral("control.mode"), chassisModeText(control.valid || action.valid, controlMode));
-    const bool useCrawlFeedback = isCrawlMode(control)
-                                   || (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode));
+    const bool useCrawlFeedback = activeAction
+                                      ? action.chassisMode == 11
+                                      : (isCrawlMode(control)
+                                         || (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode)));
     const QString feedbackSpeed = useCrawlFeedback
                                       ? displayNumber(chassis.valid, chassis.currentSpeed, 2)
                                       : displayNumber(loc.valid, loc.velocity, 2);
@@ -1547,11 +1589,15 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
     setOverviewValue(QStringLiteral("command.heading"), headingSummaryText(loc, control, action));
     setOverviewValue(QStringLiteral("command.angular"), angularVelocitySummaryText(loc, chassis, control, action));
     setOverviewValue(QStringLiteral("command.gear"), gearSummaryText(control, chassis));
-    const QString commandState = control.valid
+    const QString commandState = activeAction
+                                     ? QStringLiteral("%1 / %2")
+                                           .arg(chassisModeText(true, action.chassisMode),
+                                                action.isEnable ? QStringLiteral("已使能") : QStringLiteral("未使能"))
+                                     : (control.valid
                                      ? QStringLiteral("%1 / %2")
                                            .arg(chassisModeText(true, control.mode),
                                                 control.isEnable ? QStringLiteral("已使能") : QStringLiteral("未使能"))
-                                     : (controlTopic == nullptr ? QStringLiteral("等待控制消息") : topicStateText(controlTopic));
+                                     : (controlTopic == nullptr ? QStringLiteral("等待控制消息") : topicStateText(controlTopic)));
     setOverviewValue(QStringLiteral("command.state"), commandState);
 
     setOverviewValue(QStringLiteral("hardware.feedback"), chassisHealthText(chassis, chassisTopic));
@@ -1731,6 +1777,22 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("action.target_vertical"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("action.buoyancy"), displayInt(action.valid, action.buoyancyAdjust));
     setDetailValue(QStringLiteral("action.emergency_ascent"), displayBool(action.valid, action.emergencyAscent));
+    const auto& recentAction = snapshot.recentTerminalActionStatus;
+    setDetailValue(QStringLiteral("action_detail.current_type"), displayText(action.valid, action.actionName));
+    setDetailValue(QStringLiteral("action_detail.current_uuid"), displayText(action.valid, action.goalUuid));
+    setDetailValue(QStringLiteral("action_detail.current_state"), actionStateText(action.valid, action.state));
+    setDetailValue(QStringLiteral("action_detail.current_message"), displayText(action.valid, action.message));
+    setDetailValue(QStringLiteral("action_detail.current_target"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("action_detail.current_buoyancy"), displayInt(action.valid, action.buoyancyAdjust));
+    setDetailValue(QStringLiteral("action_detail.native_status"), nativeActionStatusText(action.hasNativeStatus, action.nativeStatus));
+    setDetailValue(QStringLiteral("action_detail.native_status_time"), action.hasNativeStatus ? formatTime(action.nativeStatusTimestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("action_detail.progress"), action.hasFeedbackProgress ? QStringLiteral("%1%").arg(formatNumber(action.feedbackProgress * 100.0, 1)) : QStringLiteral("未接入/未录制"));
+    setDetailValue(QStringLiteral("action_detail.progress_time"), action.hasFeedbackProgress ? formatTime(action.feedbackTimestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("action_detail.recent_type"), displayText(recentAction.valid, recentAction.actionName));
+    setDetailValue(QStringLiteral("action_detail.recent_uuid"), displayText(recentAction.valid, recentAction.goalUuid));
+    setDetailValue(QStringLiteral("action_detail.recent_state"), actionStateText(recentAction.valid, recentAction.state));
+    setDetailValue(QStringLiteral("action_detail.recent_message"), displayText(recentAction.valid, recentAction.message));
+    setDetailValue(QStringLiteral("action_detail.recent_time"), formatTime(recentAction.timestampMs));
     setDetailValue(QStringLiteral("task.state"), validText(task.valid));
     setDetailValue(QStringLiteral("task.type_id"), taskTypeAndIdText(task));
     setDetailValue(QStringLiteral("task.enable_estop"), task.valid ? QStringLiteral("%1 / %2").arg(displayBool(true, task.taskEnable), displayBool(true, task.emergencyStop)) : QStringLiteral("--"));

@@ -21,8 +21,7 @@ constexpr double kVerticalHistoryMinTimeIntervalSec = 1.0;
 
 bool isVerticalHistoryMode(model::RunVisualizationMode mode)
 {
-    return mode == model::RunVisualizationMode::VerticalMotion
-           || mode == model::RunVisualizationMode::BuoyancyAdjust;
+    return mode == model::RunVisualizationMode::VerticalMotion;
 }
 }
 
@@ -252,6 +251,7 @@ void DataManager::resetVisualizationData(VisualizationInputSource inputSource)
     m_snapshot.localPathStatus = model::PathRuntimeStatus{};
     m_snapshot.pathEndpointStatus = model::PathEndpointStatus{};
     m_snapshot.actionRuntimeStatus = model::ActionRuntimeStatus{};
+    m_snapshot.recentTerminalActionStatus = model::ActionRuntimeStatus{};
     m_snapshot.taskRuntimeStatus = model::TaskRuntimeStatus{};
     m_snapshot.runVisualizationMode = model::RunVisualizationMode::Unknown;
     m_snapshot.runtimeStatus = VisualizationRuntimeStatus{};

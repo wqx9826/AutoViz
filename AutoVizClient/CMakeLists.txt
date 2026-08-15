@@ -124,6 +124,7 @@ add_custom_command(
 
 add_executable(AutoVizClientPlaybackTests
     tests/PlaybackValidationMain.cpp
+    src/core/network/ProtocolModelConverter.cpp
     src/core/playback/RobotWsCdrDecoder.h
     src/core/playback/RobotWsCdrDecoder.cpp
 )

@@ -105,10 +105,37 @@ TEST(RobotWsProtoConverterTest, ConvertsCommonAndUnderwaterControlCommand)
     EXPECT_DOUBLE_EQ(actual.target_yaw_rate_radps(), 0.3);
     ASSERT_TRUE(actual.has_underwater());
     EXPECT_EQ(actual.underwater().navigation_mode(), 2);
+    EXPECT_EQ(actual.underwater().vertical_control_mode(),
+              autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD);
     EXPECT_EQ(actual.underwater().left_thruster_command(), -10);
     EXPECT_EQ(actual.underwater().buoyancy_command(),
               autoviz::BUOYANCY_COMMAND_DRAIN);
     EXPECT_TRUE(actual.underwater().emergency_ascent());
+}
+
+TEST(RobotWsProtoConverterTest, PreservesCenterTurningAsGenericManeuver)
+{
+    custom_msgs::msg::ChassisCommand sailingSource;
+    sailingSource.mode = 10;
+    const auto sailing = autoviz_server::RobotWsProtoConverter::controlCommand(
+        sailingSource, kReceiveTimeNs);
+    EXPECT_EQ(sailing.mode(), autoviz::ControlCommand::MODE_SAILING);
+    EXPECT_EQ(sailing.maneuver(), autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
+
+    custom_msgs::msg::ChassisCommand crawlSource;
+    crawlSource.mode = 11;
+    const auto crawl = autoviz_server::RobotWsProtoConverter::controlCommand(
+        crawlSource, kReceiveTimeNs);
+    EXPECT_EQ(crawl.mode(), autoviz::ControlCommand::MODE_CRAWL);
+    EXPECT_EQ(crawl.maneuver(), autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
+
+    custom_msgs::msg::ChassisCommand gearSource;
+    gearSource.mode = 6;
+    gearSource.expected_gear = 4;
+    const auto gear = autoviz_server::RobotWsProtoConverter::controlCommand(
+        gearSource, kReceiveTimeNs);
+    EXPECT_EQ(gear.mode(), autoviz::ControlCommand::MODE_CRAWL);
+    EXPECT_EQ(gear.maneuver(), autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
 }
 
 TEST(RobotWsProtoConverterTest, NormalizesChassisYawAndUsesTypedDiagnostics)
@@ -156,6 +183,7 @@ TEST(RobotWsProtoConverterTest, ConvertsActionDegreesPerSecondToRadiansPerSecond
     source.owner = 2;
     source.state = 1;
     source.goal_uuid = "goal-1";
+    source.message = "executing";
     source.chassis_mode = 1;
     source.is_enable = true;
     source.navi_mode = 1;
@@ -170,11 +198,34 @@ TEST(RobotWsProtoConverterTest, ConvertsActionDegreesPerSecondToRadiansPerSecond
     const auto actual = autoviz_server::RobotWsProtoConverter::actionState(
         source, kReceiveTimeNs);
     EXPECT_NEAR(actual.target_yaw_rate_radps(), kPi, 1e-12);
+    EXPECT_EQ(actual.underwater().vertical_control_mode(),
+              autoviz::VERTICAL_CONTROL_MODE_DEPTH_HOLD);
     EXPECT_EQ(actual.goal_id(), "goal-1");
+    EXPECT_EQ(actual.message(), "executing");
+    EXPECT_EQ(actual.action_name(), "custom_msgs/action/DepthCommand");
     EXPECT_DOUBLE_EQ(actual.underwater().target_depth_m(), 5.0);
     EXPECT_EQ(actual.underwater().buoyancy_command(),
               autoviz::BUOYANCY_COMMAND_FILL);
     EXPECT_TRUE(actual.underwater().emergency_ascent());
+}
+
+TEST(RobotWsProtoConverterTest, InfersHeightHoldFromDepthActionWhenNaviModeIsUnset)
+{
+    custom_msgs::msg::SystemRunStates source;
+    source.owner = 2;
+    source.state = 1;
+    source.chassis_mode = 2;
+    source.navi_mode = 0;
+    source.target_height = 0.5;
+    source.buoyancy_adjust = 1;
+
+    const auto actual = autoviz_server::RobotWsProtoConverter::actionState(
+        source, kReceiveTimeNs);
+    ASSERT_TRUE(actual.has_underwater());
+    EXPECT_EQ(actual.underwater().vertical_control_mode(),
+              autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD);
+    EXPECT_DOUBLE_EQ(actual.underwater().target_height_above_bottom_m(), 0.5);
+    EXPECT_EQ(actual.underwater().buoyancy_command(), autoviz::BUOYANCY_COMMAND_FILL);
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsTaskIncludingEmergencyRelease)

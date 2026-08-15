@@ -17,3 +17,7 @@ autoviz_server:
       task_state: "/task_params"
       local_path: "/local_path"
       global_path: "/global_path"
+      depth_action_status: "/depth_command_action/_action/status"
+      depth_action_feedback: "/depth_command_action/_action/feedback"
+      move_action_status: "/move_action/_action/status"
+      move_action_feedback: "/move_action/_action/feedback"

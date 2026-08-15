@@ -32,6 +32,9 @@ target_link_libraries(app PRIVATE AutoVizProto::AutoVizProto)
 
 ## Linux 标准构建流程
 
+Ubuntu/Debian 上先安装 `libprotobuf-dev` 和 `protobuf-compiler`。发行版通常只提供
+`FindProtobuf` 模块、不提供 `ProtobufConfig.cmake`；协议工程已自动兼容该布局。
+
 ```bash
 ./AutoVizProto/scripts/bootstrap_proto.sh
 ```
