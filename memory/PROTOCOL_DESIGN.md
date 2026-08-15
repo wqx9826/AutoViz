@@ -84,12 +84,28 @@ Adapter 将 `ChassisCommand.mode` 的 10/11，以及 `expected_gear` 的 4，统
 `owner=2`（DepthCommand）和 `chassis_mode=1/2` 判定定深/定高；实机该 action 可将
 `navi_mode` 发布为 0。
 
+不要混淆两类 `robot_ws` 模式：`SystemRunStates.owner=2 + chassis_mode=1/2` 是独立的
+`DepthCommand`（浮潜定深/定高）Action；而 `/chassis_command.mode=4/5` 是普通自主航行过程中的
+定深/定高保持，`navi_mode=1/2` 仅给出该航行依赖。后者不能触发 T-Z Action 视图，也不能被标为
+独立浮潜 Action。
+
 `/system_run_states` 是可回放的 action 聚合状态，包含 owner、goal UUID、生命周期、垂向目标
 及伴随水箱指令。DepthCommand/Move 的 ROS2 action status、feedback 是隐藏 topic；`ros2 bag
 record -a` 不会记录它们。如需回放 action feedback（例如 progress），录制时必须额外使用
 `--include-hidden-topics`。协议 `ActionState` 的公开聚合字段始终是主界面与 T-Z 的唯一必需
 契约；`message`、原生 status、feedback progress 和最近终态仅为详情诊断字段，缺失时不得影响
 主状态。Server 与本地 bag 仅在 UUID 匹配当前 action 时合并这些隐藏 topic 字段。
+隐藏消息与公开聚合状态没有到达顺序保证：两端必须按 UUID 暂存原生 status/feedback，待对应的
+`SystemRunStates` 到达后再合并；不能因隐藏消息先到而丢弃。Action status 使用 ROS2 的
+`RELIABLE + TRANSIENT_LOCAL` QoS，feedback 使用 `RELIABLE` QoS。
+
+robot_ws 的 `SystemRunStates.goal_uuid` 是字符串，发布端按字节用 `%x` 拼接，会丢掉字节
+前导零（例如 UUID 字节 `0x06` 变成 `"6"`），使其可能是 16~32 位的非 canonical hex；而隐藏
+action topic 的 `goal_id` 是 16 字节 UUID，规范化后是 canonical 32 位 hex。二者直接字符串比较
+会失配，因此 Server 与本地 bag 按 UUID 合并 status/feedback 时必须通过把 canonical 侧转成
+同样丢零的 lossy 形式做对称比对（`RobotWsProtoConverter::sameGoalUuid` /
+`RobotWsCdrDecoder::sameGoalUuid`），同时兼容修复前（丢零）与修复后（canonical）两种
+robot_ws 输出。不要在读取 `goal_uuid` 时尝试把非 canonical 字符串补回 32 位——那是有歧义的。
 
 ## 单位和兼容
 

@@ -122,3 +122,32 @@ worker 确认延迟为 0 ms（验收上限 300 ms），随后完成 seek、继�
 播放速度浮层使用独立自绘 `PillRateSlider`，不继承 `QSlider`：六个内置档位、32 px 胶囊轨道、
 40 px 白色手柄、140 ms OutCubic 吸附动画，以及 hover/pressed 缩放均不依赖图形效果。以
 `QT_SCALE_FACTOR=1.5` 生成 930×267 深浅预览图，控件未裁切或变形。
+
+## 2026-08-15 Action 隐藏 topic 合并审查与 goal_uuid 规范化修复
+
+输入 bag：`/home/wqx/LZBK/data/rosbag/rosbag2_2026_08_15-08_44_34/`。该 bag 含隐藏 action
+topic：`/move_action/_action/status`（`GoalStatusArray`，15 条，TRANSIENT_LOCAL）、
+`/move_action/_action/feedback`（`Move_FeedbackMessage`，1562 条）；depth 的 status/feedback
+为 0 条。
+
+审查发现并修复一个会让隐藏 topic 合并失效的问题：robot_ws 发布
+`SystemRunStates.goal_uuid` 时按字节用 `%x` 拼接，丢掉字节前导零（如 UUID 字节 `0x06` →
+`"6"`）。实测同一 goal 的 `goal_uuid` 是 31 位 `c5cc4cd52699c9c14e8148408868456`，而隐藏
+topic 的 canonical UUID 是 32 位 `c5cc4cd52699c9c14e81484088068456`。Server `uuidToString`
+与 Client `readUuid` 都产生 canonical 32 位 hex，因此旧实现的精确字符串匹配永远失配，
+`native_status`/`feedback_progress` 从未被合并/转发。
+
+修复：新增 `RobotWsProtoConverter::sameGoalUuid`（Server）与 `RobotWsCdrDecoder::sameGoalUuid`
+（Client），把 canonical 侧转成同样丢零的 lossy 形式做对称比对，兼容修复前后的 robot_ws。
+同时把 Server `m_actionDiagnostics` 的超限淘汰从 `unordered_map` 任意 `begin()` 改为 FIFO
+（`deque` 记录插入顺序）。
+
+验证：Server `robot_ws_converter_test` 13/13、`tcp_server_test` 7/7 通过；Client
+`AutoVizClientPlaybackTests` 自检通过，并已改为按 `supportedTopics()` 扫描 104,415 条
+（含隐藏 topic）无失败，1562 条 `SystemRunStates` 全部命中 native_status 与
+feedback_progress。端到端回归（ROS 播放 bag + Server + 探针）确认合并生效：快照
+`with_native_status`/`with_feedback` 从 0 变为 301/301，执行中的 Move action 输出
+status=2（EXECUTING）、progress 递增。
+
+遗留（待团队决策）：robot_ws 端 `goal_uuid` 丢零是数据源头问题，最稳妥是在 robot_ws 用
+`%02x` 修正；AutoViz 侧已容错，但对已录制的坏格式 bag 只能靠 lossy 对称比对匹配。

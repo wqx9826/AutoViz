@@ -155,17 +155,19 @@ void AutoVizServerNode::createSubscriptions()
         m_topics.globalPath, qos,
         std::bind(&AutoVizServerNode::onGlobalPath, this, std::placeholders::_1));
     // 原生 action topic 仅补充详情诊断；公开 SystemRunStates 才是主界面契约。
+    const auto actionStatusQos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable().transient_local();
+    const auto actionFeedbackQos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
     m_depthActionStatusSubscription = create_subscription<action_msgs::msg::GoalStatusArray>(
-        m_topics.depthActionStatus, qos,
+        m_topics.depthActionStatus, actionStatusQos,
         std::bind(&AutoVizServerNode::onActionStatus, this, std::placeholders::_1));
     m_moveActionStatusSubscription = create_subscription<action_msgs::msg::GoalStatusArray>(
-        m_topics.moveActionStatus, qos,
+        m_topics.moveActionStatus, actionStatusQos,
         std::bind(&AutoVizServerNode::onActionStatus, this, std::placeholders::_1));
     m_depthActionFeedbackSubscription = create_subscription<custom_msgs::action::DepthCommand::Impl::FeedbackMessage>(
-        m_topics.depthActionFeedback, qos,
+        m_topics.depthActionFeedback, actionFeedbackQos,
         std::bind(&AutoVizServerNode::onDepthActionFeedback, this, std::placeholders::_1));
     m_moveActionFeedbackSubscription = create_subscription<custom_msgs::action::Move::Impl::FeedbackMessage>(
-        m_topics.moveActionFeedback, qos,
+        m_topics.moveActionFeedback, actionFeedbackQos,
         std::bind(&AutoVizServerNode::onMoveActionFeedback, this, std::placeholders::_1));
 }
 
@@ -229,6 +231,7 @@ void AutoVizServerNode::onAction(custom_msgs::msg::SystemRunStates::ConstSharedP
             next.set_feedback_time_ns(m_latestActionState.feedback_time_ns());
         }
     }
+    mergeCachedActionDiagnostic(&next);
     m_latestActionState = std::move(next);
     m_hasLatestActionState = true;
     m_store->updateActionState(m_latestActionState, receiveTimeNs);
@@ -236,14 +239,11 @@ void AutoVizServerNode::onAction(custom_msgs::msg::SystemRunStates::ConstSharedP
 
 void AutoVizServerNode::onActionStatus(action_msgs::msg::GoalStatusArray::ConstSharedPtr message)
 {
-    if (!message || !m_hasLatestActionState || m_latestActionState.goal_id().empty()) return;
+    if (!message) return;
     const auto receiveTimeNs = nowNs();
     for (const auto& item : message->status_list) {
         const auto goalId = uuidToString(item.goal_info.goal_id);
-        if (goalId == m_latestActionState.goal_id()) {
-            updateActionNativeStatus(goalId, item.status, receiveTimeNs);
-            return;
-        }
+        updateActionNativeStatus(goalId, item.status, receiveTimeNs);
     }
 }
 
@@ -265,7 +265,13 @@ void AutoVizServerNode::updateActionNativeStatus(const std::string& goalId,
                                                   std::int32_t status,
                                                   std::uint64_t receiveTimeNs)
 {
-    if (!m_hasLatestActionState || goalId.empty() || goalId != m_latestActionState.goal_id()) return;
+    if (goalId.empty()) return;
+    auto& diagnostic = diagnosticFor(goalId);
+    diagnostic.hasNativeStatus = true;
+    diagnostic.nativeStatus = status;
+    diagnostic.nativeStatusTimeNs = receiveTimeNs;
+    if (!m_hasLatestActionState
+        || !RobotWsProtoConverter::sameGoalUuid(goalId, m_latestActionState.goal_id())) return;
     m_latestActionState.set_native_status(status);
     m_latestActionState.set_native_status_time_ns(receiveTimeNs);
     m_store->updateActionState(m_latestActionState, receiveTimeNs);
@@ -275,10 +281,47 @@ void AutoVizServerNode::updateActionProgress(const std::string& goalId,
                                               double progress,
                                               std::uint64_t receiveTimeNs)
 {
-    if (!m_hasLatestActionState || goalId.empty() || goalId != m_latestActionState.goal_id()) return;
+    if (goalId.empty()) return;
+    auto& diagnostic = diagnosticFor(goalId);
+    diagnostic.hasFeedbackProgress = true;
+    diagnostic.feedbackProgress = progress;
+    diagnostic.feedbackTimeNs = receiveTimeNs;
+    if (!m_hasLatestActionState
+        || !RobotWsProtoConverter::sameGoalUuid(goalId, m_latestActionState.goal_id())) return;
     m_latestActionState.set_feedback_progress(progress);
     m_latestActionState.set_feedback_time_ns(receiveTimeNs);
     m_store->updateActionState(m_latestActionState, receiveTimeNs);
+}
+
+AutoVizServerNode::ActionDiagnostic& AutoVizServerNode::diagnosticFor(const std::string& goalId)
+{
+    auto [it, inserted] = m_actionDiagnostics.try_emplace(goalId);
+    if (inserted) {
+        m_actionDiagnosticOrder.push_back(goalId);
+        while (m_actionDiagnosticOrder.size() > 128) {
+            m_actionDiagnostics.erase(m_actionDiagnosticOrder.front());
+            m_actionDiagnosticOrder.pop_front();
+        }
+    }
+    return it->second;
+}
+
+void AutoVizServerNode::mergeCachedActionDiagnostic(::autoviz::ActionState* action) const
+{
+    if (action == nullptr || action->goal_id().empty()) return;
+    // goal_id 可能是丢前导零的 lossy hex，逐项比对以命中 canonical 缓存键。
+    for (const auto& [cachedGoalId, diagnostic] : m_actionDiagnostics) {
+        if (!RobotWsProtoConverter::sameGoalUuid(action->goal_id(), cachedGoalId)) continue;
+        if (diagnostic.hasNativeStatus) {
+            action->set_native_status(diagnostic.nativeStatus);
+            action->set_native_status_time_ns(diagnostic.nativeStatusTimeNs);
+        }
+        if (diagnostic.hasFeedbackProgress) {
+            action->set_feedback_progress(diagnostic.feedbackProgress);
+            action->set_feedback_time_ns(diagnostic.feedbackTimeNs);
+        }
+        return;
+    }
 }
 
 void AutoVizServerNode::onTask(custom_msgs::msg::TaskParams::ConstSharedPtr message)

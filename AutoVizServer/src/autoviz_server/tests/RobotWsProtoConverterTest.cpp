@@ -228,6 +228,38 @@ TEST(RobotWsProtoConverterTest, InfersHeightHoldFromDepthActionWhenNaviModeIsUns
     EXPECT_EQ(actual.underwater().buoyancy_command(), autoviz::BUOYANCY_COMMAND_FILL);
 }
 
+TEST(RobotWsProtoConverterTest, DoesNotTreatMoveNavigationDependencyAsVerticalAction)
+{
+    custom_msgs::msg::SystemRunStates source;
+    source.owner = 1;          // custom_msgs/action/Move
+    source.chassis_mode = 4;   // ordinary autonomous navigation
+    source.navi_mode = 1;      // depth-hold dependency for the navigation action
+
+    const auto actual = autoviz_server::RobotWsProtoConverter::actionState(
+        source, kReceiveTimeNs);
+
+    ASSERT_TRUE(actual.has_underwater());
+    EXPECT_EQ(actual.underwater().vertical_control_mode(),
+              autoviz::VERTICAL_CONTROL_MODE_NONE);
+}
+
+TEST(RobotWsProtoConverterTest, MatchesGoalUuidAcrossDroppedLeadingZero)
+{
+    // robot_ws 用 %x 逐字节格式化 SystemRunStates.goal_uuid，会丢掉字节前导零
+    //（例如 0x06 变成 "6"）。canonical 是隐藏 action topic 16 字节 UUID 的标准
+    // 32 位 hex，lossy 是同一 UUID 丢零后的形式。
+    const std::string canonical = "c5cc4cd52699c9c14e81484088068456";
+    const std::string lossy = "c5cc4cd52699c9c14e8148408868456";
+
+    EXPECT_TRUE(autoviz_server::RobotWsProtoConverter::sameGoalUuid(canonical, lossy));
+    EXPECT_TRUE(autoviz_server::RobotWsProtoConverter::sameGoalUuid(lossy, canonical));
+    EXPECT_TRUE(autoviz_server::RobotWsProtoConverter::sameGoalUuid(canonical, canonical));
+    EXPECT_FALSE(autoviz_server::RobotWsProtoConverter::sameGoalUuid(
+        canonical, "c5cc4cd52699c9c14e81484088068457"));
+    EXPECT_FALSE(autoviz_server::RobotWsProtoConverter::sameGoalUuid(
+        lossy, "c5cc4cd52699c9c14e8148408868457"));
+}
+
 TEST(RobotWsProtoConverterTest, ConvertsTaskIncludingEmergencyRelease)
 {
     custom_msgs::msg::TaskParams source;
@@ -310,6 +342,27 @@ TEST(SnapshotStoreTest, TracksTopicsAndClearsTimedOutSnapshotFields)
     EXPECT_FALSE(after.has_vehicle_state());
     EXPECT_TRUE(after.runtime_state().topic(0).timed_out());
     EXPECT_EQ(after.runtime_state().topic(0).timeout_ns(), 5000000000ULL);
+}
+
+TEST(SnapshotStoreTest, RetainsEventDrivenActionAcrossHealthTimeout)
+{
+    autoviz_server::SnapshotStore store({
+        {"/system_run_states", "custom_msgs/msg/SystemRunStates", autoviz::DATA_KIND_ACTION_STATE}});
+    autoviz::ActionState action;
+    action.set_owner(2);
+    action.set_state(1);
+    action.set_goal_id("vertical-goal");
+    store.updateActionState(action, kReceiveTimeNs);
+
+    store.markPublished();
+    store.expire(std::chrono::steady_clock::now() + std::chrono::seconds(6),
+                 std::chrono::milliseconds(5000));
+    const auto snapshot = store.buildSnapshot(kReceiveTimeNs, 0);
+
+    ASSERT_TRUE(snapshot.has_action_state());
+    EXPECT_EQ(snapshot.action_state().goal_id(), "vertical-goal");
+    ASSERT_EQ(snapshot.runtime_state().topic_size(), 1);
+    EXPECT_TRUE(snapshot.runtime_state().topic(0).timed_out());
 }
 
 }  // namespace

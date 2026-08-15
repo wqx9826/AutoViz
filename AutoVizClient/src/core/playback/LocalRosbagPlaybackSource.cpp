@@ -1,5 +1,7 @@
 #include "core/playback/LocalRosbagPlaybackSource.h"
 
+#include <algorithm>
+
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
@@ -91,6 +93,14 @@ private:
     {
         QStringList parts;for(int i=0;i<m_files.size();++i){const QString schema=i?QStringLiteral("bag%1.").arg(i):QString{};parts<<QStringLiteral("SELECT %1 FROM %2messages m JOIN %2topics t ON t.id=m.topic_id %3").arg(columns,schema,where);}return parts.join(" UNION ALL ");
     }
+    QString supportedTopicListSql() const
+    {
+        QStringList quoted;
+        for (const auto& topic : RobotWsCdrDecoder::supportedTopics()) {
+            quoted << QStringLiteral("'%1'").arg(topic);
+        }
+        return QStringLiteral("(%1)").arg(quoted.join(','));
+    }
     bool validate(RosbagInfo& info,QString& error)
     {
         QSqlQuery q(m_db);for(int i=0;i<m_files.size();++i){const QString schema=i?QStringLiteral("bag%1.").arg(i):QString{};if(!q.exec(QStringLiteral("PRAGMA %1quick_check").arg(schema))||!q.next()||q.value(0).toString()!="ok"){error=tr("SQLite 完整性检查失败：分片 %1").arg(i+1);return false;}}
@@ -98,14 +108,17 @@ private:
         const QString sql=QStringLiteral("SELECT name,type,serialization_format,COUNT(*) FROM (%1) GROUP BY name,type,serialization_format").arg(unionSql("t.name name,t.type type,t.serialization_format serialization_format,m.id mid"));if(!q.exec(sql)){error=q.lastError().text();return false;}
         qint64 supportedCount=0;while(q.next()){const QString topic=q.value(0).toString(),type=q.value(1).toString(),format=q.value(2).toString();const qint64 count=q.value(3).toLongLong();if(!RobotWsCdrDecoder::expectedType(topic).isEmpty()&&type!=RobotWsCdrDecoder::expectedType(topic)){error=tr("%1 的消息类型不匹配：%2").arg(topic,type);return false;}if(RobotWsCdrDecoder::isSupported(topic,type)){if(format!="cdr"){error=tr("%1 不是 CDR 序列化").arg(topic);return false;}auto c=channels.value(topic);c.present=count>0;c.messageCount+=count;channels[topic]=c;supportedCount+=count;}}
         if(supportedCount==0){error=tr("bag 中没有 AutoViz 支持的数据通道");return false;}
-        if(!q.exec(QStringLiteral("SELECT MIN(timestamp),MAX(timestamp) FROM (%1)").arg(unionSql("m.timestamp timestamp","WHERE t.name IN ('/location','/targets/final_objects','/chassis_command','/chassis_states','/system_run_states','/task_params','/local_path','/global_path')")))||!q.next()){error=tr("无法读取 bag 时间范围");return false;}info.startTimeNs=q.value(0).toLongLong();info.endTimeNs=q.value(1).toLongLong();
+        const QString timeRangeSql = QStringLiteral("SELECT MIN(timestamp),MAX(timestamp) FROM (%1)")
+            .arg(unionSql("m.timestamp timestamp", QStringLiteral("WHERE t.name IN %1").arg(supportedTopicListSql())));
+        if (!q.exec(timeRangeSql) || !q.next()) { error=tr("无法读取 bag 时间范围");return false; }
+        info.startTimeNs=q.value(0).toLongLong();info.endTimeNs=q.value(1).toLongLong();
         info.channels=channels.values().toVector();for(const auto&c:info.channels)if(!c.present&&c.topic!="/targets/final_objects")info.warnings<<tr("缺少通道 %1").arg(c.topic);
         emit progress(5,tr("正在完整解码 %1 条受支持消息").arg(supportedCount));
-        const QString decodeSql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data","WHERE t.name IN ('/location','/targets/final_objects','/chassis_command','/chassis_states','/system_run_states','/task_params','/local_path','/global_path')")+" ORDER BY timestamp";q.setForwardOnly(true);if(!q.exec(decodeSql)){error=q.lastError().text();return false;}qint64 n=0;while(q.next()){wire::VisualizationSnapshot scratch;QString detail;if(!RobotWsCdrDecoder::decode(q.value(1).toString(),q.value(2).toString(),q.value(3).toByteArray(),q.value(0).toULongLong(),&scratch,&detail)){error=tr("消息解码失败：%1，第 %2 条：%3").arg(q.value(1).toString()).arg(n+1).arg(detail);return false;}++n;if(n%10000==0)emit progress(5+static_cast<int>(94.0*n/supportedCount),tr("已验证 %1 / %2 条消息").arg(n).arg(supportedCount));}return true;
+        const QString decodeSql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data",QStringLiteral("WHERE t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp";q.setForwardOnly(true);if(!q.exec(decodeSql)){error=q.lastError().text();return false;}qint64 n=0;while(q.next()){wire::VisualizationSnapshot scratch;QString detail;if(!RobotWsCdrDecoder::decode(q.value(1).toString(),q.value(2).toString(),q.value(3).toByteArray(),q.value(0).toULongLong(),&scratch,&detail)){error=tr("消息解码失败：%1，第 %2 条：%3").arg(q.value(1).toString()).arg(n+1).arg(detail);return false;}++n;if(n%10000==0)emit progress(5+static_cast<int>(94.0*n/supportedCount),tr("已验证 %1 / %2 条消息").arg(n).arg(supportedCount));}return true;
     }
     void resetSnapshot()
     {
-        m_snapshot.Clear();m_snapshot.set_session_id(QStringLiteral("local:%1").arg(m_info.name).toStdString());auto*src=m_snapshot.mutable_source();src->set_source_id(m_info.name.toStdString());src->set_communication_type("ROS2 Bag");src->set_communication_version("Humble");src->set_description("Local robot_ws rosbag2 sqlite3 playback");src->add_capability(wire::CAPABILITY_COMMON_PLANNING_CONTROL);src->add_capability(wire::CAPABILITY_VERTICAL_MOTION);src->add_capability(wire::CAPABILITY_UNDERWATER_SYSTEM);src->add_capability(wire::CAPABILITY_PLATFORM_DIAGNOSTICS);m_counts.clear();m_lastTimes.clear();if(m_dataManager)m_dataManager->resetVisualizationData(datacenter::VisualizationInputSource::Ros2Bag);
+        m_snapshot.Clear();m_actionDiagnostics.clear();m_snapshot.set_session_id(QStringLiteral("local:%1").arg(m_info.name).toStdString());auto*src=m_snapshot.mutable_source();src->set_source_id(m_info.name.toStdString());src->set_communication_type("ROS2 Bag");src->set_communication_version("Humble");src->set_description("Local robot_ws rosbag2 sqlite3 playback");src->add_capability(wire::CAPABILITY_COMMON_PLANNING_CONTROL);src->add_capability(wire::CAPABILITY_VERTICAL_MOTION);src->add_capability(wire::CAPABILITY_UNDERWATER_SYSTEM);src->add_capability(wire::CAPABILITY_PLATFORM_DIAGNOSTICS);m_counts.clear();m_lastTimes.clear();if(m_dataManager)m_dataManager->resetVisualizationData(datacenter::VisualizationInputSource::Ros2Bag);
     }
     void updateRuntime(qint64 now)
     {
@@ -113,16 +126,26 @@ private:
     }
     bool prepareCursor(qint64 absolute)
     {
-        const QString sql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data","WHERE m.timestamp >= ? AND t.name IN ('/location','/targets/final_objects','/chassis_command','/chassis_states','/system_run_states','/task_params','/local_path','/global_path')")+" ORDER BY timestamp";m_query=QSqlQuery(m_db);m_query.setForwardOnly(true);m_query.prepare(sql);for(int i=0;i<m_files.size();++i)m_query.addBindValue(absolute);m_hasPending=false;return m_query.exec();
+        const QString sql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data",QStringLiteral("WHERE m.timestamp >= ? AND t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp";m_query=QSqlQuery(m_db);m_query.setForwardOnly(true);m_query.prepare(sql);for(int i=0;i<m_files.size();++i)m_query.addBindValue(absolute);m_hasPending=false;return m_query.exec();
     }
     void rebuildAt(qint64 absolute)
     {
         resetSnapshot();
+        QVector<PendingMessage> latest;
         for(const auto& topic:RobotWsCdrDecoder::supportedTopics()){
             const QString sql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data","WHERE m.timestamp <= ? AND t.name = ?")+" ORDER BY timestamp DESC LIMIT 1";
-            QSqlQuery q(m_db);q.prepare(sql);for(int i=0;i<m_files.size();++i){q.addBindValue(absolute);q.addBindValue(topic);}if(q.exec()&&q.next())decodeRow(q);
+            QSqlQuery q(m_db);q.prepare(sql);for(int i=0;i<m_files.size();++i){q.addBindValue(absolute);q.addBindValue(topic);}if(q.exec()&&q.next())latest.push_back(messageFromRow(q));
         }
-        const QString countSql=QStringLiteral("SELECT name,COUNT(*),MAX(timestamp) FROM (%1) GROUP BY name").arg(unionSql("m.timestamp timestamp,t.name name","WHERE m.timestamp <= ? AND t.name IN ('/location','/targets/final_objects','/chassis_command','/chassis_states','/system_run_states','/task_params','/local_path','/global_path')"));
+        std::sort(latest.begin(), latest.end(), [](const PendingMessage& left, const PendingMessage& right) {
+            return left.timestampNs < right.timestampNs;
+        });
+        for (const auto& message : latest) {
+            if (decodeMessage(message)) {
+                m_counts[message.topic]++;
+                m_lastTimes[message.topic] = message.timestampNs;
+            }
+        }
+        const QString countSql=QStringLiteral("SELECT name,COUNT(*),MAX(timestamp) FROM (%1) GROUP BY name").arg(unionSql("m.timestamp timestamp,t.name name",QStringLiteral("WHERE m.timestamp <= ? AND t.name IN %1").arg(supportedTopicListSql())));
         QSqlQuery counts(m_db);counts.prepare(countSql);for(int i=0;i<m_files.size();++i)counts.addBindValue(absolute);if(counts.exec())while(counts.next()){m_counts[counts.value(0).toString()]=counts.value(1).toULongLong();m_lastTimes[counts.value(0).toString()]=counts.value(2).toLongLong();}
         publish(absolute);prepareCursor(absolute+1);
     }
@@ -143,7 +166,8 @@ private:
                                          message.payload,
                                          message.timestampNs,
                                          &m_snapshot,
-                                         &error);
+                                         &error,
+                                         &m_actionDiagnostics);
     }
     void decodeRow(const QSqlQuery& q)
     {
@@ -190,8 +214,16 @@ private:
             }
         }
 
+        QVector<PendingMessage> latestMessages;
+        latestMessages.reserve(latestByTopic.size());
         for (auto it = latestByTopic.cbegin(); it != latestByTopic.cend(); ++it) {
-            decodeMessage(it.value());
+            latestMessages.push_back(it.value());
+        }
+        std::sort(latestMessages.begin(), latestMessages.end(), [](const PendingMessage& left, const PendingMessage& right) {
+            return left.timestampNs < right.timestampNs;
+        });
+        for (const auto& message : latestMessages) {
+            decodeMessage(message);
         }
         if (!latestByTopic.isEmpty()) publish(reachedTarget ? target : lastProcessedNs);
 
@@ -206,7 +238,7 @@ private:
     }
     void closeDb(){m_query=QSqlQuery();if(m_db.isValid()){m_db.close();m_db=QSqlDatabase();}if(!m_connection.isEmpty()){QSqlDatabase::removeDatabase(m_connection);m_connection.clear();}}
 
-    datacenter::DataManager*m_dataManager=nullptr;QTimer* m_timer=nullptr;QElapsedTimer m_clock;QSqlDatabase m_db;QSqlQuery m_query;QString m_connection;QStringList m_files;RosbagInfo m_info;PlaybackState m_state=PlaybackState::Empty;wire::VisualizationSnapshot m_snapshot;QMap<QString,quint64>m_counts;QMap<QString,qint64>m_lastTimes;qint64 m_positionNs=0,m_clockBaseNs=0,m_pendingTs=0;double m_rate=1.0;bool m_hasPending=false;
+    datacenter::DataManager*m_dataManager=nullptr;QTimer* m_timer=nullptr;QElapsedTimer m_clock;QSqlDatabase m_db;QSqlQuery m_query;QString m_connection;QStringList m_files;RosbagInfo m_info;PlaybackState m_state=PlaybackState::Empty;wire::VisualizationSnapshot m_snapshot;RobotWsCdrDecoder::ActionDiagnosticCache m_actionDiagnostics;QMap<QString,quint64>m_counts;QMap<QString,qint64>m_lastTimes;qint64 m_positionNs=0,m_clockBaseNs=0,m_pendingTs=0;double m_rate=1.0;bool m_hasPending=false;
 };
 
 LocalRosbagPlaybackSource::LocalRosbagPlaybackSource(datacenter::DataManager*dm,QObject*parent):QObject(parent)

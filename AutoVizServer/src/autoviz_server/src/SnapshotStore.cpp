@@ -105,7 +105,13 @@ void SnapshotStore::expire(std::chrono::steady_clock::time_point now,
                               || now - topic.lastReceive > timeout;
         if (timedOut && !topic.timedOut) {
             topic.timedOut = true;
-            clear(topic.spec.dataKind);
+            // SystemRunStates 是 Action 生命周期聚合状态，实际系统可只在状态迁移时
+            // 发布。超时应作为健康诊断呈现，但不能因为没有心跳就清空正在执行的
+            // Action；否则 Client 会在定位仍持续更新时错误冻结 T-Z 曲线。
+            // 当前 Action 只由下一 Action、明确终态或 Server session 重置替换。
+            if (topic.spec.dataKind != wire::DATA_KIND_ACTION_STATE) {
+                clear(topic.spec.dataKind);
+            }
             m_dirty = true;
         } else if (!timedOut) {
             topic.timedOut = false;

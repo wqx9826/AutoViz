@@ -85,6 +85,7 @@ private:
         int taskType = 0;
         int taskId = 0;
         int chassisMode = 0;
+        QString goalId;
         QVector<VerticalMotionSegmentSample> samples;
         QVector<double> emergencyEventTimes;
     };

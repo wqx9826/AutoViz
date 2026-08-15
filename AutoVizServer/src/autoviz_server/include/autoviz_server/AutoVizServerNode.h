@@ -3,8 +3,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include <custom_msgs/msg/chassis_command.hpp>
 #include <custom_msgs/msg/chassis_states.hpp>
@@ -65,6 +67,18 @@ private:
     void onMoveActionFeedback(custom_msgs::action::Move::Impl::FeedbackMessage::ConstSharedPtr message);
     void updateActionNativeStatus(const std::string& goalId, std::int32_t status, std::uint64_t receiveTimeNs);
     void updateActionProgress(const std::string& goalId, double progress, std::uint64_t receiveTimeNs);
+    void mergeCachedActionDiagnostic(::autoviz::ActionState* action) const;
+
+    struct ActionDiagnostic {
+        bool hasNativeStatus{false};
+        std::int32_t nativeStatus{0};
+        std::uint64_t nativeStatusTimeNs{0};
+        bool hasFeedbackProgress{false};
+        double feedbackProgress{0.0};
+        std::uint64_t feedbackTimeNs{0};
+    };
+
+    ActionDiagnostic& diagnosticFor(const std::string& goalId);
 
     TopicNames m_topics;
     std::unique_ptr<SnapshotStore> m_store;
@@ -90,6 +104,12 @@ private:
     rclcpp::TimerBase::SharedPtr m_publishTimer;
     ::autoviz::ActionState m_latestActionState;
     bool m_hasLatestActionState{false};
+    // 隐藏 Action topic 和公开 SystemRunStates 没有全序保证。按 UUID 暂存诊断，
+    // 使先到的 status/feedback 也能在聚合状态到达时合并。键是隐藏 topic 的 canonical
+    // UUID；m_actionDiagnosticOrder 记录插入顺序，保证超限时按 FIFO 淘汰而不是
+    // unordered_map 的任意 begin()。
+    std::unordered_map<std::string, ActionDiagnostic> m_actionDiagnostics;
+    std::deque<std::string> m_actionDiagnosticOrder;
 };
 
 }  // namespace autoviz_server

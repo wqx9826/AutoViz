@@ -279,6 +279,10 @@ bool SceneManager::shouldStartNewVerticalSegment(const autoviz::datacenter::Visu
     }
 
     const auto& action = snapshot.actionRuntimeStatus;
+    if (action.valid && !m_verticalSegment.goalId.isEmpty()
+        && !action.goalUuid.isEmpty() && action.goalUuid != m_verticalSegment.goalId) {
+        return true;
+    }
     if (action.valid && m_verticalSegment.chassisMode != 0 &&
         action.chassisMode != 0 && action.chassisMode != m_verticalSegment.chassisMode) {
         return true;
@@ -315,6 +319,7 @@ void SceneManager::startVerticalMotionSegment(const autoviz::datacenter::Visuali
     m_verticalSegment.taskType = task.valid ? task.taskType : 0;
     m_verticalSegment.taskId = task.valid ? task.taskId : 0;
     m_verticalSegment.chassisMode = action.valid ? action.chassisMode : 0;
+    m_verticalSegment.goalId = action.valid ? action.goalUuid : QString{};
 }
 
 void SceneManager::appendVerticalMotionSample(const autoviz::datacenter::VisualizationSnapshot& snapshot, qint64 nowMs)
@@ -407,24 +412,9 @@ void SceneManager::updateVerticalMotionSegment(const autoviz::datacenter::Visual
     }
 
     if (m_verticalSegment.active) {
-        if (m_verticalSegment.emergencyStop && snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::Idle) {
-            freezeVerticalMotionSegment();
-        } else if (!verticalMode && !emergencyStop) {
-            if (snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::HorizontalMotion ||
-                snapshot.runVisualizationMode == autoviz::model::RunVisualizationMode::Idle) {
-                freezeVerticalMotionSegment();
-            } else {
-                if (m_verticalSegment.leftVerticalSinceMs == 0) {
-                    m_verticalSegment.leftVerticalSinceMs = nowMs;
-                }
-                if (nowMs - m_verticalSegment.leftVerticalSinceMs > 1000) {
-                    freezeVerticalMotionSegment();
-                }
-            }
-        }
-
-        const auto& loc = snapshot.localizationStatus;
-        if (loc.valid && loc.timestampMs > 0 && nowMs - loc.timestampMs > 3000) {
+        // 视图切换、Action 聚合 topic 的健康超时及定位短暂抖动都不能终止一个
+        // 已开始的分段。只有公开聚合状态明确转为非执行态（或切入下一 Action）才冻结。
+        if (!verticalMode && !emergencyStop) {
             freezeVerticalMotionSegment();
         }
     }

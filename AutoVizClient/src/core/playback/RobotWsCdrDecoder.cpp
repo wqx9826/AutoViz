@@ -138,7 +138,7 @@ wire::VerticalControlMode verticalMode(quint8 navigationMode)
 { if(navigationMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(navigationMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return wire::VERTICAL_CONTROL_MODE_NONE; }
 
 wire::VerticalControlMode actionVerticalMode(quint8 owner, quint8 chassisMode, quint8 navigationMode)
-{ if(owner==2&&chassisMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(owner==2&&chassisMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return verticalMode(navigationMode); }
+{ Q_UNUSED(navigationMode); if(owner==2&&chassisMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(owner==2&&chassisMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return wire::VERTICAL_CONTROL_MODE_NONE; }
 
 QString actionName(quint8 owner)
 { return owner==1?QStringLiteral("custom_msgs/action/Move"):owner==2?QStringLiteral("custom_msgs/action/DepthCommand"):QString{}; }
@@ -156,25 +156,76 @@ bool readUuid(CdrReader& r, QString& value, QString* error)
     return true;
 }
 
-bool updateActionFeedback(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* snapshot, QString* error)
+// 把 canonical 32 位 hex 转成 robot_ws 用 %x 逐字节格式化会得到的 lossy 形式：
+// 每个字节若有前导零则丢弃。只应传入 canonical（32 位）字符串。
+QString lossyUuidHex(const QString& canonical)
+{
+    QString result;
+    result.reserve(32);
+    for (int index = 0; index + 1 < canonical.size(); index += 2) {
+        if (canonical.at(index) != QLatin1Char('0')) {
+            result.append(canonical.at(index));
+        }
+        result.append(canonical.at(index + 1));
+    }
+    return result;
+}
+
+void mergeActionDiagnostic(const QString& goal, wire::ActionState* action,
+                           const RobotWsCdrDecoder::ActionDiagnosticCache* diagnostics)
+{
+    if (action == nullptr || diagnostics == nullptr || goal.isEmpty()) return;
+    // goal 可能是丢前导零的 lossy hex，逐项比对以命中 canonical 缓存键。
+    for (auto it = diagnostics->cbegin(); it != diagnostics->cend(); ++it) {
+        if (!RobotWsCdrDecoder::sameGoalUuid(goal, it.key())) continue;
+        if (it->hasNativeStatus) {
+            action->set_native_status(it->nativeStatus);
+            action->set_native_status_time_ns(it->nativeStatusTimeNs);
+        }
+        if (it->hasFeedbackProgress) {
+            action->set_feedback_progress(it->feedbackProgress);
+            action->set_feedback_time_ns(it->feedbackTimeNs);
+        }
+        return;
+    }
+}
+
+bool updateActionFeedback(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* snapshot, QString* error,
+                          RobotWsCdrDecoder::ActionDiagnosticCache* diagnostics)
 {
     QString goal; double progress=0.0;
     if(!readUuid(r,goal,error)||!r.f64(progress,error))return false;
-    if(snapshot->has_action_state() && snapshot->action_state().goal_id()==goal.toStdString()) {
+    if (diagnostics != nullptr) {
+        auto& diagnostic = (*diagnostics)[goal];
+        diagnostic.hasFeedbackProgress = true;
+        diagnostic.feedbackProgress = progress;
+        diagnostic.feedbackTimeNs = ts;
+    }
+    if(snapshot->has_action_state()
+       && RobotWsCdrDecoder::sameGoalUuid(QString::fromStdString(snapshot->action_state().goal_id()), goal)) {
         auto* action=snapshot->mutable_action_state(); action->set_feedback_progress(progress); action->set_feedback_time_ns(ts);
     }
     return true;
 }
 
-bool updateActionStatus(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* snapshot, QString* error)
+bool updateActionStatus(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* snapshot, QString* error,
+                        RobotWsCdrDecoder::ActionDiagnosticCache* diagnostics)
 {
-    qint32 sec=0; quint32 nsec=0; QString frame; quint32 count=0;
-    if(!readHeader(r,sec,nsec,frame,error)||!r.sequenceSize(count,error))return false;
+    // Humble 的 action_msgs/GoalStatusArray 只有 status_list；其每个元素
+    // 自己携带 GoalInfo（UUID + stamp），没有 std_msgs/Header。
+    quint32 count=0;
+    if(!r.sequenceSize(count,error))return false;
     const QString current=snapshot->has_action_state()?QString::fromStdString(snapshot->action_state().goal_id()):QString{};
     for(quint32 index=0;index<count;++index) {
         QString goal; qint32 stampSec=0; quint32 stampNs=0; qint8 status=0;
         if(!readUuid(r,goal,error)||!r.i32(stampSec,error)||!r.u32(stampNs,error)||!r.i8(status,error))return false;
-        if(!current.isEmpty() && goal==current) { auto* action=snapshot->mutable_action_state(); action->set_native_status(status); action->set_native_status_time_ns(ts); }
+        if (diagnostics != nullptr) {
+            auto& diagnostic = (*diagnostics)[goal];
+            diagnostic.hasNativeStatus = true;
+            diagnostic.nativeStatus = status;
+            diagnostic.nativeStatusTimeNs = ts;
+        }
+        if(!current.isEmpty() && RobotWsCdrDecoder::sameGoalUuid(current, goal)) { auto* action=snapshot->mutable_action_state(); action->set_native_status(status); action->set_native_status_time_ns(ts); }
     }
     return true;
 }
@@ -237,7 +288,8 @@ bool decodeChassis(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*
     auto*b=p->mutable_battery();b->set_valid(true);b->set_self_check_status(bmsStatus);b->set_heartbeat(bmsHb);b->set_alarm_level(alarm);b->set_current_status(current);b->set_pack_voltage_v(packV);b->set_pack_current_a(packI);b->set_max_cell_voltage_index(maxVi);b->set_max_cell_voltage_v(maxV);b->set_min_cell_voltage_index(minVi);b->set_min_cell_voltage_v(minV);b->set_max_temperature_index(maxTi);b->set_max_temperature_c(maxT);b->set_min_temperature_index(minTi);b->set_min_temperature_c(minT);b->set_state_of_charge_percent(soc);for(auto v:warnings)b->add_warning_code(v);for(int i=0;i<16;++i){auto*ch=p->add_power_channel();ch->set_index(i+1);ch->set_status(power[i]);} return true;
 }
 
-bool decodeAction(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
+bool decodeAction(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e,
+                  const RobotWsCdrDecoder::ActionDiagnosticCache* diagnostics)
 {
     quint8 owner,state,mode,navi,buoy;QString goal,message;bool enabled,emergency;double depth,height,speed,heading,rate;
     if(!r.u8(owner,e)||!r.string(goal,e)||!r.u8(state,e)||!r.string(message,e)||!r.u8(mode,e)||!r.boolean(enabled,e)||!r.boolean(emergency,e)||!r.u8(navi,e)||!r.f64(depth,e)||!r.f64(height,e)||!r.u8(buoy,e)||!r.f64(speed,e)||!r.f64(heading,e)||!r.f64(rate,e))return false;
@@ -249,6 +301,7 @@ bool decodeAction(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e
     }
     if(state==2||state==3||state==4){wire::ActionState terminal=next;terminal.clear_recent_terminal();next.mutable_recent_terminal()->CopyFrom(terminal);}
     else if(s->has_action_state()&&s->action_state().has_recent_terminal())next.mutable_recent_terminal()->CopyFrom(s->action_state().recent_terminal());
+    mergeActionDiagnostic(goal, &next, diagnostics);
     s->mutable_action_state()->Swap(&next);return true;
 }
 
@@ -290,7 +343,15 @@ bool RobotWsCdrDecoder::isSupported(const QString&t,const QString&type){return !
 QStringList RobotWsCdrDecoder::supportedTopics(){return {"/location","/targets/final_objects","/chassis_command","/chassis_states","/system_run_states","/task_params","/local_path","/global_path","/depth_command_action/_action/status","/move_action/_action/status","/depth_command_action/_action/feedback","/move_action/_action/feedback"};}
 wire::DataKind RobotWsCdrDecoder::dataKind(const QString&t){if(t=="/location")return wire::DATA_KIND_VEHICLE_STATE;if(t=="/targets/final_objects")return wire::DATA_KIND_OBSTACLES;if(t=="/chassis_command")return wire::DATA_KIND_CONTROL_COMMAND;if(t=="/chassis_states")return wire::DATA_KIND_CHASSIS_STATE;if(t=="/system_run_states"||t.contains("/_action/"))return wire::DATA_KIND_ACTION_STATE;if(t=="/task_params")return wire::DATA_KIND_TASK_STATE;if(t=="/local_path")return wire::DATA_KIND_LOCAL_TRAJECTORY;if(t=="/global_path")return wire::DATA_KIND_GLOBAL_TRAJECTORY;return wire::DATA_KIND_UNKNOWN;}
 
-bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByteArray&payload,quint64 ts,wire::VisualizationSnapshot*snapshot,QString*error)
+bool RobotWsCdrDecoder::sameGoalUuid(const QString& a, const QString& b)
+{
+    if (a == b) return true;
+    if (a.size() == 32 && lossyUuidHex(a) == b) return true;
+    if (b.size() == 32 && lossyUuidHex(b) == a) return true;
+    return false;
+}
+
+bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByteArray&payload,quint64 ts,wire::VisualizationSnapshot*snapshot,QString*error,ActionDiagnosticCache* actionDiagnostics)
 {
     if(!snapshot){if(error)*error=QStringLiteral("snapshot 为空");return false;}if(!isSupported(topic,type)){if(error)*error=QStringLiteral("不支持 %1 (%2)").arg(topic,type);return false;}CdrReader r(payload);if(!r.begin(error))return false;
     // rosbag 的一条 topic 消息与 Server 发送的同名 snapshot 字段语义相同：它是
@@ -304,7 +365,7 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
     else if(topic=="/local_path") snapshot->clear_local_trajectory();
     else if(topic=="/global_path") snapshot->clear_global_trajectory();
     bool ok=false;
-    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error);
+    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
     if(!ok)return false;return r.finished(error);
 }
 

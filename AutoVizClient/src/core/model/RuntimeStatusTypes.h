@@ -271,7 +271,9 @@ inline RunVisualizationMode inferRunVisualizationMode(const ActionRuntimeStatus&
         return RunVisualizationMode::Idle;
     }
 
-    if (action.valid) {
+    // 只有执行中的 Action 才驱动主视图和 T-Z 采样。终态仍保留在 Action 信息页，
+    // 但不能让完成后的垂向动作继续表现为正在执行。
+    if (action.valid && action.state == 1) {
         if (action.verticalControlMode == VerticalControlMode::DepthHold
             || action.verticalControlMode == VerticalControlMode::HeightHold) {
             return RunVisualizationMode::VerticalMotion;

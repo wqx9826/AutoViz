@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iterator>
 #include <string>
+#include <string_view>
 
 #include <geometry_msgs/msg/quaternion.hpp>
 
@@ -72,6 +73,7 @@ wire::VerticalControlMode actionVerticalControlMode(std::uint8_t owner,
                                                     std::uint8_t chassisMode,
                                                     std::uint8_t navigationMode)
 {
+    (void)navigationMode;
     if (owner == 2) {
         if (chassisMode == 1) {
             return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD;
@@ -80,7 +82,8 @@ wire::VerticalControlMode actionVerticalControlMode(std::uint8_t owner,
             return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD;
         }
     }
-    return verticalControlMode(navigationMode);
+    // Move action 的 navi_mode 只描述水平航行的定深/定高依赖，不能把它切换成 T-Z 主视图。
+    return wire::VERTICAL_CONTROL_MODE_NONE;
 }
 
 std::string actionName(std::uint8_t owner)
@@ -190,6 +193,21 @@ const char* finalTargetClassLabel(std::uint8_t value)
     default:
         return "unknown";
     }
+}
+
+// 把 canonical 32 位 hex 转成 robot_ws 用 %x 逐字节格式化会得到的 lossy 形式：
+// 每个字节若有前导零则丢弃。只应传入 canonical（32 位）字符串。
+std::string lossyUuidHex(std::string_view canonical)
+{
+    std::string result;
+    result.reserve(32);
+    for (std::size_t index = 0; index + 1 < canonical.size(); index += 2) {
+        if (canonical[index] != '0') {
+            result.push_back(canonical[index]);
+        }
+        result.push_back(canonical[index + 1]);
+    }
+    return result;
 }
 }  // namespace
 
@@ -505,6 +523,14 @@ wire::Trajectory RobotWsProtoConverter::globalTrajectory(
     }
     trajectory.set_total_length_m(polylineLength(trajectory));
     return trajectory;
+}
+
+bool RobotWsProtoConverter::sameGoalUuid(std::string_view a, std::string_view b)
+{
+    if (a == b) return true;
+    if (a.size() == 32 && lossyUuidHex(a) == b) return true;
+    if (b.size() == 32 && lossyUuidHex(b) == a) return true;
+    return false;
 }
 
 }  // namespace autoviz_server

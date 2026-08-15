@@ -445,6 +445,12 @@ void MainWindow::updateMainViewMode(const autoviz::datacenter::VisualizationSnap
     if (m_pendingAutoMainViewModeSinceMs == 0 || m_pendingAutoMainViewMode != candidate) {
         m_pendingAutoMainViewMode = candidate;
         m_pendingAutoMainViewModeSinceMs = nowMs;
+        // 垂向 Action 的首帧必须立即可见；它的曲线已经在后台从 action 起始时刻采样，
+        // 再额外等待防抖只会制造可感知的启动延迟。
+        if (candidate == autoviz::render::MainViewMode::VerticalProfile) {
+            m_effectiveMainViewMode = candidate;
+            m_pendingAutoMainViewModeSinceMs = 0;
+        }
         m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
         return;
     }

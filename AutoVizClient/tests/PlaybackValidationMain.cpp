@@ -4,6 +4,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QStringList>
 #include <QTextStream>
 
 #include <cmath>
@@ -106,6 +107,25 @@ bool runActionDiagnosticConversionChecks(QTextStream& error)
     return true;
 }
 
+bool runGoalUuidNormalizationChecks(QTextStream& error)
+{
+    // robot_ws 用 %x 逐字节格式化 SystemRunStates.goal_uuid，会丢掉字节前导零。
+    const QString canonical = QStringLiteral("c5cc4cd52699c9c14e81484088068456");
+    const QString lossy = QStringLiteral("c5cc4cd52699c9c14e8148408868456");
+    const bool ok =
+        autoviz::playback::RobotWsCdrDecoder::sameGoalUuid(canonical, lossy)
+        && autoviz::playback::RobotWsCdrDecoder::sameGoalUuid(lossy, canonical)
+        && autoviz::playback::RobotWsCdrDecoder::sameGoalUuid(canonical, canonical)
+        && !autoviz::playback::RobotWsCdrDecoder::sameGoalUuid(
+            canonical, QStringLiteral("c5cc4cd52699c9c14e81484088068457"))
+        && !autoviz::playback::RobotWsCdrDecoder::sameGoalUuid(
+            lossy, QStringLiteral("c5cc4cd52699c9c14e8148408868457"));
+    if (!ok) {
+        error << "goal UUID normalization self-test failed\n";
+    }
+    return ok;
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -125,7 +145,10 @@ int main(int argc, char** argv)
     if (!runActionDiagnosticConversionChecks(error)) {
         return 1;
     }
-    out << "CDR, center-turn, vertical-control, and action-diagnostic conversion self-tests: OK\n";
+    if (!runGoalUuidNormalizationChecks(error)) {
+        return 1;
+    }
+    out << "CDR, center-turn, vertical-control, action-diagnostic, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {
@@ -146,6 +169,16 @@ int main(int argc, char** argv)
         qint64 total = 0;
         qint64 commandCenterTurnMessages = 0;
         qint64 actionCenterTurnMessages = 0;
+        qint64 hiddenStatusMessages = 0;
+        qint64 hiddenFeedbackMessages = 0;
+        qint64 actionWithNativeStatus = 0;
+        qint64 actionWithFeedback = 0;
+        autoviz::playback::RobotWsCdrDecoder::ActionDiagnosticCache diagnostics;
+        QStringList quotedTopics;
+        for (const auto& topic : autoviz::playback::RobotWsCdrDecoder::supportedTopics()) {
+            quotedTopics << QStringLiteral("'%1'").arg(topic);
+        }
+        const QString topicInList = QStringLiteral("(%1)").arg(quotedTopics.join(','));
         for (const auto& file : files) {
             const QString connectionName = QStringLiteral("validation_%1_%2").arg(argument).arg(file);
             {
@@ -165,11 +198,11 @@ int main(int argc, char** argv)
 
                 QSqlQuery query(database);
                 query.setForwardOnly(true);
-                if (!query.exec("SELECT m.timestamp,t.name,t.type,m.data FROM messages m "
-                                "JOIN topics t ON t.id=m.topic_id WHERE t.name IN "
-                                "('/location','/targets/final_objects','/chassis_command',"
-                                "'/chassis_states','/system_run_states','/task_params',"
-                                "'/local_path','/global_path') ORDER BY m.timestamp")) {
+                const QString decodeSql = QStringLiteral(
+                    "SELECT m.timestamp,t.name,t.type,m.data FROM messages m "
+                    "JOIN topics t ON t.id=m.topic_id WHERE t.name IN %1 ORDER BY m.timestamp")
+                    .arg(topicInList);
+                if (!query.exec(decodeSql)) {
                     error << query.lastError().text() << '\n';
                     ++failures;
                     continue;
@@ -179,7 +212,7 @@ int main(int argc, char** argv)
                     const QString topic = query.value(1).toString();
                     ::autoviz::VisualizationSnapshot wireSnapshot;
                     QString detail;
-                    if (!autoviz::playback::RobotWsCdrDecoder::decode(topic, query.value(2).toString(), query.value(3).toByteArray(), query.value(0).toULongLong(), &wireSnapshot, &detail)) {
+                    if (!autoviz::playback::RobotWsCdrDecoder::decode(topic, query.value(2).toString(), query.value(3).toByteArray(), query.value(0).toULongLong(), &wireSnapshot, &detail, &diagnostics)) {
                         error << directory.dirName() << ' ' << topic << " row " << (total + 1) << ": " << detail << '\n';
                         ++failures;
                         break;
@@ -208,6 +241,16 @@ int main(int argc, char** argv)
                         }
                         ++actionCenterTurnMessages;
                     }
+                    if (topic == QLatin1String("/system_run_states")) {
+                        if (wireSnapshot.has_action_state()) {
+                            if (wireSnapshot.action_state().has_native_status()) ++actionWithNativeStatus;
+                            if (wireSnapshot.action_state().has_feedback_progress()) ++actionWithFeedback;
+                        }
+                    } else if (topic.endsWith(QLatin1String("/_action/status"))) {
+                        ++hiddenStatusMessages;
+                    } else if (topic.endsWith(QLatin1String("/_action/feedback"))) {
+                        ++hiddenFeedbackMessages;
+                    }
                     ++total;
                 }
                 database.close();
@@ -220,7 +263,11 @@ int main(int argc, char** argv)
         if (!failures) {
             out << directory.dirName() << ": OK, " << total << " supported messages, "
                 << commandCenterTurnMessages << " command center-turn messages, "
-                << actionCenterTurnMessages << " action center-turn messages\n";
+                << actionCenterTurnMessages << " action center-turn messages, "
+                << "hidden[status:" << hiddenStatusMessages
+                << ",feedback:" << hiddenFeedbackMessages << "], "
+                << "action[native_status:" << actionWithNativeStatus
+                << ",feedback:" << actionWithFeedback << "]\n";
         }
     }
     return failures ? 1 : 0;

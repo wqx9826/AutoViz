@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 #include <custom_msgs/msg/chassis_command.hpp>
 #include <custom_msgs/msg/chassis_states.hpp>
@@ -35,6 +36,13 @@ public:
         const custom_msgs::msg::TrajectoryMsg& message, std::uint64_t receiveTimeNs);
     static ::autoviz::Trajectory globalTrajectory(
         const nav_msgs::msg::Path& message, std::uint64_t receiveTimeNs);
+
+    // robot_ws 的 SystemRunStates.goal_uuid 由 %x 逐字节拼接，会丢掉字节的前导零
+    //（例如 0x06 变成 "6"），与隐藏 action topic（GoalStatusArray/FeedbackMessage）中
+    // 16 字节 UUID 的 canonical 32 位 hex 直接字符串比较会失配。本函数把 canonical 侧
+    // 转成同样的 lossy 形式做对称比对，兼容修复前（丢零）和修复后（canonical）两种
+    // robot_ws 输出。
+    static bool sameGoalUuid(std::string_view a, std::string_view b);
 };
 
 }  // namespace autoviz_server
