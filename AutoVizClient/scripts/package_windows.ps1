@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = $PSScriptRoot
 $ClientDir = Split-Path -Parent $ScriptDir
 $BuildDir = Join-Path $ClientDir 'build'
-$PackageDir = Join-Path $ClientDir 'package\AutoViz-Qt6-MinGW'
+$PackageDir = Join-Path $ClientDir 'package\AutoViz-MinGW'
 $CacheFile = Join-Path $BuildDir 'CMakeCache.txt'
 
 if (-not (Test-Path -LiteralPath $CacheFile -PathType Leaf)) {

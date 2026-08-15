@@ -257,7 +257,7 @@ cmake --build AutoVizClient\build --parallel $env:NUMBER_OF_PROCESSORS
 $ProjectRoot = 'E:\Coding\AutoViz\AutoVizClient'
 # 清空 package 目录
 Remove-Item -Recurse -Force "$ProjectRoot\package" -ErrorAction SilentlyContinue
-$PackageRoot = "$ProjectRoot\package\AutoViz-UCRT64"
+$PackageRoot = "$ProjectRoot\package\AutoViz-MinGW"
 cmake --install "$ProjectRoot\build" --prefix $PackageRoot
 & "$PackageRoot\bin\AutoViz.exe"
 ```
@@ -269,7 +269,7 @@ cmake --install "$ProjectRoot\build" --prefix $PackageRoot
 
 调试时可继续用 CLion 或 Qt Creator 配置、构建和运行 `AutoVizClient/build/`。以下脚本不重新
 配置 CMake、不删除 IDE 的构建缓存；它只对该目录执行 Release 增量构建，然后删除并重建
-`package/AutoViz-Qt6-MinGW/`。
+`package/AutoViz-MinGW/`。
 
 ```powershell
 # 从仓库根目录执行；-Run 会在打包完成后启动程序。
