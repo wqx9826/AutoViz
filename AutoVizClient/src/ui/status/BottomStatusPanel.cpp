@@ -836,6 +836,39 @@ QString naviModeText(bool valid, int mode)
     }
 }
 
+QString verticalControlModeText(bool valid, autoviz::model::VerticalControlMode mode)
+{
+    if (!valid) {
+        return QStringLiteral("--");
+    }
+    switch (mode) {
+    case autoviz::model::VerticalControlMode::DepthHold:
+        return QStringLiteral("定深");
+    case autoviz::model::VerticalControlMode::HeightHold:
+        return QStringLiteral("定高");
+    case autoviz::model::VerticalControlMode::None:
+    default:
+        return QStringLiteral("无");
+    }
+}
+
+QString buoyancyCommandText(bool valid, int value)
+{
+    if (!valid) {
+        return QStringLiteral("--");
+    }
+    switch (value) {
+    case 0:
+        return QStringLiteral("停止");
+    case 1:
+        return QStringLiteral("注水");
+    case 2:
+        return QStringLiteral("排空");
+    default:
+        return QStringLiteral("未知(%1)").arg(value);
+    }
+}
+
 QString taskTypeText(bool valid, int taskType)
 {
     if (!valid) {
@@ -1474,10 +1507,22 @@ void BottomStatusPanel::setupStateTabs()
                     {{tr("当前 Action（公开聚合状态）"),
                       {{QStringLiteral("action_detail.current_type"), tr("Action 类型")},
                        {QStringLiteral("action_detail.current_uuid"), tr("Goal UUID")},
+                       {QStringLiteral("action_detail.current_owner"), tr("控制归属")},
                        {QStringLiteral("action_detail.current_state"), tr("生命周期")},
                        {QStringLiteral("action_detail.current_message"), tr("说明")},
-                       {QStringLiteral("action_detail.current_target"), tr("目标深度/高度")},
-                       {QStringLiteral("action_detail.current_buoyancy"), tr("伴随水箱指令")}}},
+                       {QStringLiteral("action_detail.current_time"), tr("更新时间")}}},
+                     {tr("目标指令"),
+                      {{QStringLiteral("action_detail.current_chassis_mode"), tr("底盘控制模式")},
+                       {QStringLiteral("action_detail.current_enable"), tr("使能状态")},
+                       {QStringLiteral("action_detail.current_navi_mode"), tr("航行依赖模式")},
+                       {QStringLiteral("action_detail.current_vertical_mode"), tr("垂向控制模式")},
+                       {QStringLiteral("action_detail.current_speed"), tr("期望前向速度")},
+                       {QStringLiteral("action_detail.current_heading"), tr("目标航向")},
+                       {QStringLiteral("action_detail.current_angular"), tr("目标角速度")},
+                       {QStringLiteral("action_detail.current_depth"), tr("目标深度")},
+                       {QStringLiteral("action_detail.current_height"), tr("目标高度")},
+                       {QStringLiteral("action_detail.current_buoyancy"), tr("伴随水箱指令")},
+                       {QStringLiteral("action_detail.current_emergency_ascent"), tr("紧急上浮")}}},
                      {tr("原生 Action 诊断（可选隐藏 Topic）"),
                       {{QStringLiteral("action_detail.native_status"), tr("原生状态")},
                        {QStringLiteral("action_detail.native_status_time"), tr("状态更新时间")},
@@ -1486,7 +1531,9 @@ void BottomStatusPanel::setupStateTabs()
                      {tr("最近终态"),
                       {{QStringLiteral("action_detail.recent_type"), tr("Action 类型")},
                        {QStringLiteral("action_detail.recent_uuid"), tr("Goal UUID")},
+                       {QStringLiteral("action_detail.recent_owner"), tr("控制归属")},
                        {QStringLiteral("action_detail.recent_state"), tr("生命周期")},
+                       {QStringLiteral("action_detail.recent_target"), tr("目标深度/高度")},
                        {QStringLiteral("action_detail.recent_message"), tr("说明")},
                        {QStringLiteral("action_detail.recent_time"), tr("更新时间")}}}});
 
@@ -1780,17 +1827,30 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     const auto& recentAction = snapshot.recentTerminalActionStatus;
     setDetailValue(QStringLiteral("action_detail.current_type"), displayText(action.valid, action.actionName));
     setDetailValue(QStringLiteral("action_detail.current_uuid"), displayText(action.valid, action.goalUuid));
+    setDetailValue(QStringLiteral("action_detail.current_owner"), actionOwnerText(action.valid, action.owner));
     setDetailValue(QStringLiteral("action_detail.current_state"), actionStateText(action.valid, action.state));
     setDetailValue(QStringLiteral("action_detail.current_message"), displayText(action.valid, action.message));
-    setDetailValue(QStringLiteral("action_detail.current_target"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("action_detail.current_buoyancy"), displayInt(action.valid, action.buoyancyAdjust));
+    setDetailValue(QStringLiteral("action_detail.current_time"), formatTime(action.timestampMs));
+    setDetailValue(QStringLiteral("action_detail.current_chassis_mode"), chassisModeText(action.valid, action.chassisMode));
+    setDetailValue(QStringLiteral("action_detail.current_enable"), displayBool(action.valid, action.isEnable));
+    setDetailValue(QStringLiteral("action_detail.current_navi_mode"), naviModeText(action.valid, action.naviMode));
+    setDetailValue(QStringLiteral("action_detail.current_vertical_mode"), verticalControlModeText(action.valid, action.verticalControlMode));
+    setDetailValue(QStringLiteral("action_detail.current_speed"), action.valid ? QStringLiteral("%1 m/s").arg(formatNumber(action.targetSpeed, 2)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("action_detail.current_heading"), displayAngleDegrees(action.valid, action.targetHeading));
+    setDetailValue(QStringLiteral("action_detail.current_angular"), displayAngularVelocityDegrees(action.valid, action.targetAngularVelocity));
+    setDetailValue(QStringLiteral("action_detail.current_depth"), action.valid ? QStringLiteral("%1 m").arg(formatNumber(action.targetDepth, 2)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("action_detail.current_height"), action.valid ? QStringLiteral("%1 m").arg(formatNumber(action.targetHeight, 2)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("action_detail.current_buoyancy"), buoyancyCommandText(action.valid, action.buoyancyAdjust));
+    setDetailValue(QStringLiteral("action_detail.current_emergency_ascent"), displayBool(action.valid, action.emergencyAscent));
     setDetailValue(QStringLiteral("action_detail.native_status"), nativeActionStatusText(action.hasNativeStatus, action.nativeStatus));
     setDetailValue(QStringLiteral("action_detail.native_status_time"), action.hasNativeStatus ? formatTime(action.nativeStatusTimestampMs) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("action_detail.progress"), action.hasFeedbackProgress ? QStringLiteral("%1%").arg(formatNumber(action.feedbackProgress * 100.0, 1)) : QStringLiteral("未接入/未录制"));
     setDetailValue(QStringLiteral("action_detail.progress_time"), action.hasFeedbackProgress ? formatTime(action.feedbackTimestampMs) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("action_detail.recent_type"), displayText(recentAction.valid, recentAction.actionName));
     setDetailValue(QStringLiteral("action_detail.recent_uuid"), displayText(recentAction.valid, recentAction.goalUuid));
+    setDetailValue(QStringLiteral("action_detail.recent_owner"), actionOwnerText(recentAction.valid, recentAction.owner));
     setDetailValue(QStringLiteral("action_detail.recent_state"), actionStateText(recentAction.valid, recentAction.state));
+    setDetailValue(QStringLiteral("action_detail.recent_target"), recentAction.valid ? QStringLiteral("%1 / %2 m").arg(formatNumber(recentAction.targetDepth), formatNumber(recentAction.targetHeight)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("action_detail.recent_message"), displayText(recentAction.valid, recentAction.message));
     setDetailValue(QStringLiteral("action_detail.recent_time"), formatTime(recentAction.timestampMs));
     setDetailValue(QStringLiteral("task.state"), validText(task.valid));
