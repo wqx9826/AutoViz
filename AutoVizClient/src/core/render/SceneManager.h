@@ -68,6 +68,17 @@ private:
         bool active = false;
         bool frozen = false;
         bool emergencyStop = false;
+        // localTickAnchorMs 是 Client 侧在段起点时记录的"同一参照系下"的锚点
+        // （即 updateVerticalMotionSegment 中计算得到的 nowMs）。elapsed 只用
+        // localTickAnchorMs 参与计算，不直接依赖 action.timestampMs。即使
+        // Server 与 Client 存在时钟偏移、或段起点 action.timestampMs 显著早于
+        // 接收时间（例如断线重连时接到已经运行中的任务），曲线也会立即从 t=0
+        // 起步持续推进，不会出现"数据变化但曲线卡在 t=0 数秒"的现象。
+        qint64 localTickAnchorMs = 0;
+        // preElapsedSec 记录段启动时，任务已经实际运行的秒数（从 action.timestampMs
+        // 反推），用于把"已经跑了 4 秒的任务"横坐标起点直接画到 4s 附近，而不是
+        // 回退到 0s 附近重新走一遍。若锚定失败则为 0，等同于把连接时刻当新起点。
+        double preElapsedSec = 0.0;
         qint64 startTimestampMs = 0;
         qint64 lastVerticalTimestampMs = 0;
         qint64 leftVerticalSinceMs = 0;

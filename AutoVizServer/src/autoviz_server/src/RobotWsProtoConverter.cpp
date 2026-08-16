@@ -237,11 +237,16 @@ wire::VehicleState RobotWsProtoConverter::vehicleState(
     underwater->set_depth_m(message.depth);
     underwater->set_height_above_bottom_m(message.height);
     underwater->set_vertical_velocity_mps(message.velocity_z);
+    underwater->set_usbl_x_m(message.usbl_x);
+    underwater->set_usbl_y_m(message.usbl_y);
+    underwater->set_usbl_z_m(message.usbl_z);
     state.set_localization_status(message.status);
     state.set_localization_error(message.error);
     if (message.gps_time > 0) {
         state.set_gps_time(static_cast<std::uint64_t>(message.gps_time));
     }
+    state.set_longitude_deg(message.longitude);
+    state.set_latitude_deg(message.latitude);
     return state;
 }
 
@@ -472,6 +477,34 @@ wire::TaskState RobotWsProtoConverter::taskState(
     state.set_power_enable(message.power_enable);
     state.mutable_underwater()->set_release_emergency_ascent(
         message.release_emergency_ascent);
+    auto* remote = state.mutable_remote_control();
+    remote->set_crawl_gear(message.crawl_gear);
+    remote->set_crawl_speed_mps(message.crawl_speed);
+    remote->set_crawl_angular_velocity_radps(message.crawl_angular_velocity);
+    remote->set_forward_percent(message.forward_percent);
+    remote->set_turn_percent(message.turn_percent);
+    remote->set_dive_percent(message.dive_percent);
+    remote->set_left_tail_actuator_speed(message.left_tail_actuator_speed);
+    remote->set_right_tail_actuator_speed(message.right_tail_actuator_speed);
+    remote->set_left_vertical_actuator_speed(message.left_vertical_actuator_speed);
+    remote->set_right_vertical_actuator_speed(message.right_vertical_actuator_speed);
+    remote->set_back_vertical_actuator_speed(message.back_vertical_actuator_speed);
+    remote->add_power_supply_enabled(message.power_supply1);
+    remote->add_power_supply_enabled(message.power_supply2);
+    remote->add_power_supply_enabled(message.power_supply3);
+    remote->add_power_supply_enabled(message.power_supply4);
+    remote->add_power_supply_enabled(message.power_supply5);
+    remote->add_power_supply_enabled(message.power_supply6);
+    remote->add_power_supply_enabled(message.power_supply7);
+    remote->add_power_supply_enabled(message.power_supply8);
+    remote->add_power_supply_enabled(message.power_supply9);
+    remote->add_power_supply_enabled(message.power_supply10);
+    remote->add_power_supply_enabled(message.power_supply11);
+    remote->add_power_supply_enabled(message.power_supply12);
+    remote->add_power_supply_enabled(message.power_supply13);
+    remote->add_power_supply_enabled(message.power_supply14);
+    remote->add_power_supply_enabled(message.power_supply15);
+    remote->add_power_supply_enabled(message.power_supply16);
     return state;
 }
 

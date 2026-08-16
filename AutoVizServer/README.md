@@ -55,12 +55,12 @@ Client                                      Server
 
 | topic | v2 数据 | 关键归一化 |
 | --- | --- | --- |
-| `/location` | VehicleState + UnderwaterState | odom_z/depth/离底高度保持独立 |
+| `/location` | VehicleState + UnderwaterState | odom_z/depth/离底高度保持独立；附带经纬度与 USBL 诊断 |
 | `/targets/final_objects` | ObstacleSet | 只读取当前真实 ID、分类、中心、尺寸、有效标志 |
 | `/chassis_command` | ControlCommand + UnderwaterCommand | 通用运动与水下命令分层 |
 | `/chassis_states` | ChassisState + UnderwaterChassisState + PlatformDiagnostics | 反馈角速度取反为左转正 |
 | `/system_run_states` | ActionState + UnderwaterCommand | 目标角速度 deg/s 转 rad/s |
-| `/task_params` | TaskState + UnderwaterTaskState | 急停与解除紧急上浮 |
+| `/task_params` | TaskState + UnderwaterTaskState + RemoteControlState | 急停、解除紧急上浮和只读遥控/配电指令 |
 | `/local_path` | local Trajectory | pose、航向、速度、加速度、相对/绝对时间、goal ID、长度 |
 | `/global_path` | global Trajectory | pose、四元数航向、长度 |
 

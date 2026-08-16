@@ -599,6 +599,19 @@ void MainWindow::openConnectionDialog()
     settings.setValue(QStringLiteral("server/port"), m_connectionDialog->port());
     settings.setValue(QStringLiteral("server/auto_connect"), m_connectionDialog->autoConnect());
     if (m_playbackSource != nullptr) m_playbackSource->stop();
+    // 连接切换属于会话级别变化：与回放起点切换相同，需要一并清空 SceneManager
+    // 内残留的垂向段/上一次运行模式记忆以及 ControlPanel 历史曲线，否则新连接
+    // 的首个垂向请求会因为跳变检测失效或旧 startTimestampMs 残留而卡在 t=0。
+    m_controlPanel->clearHistory();
+    m_pendingAutoMainViewModeSinceMs = 0;
+    if (m_sceneManager != nullptr) {
+        m_sceneManager->resetPlaybackSession();
+        if (m_requestedMainViewMode == autoviz::render::MainViewMode::Auto) {
+            m_effectiveMainViewMode = autoviz::render::MainViewMode::TopDownXY;
+            m_pendingAutoMainViewMode = m_effectiveMainViewMode;
+            m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
+        }
+    }
     m_remoteSource->connectToServer(m_connectionDialog->host(),
                                     m_connectionDialog->port(),
                                     m_connectionDialog->autoConnect());

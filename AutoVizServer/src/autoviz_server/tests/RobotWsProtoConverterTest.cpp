@@ -35,6 +35,11 @@ TEST(RobotWsProtoConverterTest, ConvertsLocationAndKeepsVerticalQuantitiesDistin
     source.status = 2;
     source.error = 9;
     source.gps_time = 77;
+    source.longitude = 120.123456;
+    source.latitude = 30.654321;
+    source.usbl_x = 9.5;
+    source.usbl_y = -1.25;
+    source.usbl_z = 4.75;
 
     const auto actual = autoviz_server::RobotWsProtoConverter::vehicleState(
         source, kReceiveTimeNs);
@@ -47,6 +52,11 @@ TEST(RobotWsProtoConverterTest, ConvertsLocationAndKeepsVerticalQuantitiesDistin
     EXPECT_EQ(actual.localization_status(), 2);
     EXPECT_EQ(actual.localization_error(), 9);
     EXPECT_EQ(actual.gps_time(), 77U);
+    EXPECT_DOUBLE_EQ(actual.longitude_deg(), 120.123456);
+    EXPECT_DOUBLE_EQ(actual.latitude_deg(), 30.654321);
+    EXPECT_DOUBLE_EQ(actual.underwater().usbl_x_m(), 9.5);
+    EXPECT_DOUBLE_EQ(actual.underwater().usbl_y_m(), -1.25);
+    EXPECT_DOUBLE_EQ(actual.underwater().usbl_z_m(), 4.75);
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsOnlyDrawableFinalTargets)
@@ -270,6 +280,19 @@ TEST(RobotWsProtoConverterTest, ConvertsTaskIncludingEmergencyRelease)
     source.release_emergency_ascent = true;
     source.remote_mode = 3;
     source.power_enable = 1;
+    source.crawl_gear = 2;
+    source.crawl_speed = 0.75;
+    source.crawl_angular_velocity = -0.2;
+    source.forward_percent = 60;
+    source.turn_percent = -20;
+    source.dive_percent = 15;
+    source.left_tail_actuator_speed = -90;
+    source.right_tail_actuator_speed = 91;
+    source.left_vertical_actuator_speed = -30;
+    source.right_vertical_actuator_speed = 31;
+    source.back_vertical_actuator_speed = 32;
+    source.power_supply1 = true;
+    source.power_supply16 = true;
 
     const auto actual = autoviz_server::RobotWsProtoConverter::taskState(
         source, kReceiveTimeNs);
@@ -277,6 +300,23 @@ TEST(RobotWsProtoConverterTest, ConvertsTaskIncludingEmergencyRelease)
     EXPECT_TRUE(actual.emergency_stop());
     EXPECT_TRUE(actual.underwater().release_emergency_ascent());
     EXPECT_EQ(actual.remote_mode(), 3);
+    ASSERT_TRUE(actual.has_remote_control());
+    const auto& remote = actual.remote_control();
+    EXPECT_EQ(remote.crawl_gear(), 2);
+    EXPECT_DOUBLE_EQ(remote.crawl_speed_mps(), 0.75);
+    EXPECT_DOUBLE_EQ(remote.crawl_angular_velocity_radps(), -0.2);
+    EXPECT_EQ(remote.forward_percent(), 60);
+    EXPECT_EQ(remote.turn_percent(), -20);
+    EXPECT_EQ(remote.dive_percent(), 15);
+    EXPECT_EQ(remote.left_tail_actuator_speed(), -90);
+    EXPECT_EQ(remote.right_tail_actuator_speed(), 91);
+    EXPECT_EQ(remote.left_vertical_actuator_speed(), -30);
+    EXPECT_EQ(remote.right_vertical_actuator_speed(), 31);
+    EXPECT_EQ(remote.back_vertical_actuator_speed(), 32);
+    ASSERT_EQ(remote.power_supply_enabled_size(), 16);
+    EXPECT_TRUE(remote.power_supply_enabled(0));
+    EXPECT_FALSE(remote.power_supply_enabled(1));
+    EXPECT_TRUE(remote.power_supply_enabled(15));
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsLocalAndGlobalPaths)

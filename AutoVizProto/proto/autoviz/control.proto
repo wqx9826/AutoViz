@@ -60,6 +60,21 @@ message ActionState {
   optional ActionState recent_terminal = 19;
 }
 
+message RemoteControlState {
+  optional sint32 crawl_gear = 1;
+  optional double crawl_speed_mps = 2;
+  optional double crawl_angular_velocity_radps = 3;
+  optional sint32 forward_percent = 4;
+  optional sint32 turn_percent = 5;
+  optional sint32 dive_percent = 6;
+  optional sint32 left_tail_actuator_speed = 7;
+  optional sint32 right_tail_actuator_speed = 8;
+  optional sint32 left_vertical_actuator_speed = 9;
+  optional sint32 right_vertical_actuator_speed = 10;
+  optional sint32 back_vertical_actuator_speed = 11;
+  repeated bool power_supply_enabled = 12;
+}
+
 message TaskState {
   optional Header header = 1;
   optional sint32 task_type = 2;
@@ -69,4 +84,5 @@ message TaskState {
   optional sint32 remote_mode = 6;
   optional sint32 power_enable = 7;
   optional UnderwaterTaskState underwater = 8;
+  optional RemoteControlState remote_control = 9;
 }

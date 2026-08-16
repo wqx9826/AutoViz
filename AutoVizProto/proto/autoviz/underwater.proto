@@ -35,6 +35,10 @@ message UnderwaterState {
   optional double depth_m = 2;
   optional double height_above_bottom_m = 3;
   optional double vertical_velocity_mps = 4;
+  // USBL（超短基线水声定位）解算结果，odom 坐标系，单位 m。
+  optional double usbl_x_m = 5;
+  optional double usbl_y_m = 6;
+  optional double usbl_z_m = 7;
 }
 
 message UnderwaterCommand {

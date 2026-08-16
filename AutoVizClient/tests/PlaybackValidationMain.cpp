@@ -8,12 +8,72 @@
 #include <QTextStream>
 
 #include <cmath>
+#include <cstring>
 #include <utility>
 
 #include "core/network/ProtocolModelConverter.h"
 #include "core/playback/RobotWsCdrDecoder.h"
 
 namespace {
+
+void appendCdrByte(QByteArray* payload, quint8 value)
+{
+    payload->append(static_cast<char>(value));
+}
+
+void appendCdrFloat64(QByteArray* payload, double value)
+{
+    while ((payload->size() - 4) % 8 != 0) {
+        payload->append('\0');
+    }
+    quint64 bits = 0;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    for (int index = 0; index < 8; ++index) {
+        appendCdrByte(payload, static_cast<quint8>((bits >> (index * 8)) & 0xffU));
+    }
+}
+
+bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
+{
+    QByteArray payload(4, '\0');
+    payload[1] = char(1);  // CDR_LE
+    appendCdrByte(&payload, 4);       // mode: autonomous sailing depth hold
+    appendCdrByte(&payload, 1);       // enabled
+    appendCdrByte(&payload, 0);       // emergency ascent
+    appendCdrFloat64(&payload, 0.8);  // speed
+    appendCdrFloat64(&payload, -0.2); // angular velocity
+    appendCdrByte(&payload, 1);       // expected gear
+    appendCdrByte(&payload, 1);       // water actuator enabled
+    appendCdrByte(&payload, 1);       // navigation mode: depth dependency
+    appendCdrFloat64(&payload, 7.5);  // depth
+    appendCdrFloat64(&payload, 2.0);  // height
+    appendCdrFloat64(&payload, 0.3);  // heading
+    appendCdrByte(&payload, static_cast<quint8>(-12));
+    appendCdrByte(&payload, 34);
+    appendCdrByte(&payload, 1);       // buoyancy fill
+    appendCdrByte(&payload, 1);       // sonar power
+
+    ::autoviz::VisualizationSnapshot snapshot;
+    QString detail;
+    if (payload.size() != 64
+        || !autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_command", "custom_msgs/msg/ChassisCommand", payload, 1, &snapshot, &detail)) {
+        error << "current ChassisCommand CDR self-test failed: " << detail << '\n';
+        return false;
+    }
+    const auto& command = snapshot.control_command();
+    if (command.mode() != ::autoviz::ControlCommand::MODE_SAILING
+        || command.target_gear() != 1
+        || std::abs(command.underwater().target_depth_m() - 7.5) > 1.0e-12
+        || command.underwater().left_thruster_command() != -12
+        || command.underwater().right_thruster_command() != 34
+        || !command.underwater().sonar_power_enabled()) {
+        error << "current ChassisCommand CDR values self-test failed\n";
+        return false;
+    }
+    return true;
+}
 
 bool runCdrSafetyChecks(QTextStream& error)
 {
@@ -71,6 +131,40 @@ bool runVerticalControlConversionChecks(QTextStream& error)
         if (modelSnapshot.controlCommandStatus.mode != expectedChassisMode) {
             error << "vertical conversion expected mode " << expectedChassisMode << ", got "
                   << modelSnapshot.controlCommandStatus.mode << '\n';
+            return false;
+        }
+    }
+    return true;
+}
+
+bool runActionClassificationChecks(QTextStream& error)
+{
+    struct ActionCase {
+        int owner;
+        int chassisMode;
+        int navigationMode;
+        ::autoviz::VerticalControlMode verticalMode;
+        autoviz::model::RunVisualizationMode expected;
+    };
+    const ActionCase cases[] = {
+        {1, 4, 1, ::autoviz::VERTICAL_CONTROL_MODE_NONE, autoviz::model::RunVisualizationMode::HorizontalMotion},
+        {1, 5, 2, ::autoviz::VERTICAL_CONTROL_MODE_NONE, autoviz::model::RunVisualizationMode::HorizontalMotion},
+        {1, 10, 1, ::autoviz::VERTICAL_CONTROL_MODE_NONE, autoviz::model::RunVisualizationMode::HorizontalMotion},
+        {2, 1, 0, ::autoviz::VERTICAL_CONTROL_MODE_DEPTH_HOLD, autoviz::model::RunVisualizationMode::VerticalMotion},
+        {2, 2, 0, ::autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD, autoviz::model::RunVisualizationMode::VerticalMotion},
+    };
+    for (const auto& item : cases) {
+        ::autoviz::VisualizationSnapshot wireSnapshot;
+        auto* action = wireSnapshot.mutable_action_state();
+        action->set_owner(item.owner);
+        action->set_state(1);
+        action->set_chassis_mode(item.chassisMode);
+        action->set_navigation_mode(item.navigationMode);
+        action->mutable_underwater()->set_vertical_control_mode(item.verticalMode);
+        const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
+        if (modelSnapshot.runVisualizationMode != item.expected) {
+            error << "action classification self-test failed for owner=" << item.owner
+                  << ", chassis_mode=" << item.chassisMode << '\n';
             return false;
         }
     }
@@ -136,10 +230,16 @@ int main(int argc, char** argv)
     if (!runCdrSafetyChecks(error)) {
         return 1;
     }
+    if (!runCurrentChassisCommandLayoutChecks(error)) {
+        return 1;
+    }
     if (!runCenterTurnConversionChecks(error)) {
         return 1;
     }
     if (!runVerticalControlConversionChecks(error)) {
+        return 1;
+    }
+    if (!runActionClassificationChecks(error)) {
         return 1;
     }
     if (!runActionDiagnosticConversionChecks(error)) {
@@ -148,7 +248,7 @@ int main(int argc, char** argv)
     if (!runGoalUuidNormalizationChecks(error)) {
         return 1;
     }
-    out << "CDR, center-turn, vertical-control, action-diagnostic, and goal-UUID normalization self-tests: OK\n";
+    out << "CDR, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {

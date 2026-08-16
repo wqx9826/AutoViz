@@ -38,7 +38,7 @@ private:
     StatusSummaryWidget* m_statusSummary = nullptr;
     PlotCardWidget* m_speedPlot = nullptr;
     PlotCardWidget* m_yawPlot = nullptr;
-    PlotCardWidget* m_pathErrorPlot = nullptr;
+    PlotCardWidget* m_angularVelocityPlot = nullptr;
     QPushButton* m_pauseButton = nullptr;
     QPushButton* m_clearButton = nullptr;
     QComboBox* m_windowCombo = nullptr;

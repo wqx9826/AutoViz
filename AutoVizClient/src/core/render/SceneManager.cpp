@@ -301,9 +301,21 @@ void SceneManager::startVerticalMotionSegment(const autoviz::datacenter::Visuali
     m_verticalSegment.active = true;
     m_verticalSegment.frozen = false;
     m_verticalSegment.emergencyStop = task.valid && task.emergencyStop;
-    // T-Z 横轴定义为 action 起始时刻；不能使用可能早于动作的最新定位时间。
+    // 关键修复：横轴 elapsed 的"增长基准"改用 Client 侧本轮 nowMs 锚定，不再
+    // 依赖 Server 下发的 action.timestampMs 做差值。Server 与 Client 主机存在
+    // 数十秒级时钟偏移 / 任务已运行多时再接入等情况下，原做法会导致
+    // nowMs - startTimestampMs 被 clamp 到 0 并持续数秒，数值深度已变化而曲线
+    // 停在 t=0 不动。保留 startTimestampMs 仅用于推断 preElapsedSec，不参与
+    // 后续每帧的 elapsedSec 计算。
+    m_verticalSegment.localTickAnchorMs = nowMs;
     m_verticalSegment.startTimestampMs = action.valid && action.timestampMs > 0
                                             ? action.timestampMs : nowMs;
+    if (action.valid && action.timestampMs > 0) {
+        const double pre = static_cast<double>(nowMs - action.timestampMs) / 1000.0;
+        m_verticalSegment.preElapsedSec = std::max(0.0, pre);
+    } else {
+        m_verticalSegment.preElapsedSec = 0.0;
+    }
     m_verticalSegment.lastVerticalTimestampMs = nowMs;
     m_verticalSegment.startDepth = loc.depth;
     m_verticalSegment.hasStartDepth = loc.valid;
@@ -312,10 +324,24 @@ void SceneManager::startVerticalMotionSegment(const autoviz::datacenter::Visuali
     m_verticalSegment.startX = loc.valid ? loc.odomX : 0.0;
     m_verticalSegment.startY = loc.valid ? loc.odomY : 0.0;
     m_verticalSegment.startYaw = loc.valid ? loc.heading : 0.0;
-    m_verticalSegment.targetDepth = action.targetDepth;
-    m_verticalSegment.hasTargetDepth = action.valid;
-    m_verticalSegment.targetHeight = action.targetHeight;
-    m_verticalSegment.hasTargetHeight = action.valid;
+    // 目标线优先取 ChassisCommand 下发的实时期望深度/高度（运动中会变化），
+    // 回退到 SystemRunStates 的任务级目标（通常静态）。避免出现"反馈值一直在变、
+    // 目标值不动"的错觉——真正在跟踪的实时命令目标才是曲线应该画的"目标线"。
+    const auto& cmd = snapshot.controlCmd;
+    if (cmd.hasTargetDepth) {
+        m_verticalSegment.targetDepth = cmd.targetDepth;
+        m_verticalSegment.hasTargetDepth = true;
+    } else {
+        m_verticalSegment.targetDepth = action.targetDepth;
+        m_verticalSegment.hasTargetDepth = action.valid;
+    }
+    if (cmd.hasTargetHeight) {
+        m_verticalSegment.targetHeight = cmd.targetHeight;
+        m_verticalSegment.hasTargetHeight = true;
+    } else {
+        m_verticalSegment.targetHeight = action.targetHeight;
+        m_verticalSegment.hasTargetHeight = action.valid;
+    }
     m_verticalSegment.taskType = task.valid ? task.taskType : 0;
     m_verticalSegment.taskId = task.valid ? task.taskId : 0;
     m_verticalSegment.chassisMode = action.valid ? action.chassisMode : 0;
@@ -324,7 +350,7 @@ void SceneManager::startVerticalMotionSegment(const autoviz::datacenter::Visuali
 
 void SceneManager::appendVerticalMotionSample(const autoviz::datacenter::VisualizationSnapshot& snapshot, qint64 nowMs)
 {
-    if (!m_verticalSegment.active || m_verticalSegment.startTimestampMs <= 0) {
+    if (!m_verticalSegment.active || m_verticalSegment.localTickAnchorMs <= 0) {
         return;
     }
 
@@ -333,19 +359,41 @@ void SceneManager::appendVerticalMotionSample(const autoviz::datacenter::Visuali
     const auto& task = snapshot.taskRuntimeStatus;
 
     m_verticalSegment.emergencyStop = m_verticalSegment.emergencyStop || (task.valid && task.emergencyStop);
-    m_verticalSegment.targetDepth = action.targetDepth;
-    m_verticalSegment.hasTargetDepth = action.valid;
-    m_verticalSegment.targetHeight = action.targetHeight;
-    m_verticalSegment.hasTargetHeight = action.valid;
+    // 同 startVerticalMotionSegment：目标线优先取 controlCmd 的实时命令目标。
+    const auto& cmd = snapshot.controlCmd;
+    if (cmd.hasTargetDepth) {
+        m_verticalSegment.targetDepth = cmd.targetDepth;
+        m_verticalSegment.hasTargetDepth = true;
+    } else {
+        m_verticalSegment.targetDepth = action.targetDepth;
+        m_verticalSegment.hasTargetDepth = action.valid;
+    }
+    if (cmd.hasTargetHeight) {
+        m_verticalSegment.targetHeight = cmd.targetHeight;
+        m_verticalSegment.hasTargetHeight = true;
+    } else {
+        m_verticalSegment.targetHeight = action.targetHeight;
+        m_verticalSegment.hasTargetHeight = action.valid;
+    }
     m_verticalSegment.chassisMode = action.valid ? action.chassisMode : m_verticalSegment.chassisMode;
 
-    const double elapsedSec = std::max(0.0, static_cast<double>(nowMs - m_verticalSegment.startTimestampMs) / 1000.0);
+    if (m_verticalSegment.localTickAnchorMs <= 0) {
+        // 极端兜底：段启动时锚点未正确写入，在此补设以避免永远算不出 elapsed。
+        m_verticalSegment.localTickAnchorMs = nowMs;
+    }
+    const double tickElapsedSec = std::max(
+        0.0, static_cast<double>(nowMs - m_verticalSegment.localTickAnchorMs) / 1000.0);
+    const double elapsedSec = m_verticalSegment.preElapsedSec + tickElapsedSec;
     bool emergencyChanged = false;
     if (!m_verticalSegment.samples.isEmpty()) {
         const auto& last = m_verticalSegment.samples.constLast();
-        const bool targetChanged = action.valid
-                                   && ((!last.hasTargetDepth || std::abs(action.targetDepth - last.targetDepth) > 1.0e-6)
-                                       || (!last.hasTargetHeight || std::abs(action.targetHeight - last.targetHeight) > 1.0e-6));
+        // 用已更新的 m_verticalSegment 目标值判断变化，覆盖 controlCmd 与 action
+        // 两种来源；只要当前目标与上一个采样点的目标有差异就强制采样。
+        const bool targetChanged =
+            (m_verticalSegment.hasTargetDepth
+             && (!last.hasTargetDepth || std::abs(m_verticalSegment.targetDepth - last.targetDepth) > 1.0e-6))
+            || (m_verticalSegment.hasTargetHeight
+                && (!last.hasTargetHeight || std::abs(m_verticalSegment.targetHeight - last.targetHeight) > 1.0e-6));
         emergencyChanged = task.valid && task.emergencyStop && !last.emergencyStop;
         if (elapsedSec - last.elapsedSec < 0.10 && !targetChanged && !emergencyChanged) {
             return;
@@ -360,12 +408,12 @@ void SceneManager::appendVerticalMotionSample(const autoviz::datacenter::Visuali
     sample.elapsedSec = elapsedSec;
     sample.depth = loc.depth;
     sample.hasDepth = loc.valid;
-    sample.targetDepth = action.targetDepth;
-    sample.hasTargetDepth = action.valid;
+    sample.targetDepth = m_verticalSegment.targetDepth;
+    sample.hasTargetDepth = m_verticalSegment.hasTargetDepth;
     sample.height = loc.height;
     sample.hasHeight = loc.valid;
-    sample.targetHeight = action.targetHeight;
-    sample.hasTargetHeight = action.valid;
+    sample.targetHeight = m_verticalSegment.targetHeight;
+    sample.hasTargetHeight = m_verticalSegment.hasTargetHeight;
     sample.depthError = sample.hasDepth && sample.hasTargetDepth ? sample.depth - sample.targetDepth : 0.0;
     sample.emergencyStop = task.valid && task.emergencyStop;
     m_verticalSegment.samples.push_back(sample);
@@ -387,12 +435,12 @@ void SceneManager::freezeVerticalMotionSegment()
 
 void SceneManager::updateVerticalMotionSegment(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    // Local playback has a virtual clock.  Using wall clock here made a bag recorded
-    // hours earlier immediately produce a several-hour T-Z segment and freeze it as
-    // stale.  Remote and mock sources continue to use wall time.
-    const qint64 nowMs = snapshot.runtimeStatus.inputSource
-                                  == autoviz::datacenter::VisualizationInputSource::Ros2Bag
-                              && snapshot.runtimeStatus.sourceTimeMs > 0
+    // sourceTimeMs is the authoritative clock for both Ros2Bag (virtual playback) and Remote
+    // (server wall clock).  Using sourceTimeMs keeps startTimestampMs (from action.timestampMs,
+    // also server-derived) and nowMs in the same reference frame, eliminating clock-skew
+    // induced stalls where elapsedSec was clamped to 0 for the first several seconds.
+    // Mock source falls back to local wall clock because sourceTimeMs is not populated there.
+    const qint64 nowMs = snapshot.runtimeStatus.sourceTimeMs > 0
                           ? snapshot.runtimeStatus.sourceTimeMs
                           : QDateTime::currentMSecsSinceEpoch();
     const bool verticalMode = isVerticalMode(snapshot.runVisualizationMode);

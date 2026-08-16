@@ -293,6 +293,8 @@ VisualizationSnapshot DataManager::getSnapshot() const
             status.timedOut = false;
         }
     } else {
+        // Rosbag 回放使用虚拟时钟；远程快照之间则必须继续使用本机时钟，
+        // 否则 Server 暂无新帧时 Topic age 会停在最后一个 server_time_ns。
         const qint64 referenceTime = snapshot.runtimeStatus.inputSource == VisualizationInputSource::Ros2Bag
                                          && snapshot.runtimeStatus.sourceTimeMs > 0
                                      ? snapshot.runtimeStatus.sourceTimeMs

@@ -167,6 +167,15 @@ model::LocalizationStatus convertLocalization(const wire::VehicleState& source)
         target.odomZ = source.underwater().odom_z_m();
         target.depth = source.underwater().depth_m();
         target.height = source.underwater().height_above_bottom_m();
+        target.usblX = source.underwater().usbl_x_m();
+        target.usblY = source.underwater().usbl_y_m();
+        target.usblZ = source.underwater().usbl_z_m();
+    }
+    if (source.has_longitude_deg()) {
+        target.longitude = source.longitude_deg();
+    }
+    if (source.has_latitude_deg()) {
+        target.latitude = source.latitude_deg();
     }
     return target;
 }
@@ -423,6 +432,17 @@ model::ControlCmd convertControl(const wire::ControlCommand& source)
     target.desiredThrottle = source.target_throttle_percent();
     target.desiredBrake = source.target_brake_percent();
     target.handBrake = source.hand_brake();
+    if (source.has_underwater()) {
+        const auto& uw = source.underwater();
+        if (uw.has_target_depth_m()) {
+            target.hasTargetDepth = true;
+            target.targetDepth = uw.target_depth_m();
+        }
+        if (uw.has_target_height_above_bottom_m()) {
+            target.hasTargetHeight = true;
+            target.targetHeight = uw.target_height_above_bottom_m();
+        }
+    }
     return target;
 }
 
@@ -514,6 +534,23 @@ model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
                                         && source.underwater().release_emergency_ascent();
     target.remoteMode = source.remote_mode();
     target.powerEnable = source.power_enable();
+    if (source.has_remote_control()) {
+        const auto& remote = source.remote_control();
+        target.crawlGear = remote.crawl_gear();
+        target.crawlSpeed = remote.crawl_speed_mps();
+        target.crawlAngularVelocity = remote.crawl_angular_velocity_radps();
+        target.forwardPercent = remote.forward_percent();
+        target.turnPercent = remote.turn_percent();
+        target.divePercent = remote.dive_percent();
+        target.leftTailActuatorSpeed = remote.left_tail_actuator_speed();
+        target.rightTailActuatorSpeed = remote.right_tail_actuator_speed();
+        target.leftVerticalActuatorSpeed = remote.left_vertical_actuator_speed();
+        target.rightVerticalActuatorSpeed = remote.right_vertical_actuator_speed();
+        target.backVerticalActuatorSpeed = remote.back_vertical_actuator_speed();
+        for (const bool enabled : remote.power_supply_enabled()) {
+            target.powerSupplyCommands.push_back(enabled ? 1 : 0);
+        }
+    }
     return target;
 }
 

@@ -60,8 +60,6 @@ public:
         if (!u32(size, error)) return false;
         return size <= kMaxSequenceElements || fail(QStringLiteral("序列元素过多: %1").arg(size), error);
     }
-    int bytesRemaining() const { return m_data.size() - m_pos; }
-
     bool finished(QString* error) const
     {
         if (m_pos == m_data.size()) return true;
@@ -249,7 +247,8 @@ bool decodeLocation(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString
     v->set_heading_rad(d[22]); v->set_pitch_rad(d[20]); v->set_roll_rad(d[21]);
     v->mutable_linear_velocity_mps()->set_x(d[16]); v->mutable_linear_velocity_mps()->set_y(d[17]); v->mutable_linear_velocity_mps()->set_z(d[18]); v->set_speed_mps(d[19]);
     v->set_yaw_rate_radps(d[25]); v->mutable_linear_acceleration_mps2()->set_x(d[26]); v->mutable_linear_acceleration_mps2()->set_y(d[27]); v->mutable_linear_acceleration_mps2()->set_z(d[28]); v->set_longitudinal_acceleration_mps2(d[29]);
-    auto*u=v->mutable_underwater(); u->set_odom_z_m(d[14]); u->set_depth_m(d[3]); u->set_height_above_bottom_m(d[2]); u->set_vertical_velocity_mps(d[18]);
+    auto*u=v->mutable_underwater(); u->set_odom_z_m(d[14]); u->set_depth_m(d[3]); u->set_height_above_bottom_m(d[2]); u->set_vertical_velocity_mps(d[18]); u->set_usbl_x_m(ux); u->set_usbl_y_m(uy); u->set_usbl_z_m(uz);
+    v->set_longitude_deg(d[0]); v->set_latitude_deg(d[1]);
     v->set_localization_status(status); v->set_localization_error(error); if(gps>0)v->set_gps_time(static_cast<quint64>(gps));
     return true;
 }
@@ -258,10 +257,6 @@ bool decodeCommand(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*
 {
     quint8 mode,gear,navi,buoy; bool enabled,emergency,useWater,sonar; double speed,rate,depth,height,heading; qint8 left,right;
     if(!r.u8(mode,e)||!r.boolean(enabled,e)||!r.boolean(emergency,e)||!r.f64(speed,e)||!r.f64(rate,e)||!r.u8(gear,e)||!r.boolean(useWater,e)||!r.u8(navi,e)||!r.f64(depth,e)||!r.f64(height,e)||!r.f64(heading,e))return false;
-    // 2026-08-06 前的 robot_ws ChassisCommand 在 heading 后还包含一个
-    // dive_speed(float64)。样例库同时存在 72 字节旧布局和 64 字节新布局。
-    double legacyDiveSpeed=0.0;
-    if(r.bytesRemaining()>4 && !r.f64(legacyDiveSpeed,e))return false;
     if(!r.i8(left,e)||!r.i8(right,e)||!r.u8(buoy,e)||!r.boolean(sonar,e))return false;
     auto*c=s->mutable_control_command(); fillHeader(c->mutable_header(),ts,ts,"robot_ws.chassis_command");
     const bool crawl=mode==6||mode==8||mode==11, sailing=(mode>=1&&mode<=5)||mode==7||mode==10;
@@ -307,10 +302,15 @@ bool decodeAction(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e
 
 bool decodeTask(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
 {
-    quint8 task,id,remote,power,buoy,gear;bool enabled,emergency,release,action;double crawlSpeed,crawlRate; qint8 perc;bool ps;
+    quint8 task,id,remote,power,buoy,gear;bool enabled,emergency,release,action;double crawlSpeed,crawlRate; qint8 remoteValues[8]{};bool ps;
     if(!r.u8(task,e)||!r.u8(id,e)||!r.boolean(enabled,e)||!r.boolean(emergency,e)||!r.boolean(release,e)||!r.u8(remote,e)||!r.u8(power,e)||!r.boolean(action,e)||!r.u8(buoy,e)||!r.u8(gear,e)||!r.f64(crawlSpeed,e)||!r.f64(crawlRate,e))return false;
-    for(int i=0;i<8;++i)if(!r.i8(perc,e))return false;for(int i=0;i<16;++i)if(!r.boolean(ps,e))return false;
-    auto*t=s->mutable_task_state();fillHeader(t->mutable_header(),ts,ts,"robot_ws.task_params");t->set_task_type(task);t->set_task_id(id);t->set_enabled(enabled);t->set_emergency_stop(emergency);t->set_remote_mode(remote);t->set_power_enable(power);t->mutable_underwater()->set_release_emergency_ascent(release);return true;
+    // TaskParams stores three sailing percentages followed by five actuator commands.
+    // Keep the wire order aligned with the robot_ws schema so bag playback matches Server conversion.
+    for(int index=0;index<8;++index)if(!r.i8(remoteValues[index],e))return false;
+    auto*t=s->mutable_task_state();fillHeader(t->mutable_header(),ts,ts,"robot_ws.task_params");t->set_task_type(task);t->set_task_id(id);t->set_enabled(enabled);t->set_emergency_stop(emergency);t->set_remote_mode(remote);t->set_power_enable(power);t->mutable_underwater()->set_release_emergency_ascent(release);
+    auto* remoteControl=t->mutable_remote_control();remoteControl->set_crawl_gear(gear);remoteControl->set_crawl_speed_mps(crawlSpeed);remoteControl->set_crawl_angular_velocity_radps(crawlRate);
+    remoteControl->set_forward_percent(remoteValues[0]);remoteControl->set_turn_percent(remoteValues[1]);remoteControl->set_dive_percent(remoteValues[2]);remoteControl->set_left_tail_actuator_speed(remoteValues[3]);remoteControl->set_right_tail_actuator_speed(remoteValues[4]);remoteControl->set_left_vertical_actuator_speed(remoteValues[5]);remoteControl->set_right_vertical_actuator_speed(remoteValues[6]);remoteControl->set_back_vertical_actuator_speed(remoteValues[7]);
+    for(int index=0;index<16;++index){if(!r.boolean(ps,e))return false;remoteControl->add_power_supply_enabled(ps);}return true;
 }
 
 bool decodeLocalPath(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)

@@ -676,12 +676,15 @@ QString angularVelocitySummaryText(const autoviz::model::LocalizationStatus& loc
 {
     double target = 0.0;
     bool hasTarget = false;
-    if (action.valid && action.state == 1
-        && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
-        target = action.targetAngularVelocity;
-        hasTarget = true;
-    } else if (isCrawlMode(control)) {
+    // 控制指令面板展示的是“控制指令 cmd”，应优先取 ChassisCommand 下发的实时
+    // 角速度（普通爬行与中心转向都有值）。SystemRunStates 的 target_angular_velocity
+    // 是“爬行中心转向”专用任务级目标，普通爬行时为 0，只能作为回退。
+    if (isCrawlMode(control)) {
         target = control.angularVelocity;
+        hasTarget = true;
+    } else if (action.valid && action.state == 1
+               && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
+        target = action.targetAngularVelocity;
         hasTarget = true;
     }
     const bool hasFeedback = chassis.valid || localization.valid;
@@ -1428,7 +1431,9 @@ void BottomStatusPanel::setupStateTabs()
                      {tr("空间姿态"),
                       {{QStringLiteral("loc.odom"), tr("里程计 X/Y/Z")},
                        {QStringLiteral("loc.attitude"), tr("航向/俯仰/横滚 (°)")},
-                       {QStringLiteral("loc.depth_height"), tr("深度/高度")}}},
+                       {QStringLiteral("loc.depth_height"), tr("深度/高度")},
+                       {QStringLiteral("loc.longitude_latitude"), tr("经度/纬度 (°)")},
+                       {QStringLiteral("loc.usbl"), tr("USBL 定位 X/Y/Z (m)")}}},
                      {tr("运动反馈"),
                       {{QStringLiteral("loc.velocity_xyz"), tr("速度 X/Y/Z")},
                        {QStringLiteral("loc.velocity"), tr("合速度")},
@@ -1561,7 +1566,13 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("task.type_id"), tr("任务类型/ID")},
                        {QStringLiteral("task.enable_estop"), tr("任务使能/急停")},
                        {QStringLiteral("task.remote_power"), tr("遥控模式/电源使能")},
-                       {QStringLiteral("task.release_emergency_ascent"), tr("紧急上浮解除按钮")}}}});
+                       {QStringLiteral("task.release_emergency_ascent"), tr("紧急上浮解除按钮")}}},
+                     {tr("遥控指令"),
+                      {{QStringLiteral("task.remote.crawl"), tr("爬行档位/速度/角速度")},
+                       {QStringLiteral("task.remote.sailing"), tr("航行前进/转向/下潜百分比")},
+                       {QStringLiteral("task.remote.tail"), tr("尾推 L/R")},
+                       {QStringLiteral("task.remote.vertical"), tr("垂推 L/R/B")},
+                       {QStringLiteral("task.remote.power"), tr("配电通路 1-16 指令")}}}});
 
     m_verticalDetailTab = createDetailTab(tr("垂向"),
                     {{tr("垂向反馈"),
@@ -1658,9 +1669,15 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
 
     setOverviewValue(QStringLiteral("vertical.navi_mode"), naviModeText(action.valid, action.naviMode));
     const QString currentDepth = displayNumber(loc.valid, loc.depth, 2);
-    const QString targetDepth = displayNumber(action.valid, action.targetDepth, 2);
     const QString currentHeight = displayNumber(loc.valid, loc.height, 2);
-    const QString targetHeight = displayNumber(action.valid, action.targetHeight, 2);
+    // 目标值优先取 control command 的实时命令目标（运动过程中会变化），回退到
+    // action 的任务级静态目标，与垂向曲线目标线保持一致。
+    const QString targetDepth = control.valid
+                                    ? displayNumber(true, control.depth, 2)
+                                    : displayNumber(action.valid, action.targetDepth, 2);
+    const QString targetHeight = control.valid
+                                     ? displayNumber(true, control.height, 2)
+                                     : displayNumber(action.valid, action.targetHeight, 2);
     setOverviewValue(QStringLiteral("vertical.depth"), currentDepth == QStringLiteral("--") && targetDepth == QStringLiteral("--")
                                                             ? QStringLiteral("--")
                                                             : QStringLiteral("%1 / %2").arg(currentDepth, targetDepth));
@@ -1725,6 +1742,8 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("loc.odom"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.odomX), formatNumber(loc.odomY), formatNumber(loc.odomZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.attitude"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatAngleDegrees(loc.heading), formatAngleDegrees(loc.pitch), formatAngleDegrees(loc.roll)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.depth_height"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.depth), formatNumber(loc.height)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.longitude_latitude"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.longitude, 6), formatNumber(loc.latitude, 6)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.usbl"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.usblX), formatNumber(loc.usblY), formatNumber(loc.usblZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.velocity_xyz"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.velocityX), formatNumber(loc.velocityY), formatNumber(loc.velocityZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.velocity"), displayNumber(loc.valid, loc.velocity));
     setDetailValue(QStringLiteral("loc.omega_z"), displayAngularVelocityDegrees(loc.valid, loc.omegaZ));
@@ -1862,11 +1881,51 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
                                                                                 ? tr("按下（仅上升沿触发请求）")
                                                                                 : tr("未按下（不代表已解除）"))
                                                                          : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.remote.crawl"), task.valid ? QStringLiteral("%1 / %2 / %3")
+                                                                       .arg(task.crawlGear)
+                                                                       .arg(formatNumber(task.crawlSpeed))
+                                                                       .arg(formatAngularVelocityDegrees(task.crawlAngularVelocity))
+                                                                   : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.remote.sailing"), task.valid ? QStringLiteral("%1 / %2 / %3")
+                                                                         .arg(task.forwardPercent)
+                                                                         .arg(task.turnPercent)
+                                                                         .arg(task.divePercent)
+                                                                     : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.remote.tail"), task.valid ? QStringLiteral("%1 / %2")
+                                                                      .arg(task.leftTailActuatorSpeed)
+                                                                      .arg(task.rightTailActuatorSpeed)
+                                                                  : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.remote.vertical"), task.valid ? QStringLiteral("%1 / %2 / %3")
+                                                                          .arg(task.leftVerticalActuatorSpeed)
+                                                                          .arg(task.rightVerticalActuatorSpeed)
+                                                                          .arg(task.backVerticalActuatorSpeed)
+                                                                      : QStringLiteral("--"));
+    {
+        QString powerText;
+        if (task.valid && !task.powerSupplyCommands.isEmpty()) {
+            for (int i = 0; i < task.powerSupplyCommands.size(); ++i) {
+                if (i > 0) {
+                    powerText.append(QStringLiteral(" "));
+                }
+                powerText.append(QStringLiteral("%1:%2").arg(i + 1).arg(task.powerSupplyCommands[i]));
+            }
+        } else {
+            powerText = QStringLiteral("--");
+        }
+        setDetailValue(QStringLiteral("task.remote.power"), powerText);
+    }
 
     setDetailValue(QStringLiteral("vertical.source"), tr("定位/底盘/任务状态融合"));
     setDetailValue(QStringLiteral("vertical.mode"), autoviz::model::toDisplayString(snapshot.runVisualizationMode));
     setDetailValue(QStringLiteral("vertical.depth_height"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.depth), formatNumber(loc.height)) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("vertical.target"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
+    // 垂向目标优先取 control command 的实时命令目标，与曲线目标线保持一致。
+    const QString verticalTargetDepth = control.valid
+                                            ? formatNumber(control.depth)
+                                            : (action.valid ? formatNumber(action.targetDepth) : QStringLiteral("--"));
+    const QString verticalTargetHeight = control.valid
+                                             ? formatNumber(control.height)
+                                             : (action.valid ? formatNumber(action.targetHeight) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("vertical.target"), QStringLiteral("%1 / %2").arg(verticalTargetDepth, verticalTargetHeight));
     setDetailValue(QStringLiteral("vertical.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
     setDetailValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
     setDetailValue(QStringLiteral("vertical.buoyancy"), displayInt(action.valid, action.buoyancyAdjust));

@@ -72,6 +72,12 @@ Client                         Server
 `DataKind` 只稳定标识来源健康状态，不承担订阅。UI 可能显示 topic/type，但不得用其字符串
 做业务判断。履带、BMS、DCDC、配电使用 typed 结构；`DiagnosticMetric` 仅保留扩展诊断。
 
+`VehicleState.longitude_deg`/`latitude_deg` 使用 WGS-84 度，`UnderwaterState.usbl_x_m`、
+`usbl_y_m`、`usbl_z_m` 使用 Adapter 声明的本地定位坐标和 m 单位；它们是并列定位诊断，
+不得覆盖 `position` 或替代 `odom_z`、`depth`、`height_above_bottom_m`。`TaskState.remote_control`
+（field 9）携带可选的 crawl 目标、航行百分比、推进器调试量及 `power_supply_enabled`；后者
+按物理通路从 1 开始的固定顺序编码。字段只描述观测到的控制意图，协议仍是只读的。
+
 `ControlCommand.maneuver` 使用 field 15（12..14 已保留），当前取值为 `NONE` 或
 `YAW_IN_PLACE`。它与 `ControlCommand.mode` 正交：前者表达原地/中心转向，后者表达
 `CRAWL` 或 `SAILING` 平台类型；UI 据此显示“爬行中心转向”或“航行中心转向”。robot_ws
@@ -110,6 +116,7 @@ robot_ws 输出。不要在读取 `goal_uuid` 时尝试把非 canonical 字符�
 ## 单位和兼容
 
 - 长度 m，速度 m/s，加速度 m/s²，时间戳 Unix epoch ns。
+- 经度/纬度为 WGS-84 度；USBL 本地位置为 m，且只作定位诊断。
 - 角度 rad、角速度 rad/s；heading 东向 0、逆时针/左转正。
 - UI 显示层才转成度和 °/s。
 - 已使用 field number 永不复用；删除字段 `reserved`。

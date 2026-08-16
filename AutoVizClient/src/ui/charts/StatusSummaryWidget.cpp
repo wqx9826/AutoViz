@@ -92,11 +92,14 @@ void StatusSummaryWidget::setData(const ControlDebugData& data)
     m_speedErrorLabel->setText(QStringLiteral("%1 m/s").arg(data.hasSpeedError ? QString::number(data.speedError, 'f', 2) : QStringLiteral("--")));
     m_lateralErrorLabel->setText(QStringLiteral("%1 m").arg(data.hasLateralError ? QString::number(data.lateralError, 'f', 2) : QStringLiteral("--")));
     m_yawErrorLabel->setText(QStringLiteral("%1°").arg(data.hasYawError ? QString::number(data.yawError, 'f', 2) : QStringLiteral("--")));
+    m_angularVelocityErrorLabel->setText(QStringLiteral("%1 °/s").arg(data.hasAngularVelocityError ? QString::number(data.angularVelocityError, 'f', 2) : QStringLiteral("--")));
 
     setValueStyle(m_speedErrorLabel, severityColor(std::abs(data.speedError), 0.5, 1.2));
     setValueStyle(m_lateralErrorLabel, severityColor(std::abs(data.lateralError), 0.5, 1.5));
     setValueStyle(m_yawErrorLabel,
                   severityColor(std::abs(data.yawError), qRadiansToDegrees(0.25), qRadiansToDegrees(0.8)));
+    setValueStyle(m_angularVelocityErrorLabel,
+                  severityColor(std::abs(data.angularVelocityError), qRadiansToDegrees(0.25), qRadiansToDegrees(0.8)));
 }
 
 QString StatusSummaryWidget::modeText(ControlDebugMode mode)
@@ -163,10 +166,11 @@ void StatusSummaryWidget::setupUi()
     m_speedErrorLabel = createValue(this);
     m_lateralErrorLabel = createValue(this);
     m_yawErrorLabel = createValue(this);
+    m_angularVelocityErrorLabel = createValue(this);
 
     metricsRow->addWidget(createMetricBlock(QStringLiteral("速度误差"), m_speedErrorLabel, this), 1);
-    metricsRow->addWidget(createMetricBlock(QStringLiteral("横向误差"), m_lateralErrorLabel, this), 1);
     metricsRow->addWidget(createMetricBlock(QStringLiteral("航向误差"), m_yawErrorLabel, this), 1);
+    metricsRow->addWidget(createMetricBlock(QStringLiteral("角速度误差"), m_angularVelocityErrorLabel, this), 1);
     root->addLayout(metricsRow);
 }
 

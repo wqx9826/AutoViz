@@ -54,6 +54,11 @@ struct LocalizationStatus {
     double acc = 0.0;
     double depth = 0.0;
     double height = 0.0;
+    double longitude = 0.0;
+    double latitude = 0.0;
+    double usblX = 0.0;
+    double usblY = 0.0;
+    double usblZ = 0.0;
 };
 
 // ChassisStates carries a snapshot of the latest decoded CAN fields. These
@@ -211,6 +216,19 @@ struct TaskRuntimeStatus {
     bool releaseEmergencyAscent = false;
     int remoteMode = 0;
     int powerEnable = 0;
+    // TaskParams 中的遥控/调试指令字段
+    int crawlGear = 0;
+    double crawlSpeed = 0.0;
+    double crawlAngularVelocity = 0.0;
+    int forwardPercent = 0;
+    int turnPercent = 0;
+    int divePercent = 0;
+    int leftTailActuatorSpeed = 0;
+    int rightTailActuatorSpeed = 0;
+    int leftVerticalActuatorSpeed = 0;
+    int rightVerticalActuatorSpeed = 0;
+    int backVerticalActuatorSpeed = 0;
+    QVector<int> powerSupplyCommands;
 };
 
 enum class RunVisualizationMode {

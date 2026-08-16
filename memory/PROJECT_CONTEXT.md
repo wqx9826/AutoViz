@@ -29,6 +29,15 @@ Heartbeat、ProtocolError。
 SystemRunStates 目标角速度从 deg/s 转 rad/s，将 ChassisStates 左负右正反馈取反。
 `odom_z`、`depth`、`height_above_bottom` 保持三个独立字段。
 
+动作类别按 `SystemRunStates.owner` 和 `chassis_mode` 共同判定：只有
+`owner=2` 的 `DepthCommand` 且 `chassis_mode=1/2` 是独立垂向动作；`owner=1` 的
+`Move` 即使在 `chassis_mode=4/5/10` 使用定深/定高依赖，也仍是水平航行机动，不能切换 T-Z。
+
+`VehicleState` 还可选携带 WGS-84 经度/纬度（度）以及 USBL 解算位置（m）；这些值仅用于
+定位详情，不替代 odom 坐标或三种垂向量。`TaskState.remote_control` 承载来源无关的人工操纵、
+推进器调试和固定顺序的配电通路指令；Client 只读显示，绝不经该协议下发控制。Server 与本地
+rosbag Adapter 必须产生完全相同的字段语义。
+
 ## 当前 UI
 
 保留 main 的 XY、T-Z、路径、障碍物、控制曲线、状态详情、图层、居中、缩放和主题。
