@@ -18,10 +18,7 @@ public:
         FeedbackYaw,
         YawError,
         LateralError,
-        PathYawError,
-        CmdAngularVelocity,
-        FeedbackAngularVelocity,
-        AngularVelocityError
+        PathYawError
     };
 
     enum class AxisSide {

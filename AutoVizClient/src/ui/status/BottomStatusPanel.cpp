@@ -676,15 +676,12 @@ QString angularVelocitySummaryText(const autoviz::model::LocalizationStatus& loc
 {
     double target = 0.0;
     bool hasTarget = false;
-    // 控制指令面板展示的是“控制指令 cmd”，应优先取 ChassisCommand 下发的实时
-    // 角速度（普通爬行与中心转向都有值）。SystemRunStates 的 target_angular_velocity
-    // 是“爬行中心转向”专用任务级目标，普通爬行时为 0，只能作为回退。
-    if (isCrawlMode(control)) {
-        target = control.angularVelocity;
-        hasTarget = true;
-    } else if (action.valid && action.state == 1
-               && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
+    if (action.valid && action.state == 1
+        && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
         target = action.targetAngularVelocity;
+        hasTarget = true;
+    } else if (isCrawlMode(control)) {
+        target = control.angularVelocity;
         hasTarget = true;
     }
     const bool hasFeedback = chassis.valid || localization.valid;
@@ -1669,15 +1666,9 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
 
     setOverviewValue(QStringLiteral("vertical.navi_mode"), naviModeText(action.valid, action.naviMode));
     const QString currentDepth = displayNumber(loc.valid, loc.depth, 2);
+    const QString targetDepth = displayNumber(action.valid, action.targetDepth, 2);
     const QString currentHeight = displayNumber(loc.valid, loc.height, 2);
-    // 目标值优先取 control command 的实时命令目标（运动过程中会变化），回退到
-    // action 的任务级静态目标，与垂向曲线目标线保持一致。
-    const QString targetDepth = control.valid
-                                    ? displayNumber(true, control.depth, 2)
-                                    : displayNumber(action.valid, action.targetDepth, 2);
-    const QString targetHeight = control.valid
-                                     ? displayNumber(true, control.height, 2)
-                                     : displayNumber(action.valid, action.targetHeight, 2);
+    const QString targetHeight = displayNumber(action.valid, action.targetHeight, 2);
     setOverviewValue(QStringLiteral("vertical.depth"), currentDepth == QStringLiteral("--") && targetDepth == QStringLiteral("--")
                                                             ? QStringLiteral("--")
                                                             : QStringLiteral("%1 / %2").arg(currentDepth, targetDepth));
@@ -1927,14 +1918,7 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("vertical.source"), tr("定位/底盘/任务状态融合"));
     setDetailValue(QStringLiteral("vertical.mode"), autoviz::model::toDisplayString(snapshot.runVisualizationMode));
     setDetailValue(QStringLiteral("vertical.depth_height"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.depth), formatNumber(loc.height)) : QStringLiteral("--"));
-    // 垂向目标优先取 control command 的实时命令目标，与曲线目标线保持一致。
-    const QString verticalTargetDepth = control.valid
-                                            ? formatNumber(control.depth)
-                                            : (action.valid ? formatNumber(action.targetDepth) : QStringLiteral("--"));
-    const QString verticalTargetHeight = control.valid
-                                             ? formatNumber(control.height)
-                                             : (action.valid ? formatNumber(action.targetHeight) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("vertical.target"), QStringLiteral("%1 / %2").arg(verticalTargetDepth, verticalTargetHeight));
+    setDetailValue(QStringLiteral("vertical.target"), action.valid ? QStringLiteral("%1 / %2").arg(formatNumber(action.targetDepth), formatNumber(action.targetHeight)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("vertical.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
     setDetailValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
     setDetailValue(QStringLiteral("vertical.buoyancy"), displayInt(action.valid, action.buoyancyAdjust));

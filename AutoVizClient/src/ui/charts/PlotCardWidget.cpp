@@ -194,12 +194,6 @@ bool PlotCardWidget::hasValue(const ControlDebugData& data, ValueRole role)
         return data.hasLateralError;
     case ValueRole::PathYawError:
         return data.hasPathYawError;
-    case ValueRole::CmdAngularVelocity:
-        return data.hasCmdAngularVelocity;
-    case ValueRole::FeedbackAngularVelocity:
-        return data.hasFeedbackAngularVelocity;
-    case ValueRole::AngularVelocityError:
-        return data.hasAngularVelocityError;
     }
     return false;
 }
@@ -223,12 +217,6 @@ double PlotCardWidget::valueOf(const ControlDebugData& data, ValueRole role)
         return data.lateralError;
     case ValueRole::PathYawError:
         return data.pathYawError;
-    case ValueRole::CmdAngularVelocity:
-        return data.cmdAngularVelocity;
-    case ValueRole::FeedbackAngularVelocity:
-        return data.feedbackAngularVelocity;
-    case ValueRole::AngularVelocityError:
-        return data.angularVelocityError;
     }
     return 0.0;
 }
@@ -247,10 +235,6 @@ QString PlotCardWidget::valueSuffix(ValueRole role)
     case ValueRole::YawError:
     case ValueRole::PathYawError:
         return QStringLiteral(" °");
-    case ValueRole::CmdAngularVelocity:
-    case ValueRole::FeedbackAngularVelocity:
-    case ValueRole::AngularVelocityError:
-        return QStringLiteral(" °/s");
     }
     return {};
 }

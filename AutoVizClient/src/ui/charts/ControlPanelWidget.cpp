@@ -120,7 +120,7 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
         m_lastBufferedTimestampMs = -1;
         m_speedPlot->clearFrozenRange();
         m_yawPlot->clearFrozenRange();
-        m_angularVelocityPlot->clearFrozenRange();
+        m_pathErrorPlot->clearFrozenRange();
     }
     m_actionWasActive = actionIsActive;
     if (actionIsActive) {
@@ -227,10 +227,10 @@ void ControlPanelWidget::setupUi()
 
     m_speedPlot = new PlotCardWidget(content);
     m_yawPlot = new PlotCardWidget(content);
-    m_angularVelocityPlot = new PlotCardWidget(content);
+    m_pathErrorPlot = new PlotCardWidget(content);
     layout->addWidget(m_speedPlot);
     layout->addWidget(m_yawPlot);
-    layout->addWidget(m_angularVelocityPlot);
+    layout->addWidget(m_pathErrorPlot);
     layout->addStretch(1);
 
     scrollArea->setWidget(content);
@@ -244,7 +244,7 @@ void ControlPanelWidget::setupUi()
     connect(m_autoScaleCheck, &QCheckBox::toggled, this, [this]() {
         m_speedPlot->clearFrozenRange();
         m_yawPlot->clearFrozenRange();
-        m_angularVelocityPlot->clearFrozenRange();
+        m_pathErrorPlot->clearFrozenRange();
         refreshPlots();
     });
 }
@@ -268,12 +268,11 @@ void ControlPanelWidget::configurePlots()
                           {QStringLiteral("feedback_yaw"), QColor("#16A34A"), Role::FeedbackYaw, Axis::Left, 2.0},
                           {QStringLiteral("yaw_error"), QColor("#F97316"), Role::YawError, Axis::Left, 1.7}});
 
-    m_angularVelocityPlot->configure(tr("角速度跟踪"),
-                                     QStringLiteral("angular velocity / °/s"),
-                                     QString(),
-                                     {{QStringLiteral("cmd_angular_velocity"), QColor("#2563EB"), Role::CmdAngularVelocity, Axis::Left, 2.3},
-                                      {QStringLiteral("feedback_angular_velocity"), QColor("#059669"), Role::FeedbackAngularVelocity, Axis::Left, 2.1},
-                                      {QStringLiteral("angular_velocity_error"), QColor("#DC2626"), Role::AngularVelocityError, Axis::Left, 1.6}});
+    m_pathErrorPlot->configure(tr("路径误差"),
+                               QStringLiteral("lateral / m"),
+                               QStringLiteral("body-path / °"),
+                               {{QStringLiteral("lateral_error"), QColor("#DC2626"), Role::LateralError, Axis::Left, 2.0},
+                                {QStringLiteral("heading_to_path"), QColor("#0F766E"), Role::PathYawError, Axis::Right, 1.8}});
 }
 
 void ControlPanelWidget::refreshPlots()
@@ -284,7 +283,7 @@ void ControlPanelWidget::refreshPlots()
     const qint64 windowMs = m_buffer.windowMs();
     m_speedPlot->setSamples(samples, m_latestData, windowMs, autoScale);
     m_yawPlot->setSamples(samples, m_latestData, windowMs, autoScale);
-    m_angularVelocityPlot->setSamples(samples, m_latestData, windowMs, autoScale);
+    m_pathErrorPlot->setSamples(samples, m_latestData, windowMs, autoScale);
 }
 
 void ControlPanelWidget::clearHistory()
@@ -294,7 +293,7 @@ void ControlPanelWidget::clearHistory()
     m_firstSampleTimestampMs = 0;
     m_speedPlot->clearFrozenRange();
     m_yawPlot->clearFrozenRange();
-    m_angularVelocityPlot->clearFrozenRange();
+    m_pathErrorPlot->clearFrozenRange();
     refreshPlots();
 }
 
@@ -303,7 +302,7 @@ void ControlPanelWidget::setWindowFromCombo()
     m_buffer.setWindowMs(m_windowCombo->currentData().toLongLong());
     m_speedPlot->clearFrozenRange();
     m_yawPlot->clearFrozenRange();
-    m_angularVelocityPlot->clearFrozenRange();
+    m_pathErrorPlot->clearFrozenRange();
     refreshPlots();
 }
 
@@ -369,20 +368,12 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     } else if (command.mode == autoviz::model::ControlMode::Crawl) {
         data.hasFeedbackSpeed = fresh && hasChassis;
         data.feedbackSpeed = snapshot.vehicleChassisInfo.currentSpeed;
-
-        // 爬行模式：命令角速度与反馈角速度都以 rad/s 在协议层，统一转成 °/s 展示。
-        data.hasCmdAngularVelocity = fresh && hasControl;
-        data.cmdAngularVelocity = qRadiansToDegrees(command.desiredAngularVelocity);
-        data.hasFeedbackAngularVelocity = fresh && hasChassis;
-        data.feedbackAngularVelocity = qRadiansToDegrees(snapshot.vehicleChassisInfo.currentAngularVelocity);
     }
 
     data.hasSpeedError = data.hasCmdSpeed && data.hasFeedbackSpeed;
     data.speedError = data.cmdSpeed - data.feedbackSpeed;
     data.hasYawError = data.hasCmdYaw && data.hasFeedbackYaw;
     data.yawError = qRadiansToDegrees(normalizeAngle(cmdYawRadians - feedbackYawRadians));
-    data.hasAngularVelocityError = data.hasCmdAngularVelocity && data.hasFeedbackAngularVelocity;
-    data.angularVelocityError = data.cmdAngularVelocity - data.feedbackAngularVelocity;
 
     if (fresh && hasLocation && status.hasLocalPathData) {
         double pathYawErrorRadians = 0.0;

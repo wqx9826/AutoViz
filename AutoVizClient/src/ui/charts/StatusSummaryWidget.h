@@ -27,7 +27,6 @@ private:
     QLabel* m_speedErrorLabel = nullptr;
     QLabel* m_lateralErrorLabel = nullptr;
     QLabel* m_yawErrorLabel = nullptr;
-    QLabel* m_angularVelocityErrorLabel = nullptr;
 };
 
 }  // namespace autoviz::ui::charts

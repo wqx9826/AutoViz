@@ -24,9 +24,6 @@ struct ControlDebugData {
     bool hasCmdYaw = false;
     bool hasFeedbackYaw = false;
     bool hasYawError = false;
-    bool hasCmdAngularVelocity = false;
-    bool hasFeedbackAngularVelocity = false;
-    bool hasAngularVelocityError = false;
     bool hasLateralError = false;
     bool hasPathYawError = false;
 
@@ -37,10 +34,6 @@ struct ControlDebugData {
     double cmdYaw = 0.0;
     double feedbackYaw = 0.0;
     double yawError = 0.0;
-    // Angular velocity values are stored in degrees/s for chart and status-panel display.
-    double cmdAngularVelocity = 0.0;
-    double feedbackAngularVelocity = 0.0;
-    double angularVelocityError = 0.0;
     double lateralError = 0.0;
     double pathYawError = 0.0;  // degrees
 };
