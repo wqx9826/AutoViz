@@ -1742,8 +1742,17 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("loc.odom"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.odomX), formatNumber(loc.odomY), formatNumber(loc.odomZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.attitude"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatAngleDegrees(loc.heading), formatAngleDegrees(loc.pitch), formatAngleDegrees(loc.roll)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.depth_height"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.depth), formatNumber(loc.height)) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("loc.longitude_latitude"), loc.valid ? QStringLiteral("%1 / %2").arg(formatNumber(loc.longitude, 6), formatNumber(loc.latitude, 6)) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("loc.usbl"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.usblX), formatNumber(loc.usblY), formatNumber(loc.usblZ)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.longitude_latitude"), loc.valid && (loc.hasLongitude || loc.hasLatitude)
+                                                               ? QStringLiteral("%1 / %2")
+                                                                     .arg(loc.hasLongitude ? formatNumber(loc.longitude, 6) : QStringLiteral("--"),
+                                                                          loc.hasLatitude ? formatNumber(loc.latitude, 6) : QStringLiteral("--"))
+                                                               : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.usbl"), loc.valid && (loc.hasUsblX || loc.hasUsblY || loc.hasUsblZ)
+                                                 ? QStringLiteral("%1 / %2 / %3")
+                                                       .arg(loc.hasUsblX ? formatNumber(loc.usblX) : QStringLiteral("--"),
+                                                            loc.hasUsblY ? formatNumber(loc.usblY) : QStringLiteral("--"),
+                                                            loc.hasUsblZ ? formatNumber(loc.usblZ) : QStringLiteral("--"))
+                                                 : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.velocity_xyz"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.velocityX), formatNumber(loc.velocityY), formatNumber(loc.velocityZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.velocity"), displayNumber(loc.valid, loc.velocity));
     setDetailValue(QStringLiteral("loc.omega_z"), displayAngularVelocityDegrees(loc.valid, loc.omegaZ));
@@ -1881,28 +1890,28 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
                                                                                 ? tr("按下（仅上升沿触发请求）")
                                                                                 : tr("未按下（不代表已解除）"))
                                                                          : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("task.remote.crawl"), task.valid ? QStringLiteral("%1 / %2 / %3")
+    setDetailValue(QStringLiteral("task.remote.crawl"), task.valid && task.hasRemoteControl ? QStringLiteral("%1 / %2 / %3")
                                                                        .arg(task.crawlGear)
                                                                        .arg(formatNumber(task.crawlSpeed))
                                                                        .arg(formatAngularVelocityDegrees(task.crawlAngularVelocity))
                                                                    : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("task.remote.sailing"), task.valid ? QStringLiteral("%1 / %2 / %3")
+    setDetailValue(QStringLiteral("task.remote.sailing"), task.valid && task.hasRemoteControl ? QStringLiteral("%1 / %2 / %3")
                                                                          .arg(task.forwardPercent)
                                                                          .arg(task.turnPercent)
                                                                          .arg(task.divePercent)
                                                                      : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("task.remote.tail"), task.valid ? QStringLiteral("%1 / %2")
+    setDetailValue(QStringLiteral("task.remote.tail"), task.valid && task.hasRemoteControl ? QStringLiteral("%1 / %2")
                                                                       .arg(task.leftTailActuatorSpeed)
                                                                       .arg(task.rightTailActuatorSpeed)
                                                                   : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("task.remote.vertical"), task.valid ? QStringLiteral("%1 / %2 / %3")
+    setDetailValue(QStringLiteral("task.remote.vertical"), task.valid && task.hasRemoteControl ? QStringLiteral("%1 / %2 / %3")
                                                                           .arg(task.leftVerticalActuatorSpeed)
                                                                           .arg(task.rightVerticalActuatorSpeed)
                                                                           .arg(task.backVerticalActuatorSpeed)
                                                                       : QStringLiteral("--"));
     {
         QString powerText;
-        if (task.valid && !task.powerSupplyCommands.isEmpty()) {
+        if (task.valid && task.hasRemoteControl && !task.powerSupplyCommands.isEmpty()) {
             for (int i = 0; i < task.powerSupplyCommands.size(); ++i) {
                 if (i > 0) {
                     powerText.append(QStringLiteral(" "));

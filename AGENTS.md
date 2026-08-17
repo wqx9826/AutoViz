@@ -92,6 +92,11 @@ robot_ws 当前输入：
 
 - 外部数据只能通过 `DataManager` 写入，不共享可变 snapshot。
 - UI 主线程每 50ms 获取 snapshot；网络/Adapter 不直接操作 UI 或 SceneManager。
+- 远程 Server 与本地 rosbag 是同一业务数据契约的两个输入：所有被 Client 模型或 UI 消费的
+  `VisualizationSnapshot` 字段，必须由 Server 快照和 `RobotWsCdrDecoder` 以相同语义、单位和
+  optional 缺失规则提供，并统一经过 `ProtocolModelConverter -> DataManager -> UI`。严禁出现仅
+  Server 或仅 bag 可显示的字段；协议、Adapter、CDR decoder、Converter、模型或 UI 变更必须同步
+  审查两条链路并补充等价验证。
 - 历史轨迹由 DataManager 维护，新 session 不得拼接旧会话轨迹。
 - 细网格 1m、粗网格 5m；车辆尺寸优先使用 Server 参数，缺失时回退本地配置。
 - 中文是当前主要用户界面语言。

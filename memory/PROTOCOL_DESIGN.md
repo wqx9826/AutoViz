@@ -78,6 +78,15 @@ Client                         Server
 （field 9）携带可选的 crawl 目标、航行百分比、推进器调试量及 `power_supply_enabled`；后者
 按物理通路从 1 开始的固定顺序编码。字段只描述观测到的控制意图，协议仍是只读的。
 
+### 远程与回放等价性（强制）
+
+所有已由 Client 模型或 UI 消费的 `VisualizationSnapshot` 字段，都必须同时由远程 Server
+快照和本地 rosbag decoder 以相同语义、单位和 optional 缺失规则提供。Client 只能在唯一的
+`ProtocolModelConverter` 将该字段转换为内部模型，UI 不得按数据源选择性隐藏或替换字段。
+例如经纬度、USBL 与 `TaskState.remote_control` 必须在 Server 连接和本地回放中显示一致。
+改变 schema、Server Adapter、CDR decoder、Converter、内部模型或 UI 时，必须同步更新另一条
+链路及等价测试；“bag 可显示而远程不可显示”或反向情况均为协议实现缺陷，不可发布。
+
 `ControlCommand.maneuver` 使用 field 15（12..14 已保留），当前取值为 `NONE` 或
 `YAW_IN_PLACE`。它与 `ControlCommand.mode` 正交：前者表达原地/中心转向，后者表达
 `CRAWL` 或 `SAILING` 平台类型；UI 据此显示“爬行中心转向”或“航行中心转向”。robot_ws

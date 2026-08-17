@@ -49,6 +49,16 @@
 
 ## 自动化测试
 
+### 数据源显示等价性（发布门禁）
+
+对于每个已在 Client 模型或 UI 展示的协议字段，验证必须同时覆盖：
+
+- ROS -> Server -> TCP 完整快照 -> `ProtocolModelConverter` -> Client 内部模型/UI；
+- rosbag CDR -> `RobotWsCdrDecoder` -> 同一 `ProtocolModelConverter` -> Client 内部模型/UI。
+
+两条链路必须断言相同字段值、单位和字段缺失清空行为。协议、Adapter、CDR decoder、内部模型、
+Converter 或 UI 的任何变更都要更新此验证；任一字段仅在远程或仅在回放显示即视为失败，禁止发布。
+
 - AutoVizProto：8/8 通过。覆盖二进制零字节、拆包、粘包、多帧、非法/超长长度、损坏
   protobuf、reset、v2 hello/capability 和完整水下/平台快照 round-trip。
 - Server TCP：7/7 通过。覆盖非法地址、动态端口、握手前隔离、握手后立即快照、major

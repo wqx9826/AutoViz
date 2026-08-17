@@ -54,10 +54,15 @@ struct LocalizationStatus {
     double acc = 0.0;
     double depth = 0.0;
     double height = 0.0;
+    bool hasLongitude = false;
     double longitude = 0.0;
+    bool hasLatitude = false;
     double latitude = 0.0;
+    bool hasUsblX = false;
     double usblX = 0.0;
+    bool hasUsblY = false;
     double usblY = 0.0;
+    bool hasUsblZ = false;
     double usblZ = 0.0;
 };
 
@@ -216,6 +221,7 @@ struct TaskRuntimeStatus {
     bool releaseEmergencyAscent = false;
     int remoteMode = 0;
     int powerEnable = 0;
+    bool hasRemoteControl = false;
     // TaskParams 中的遥控/调试指令字段
     int crawlGear = 0;
     double crawlSpeed = 0.0;

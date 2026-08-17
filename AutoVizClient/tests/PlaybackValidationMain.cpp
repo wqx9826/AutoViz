@@ -201,6 +201,73 @@ bool runActionDiagnosticConversionChecks(QTextStream& error)
     return true;
 }
 
+bool runSharedFieldConversionChecks(QTextStream& error)
+{
+    // Server TCP snapshots and the local CDR decoder both enter the Client through
+    // VisualizationSnapshot, so this protects their shared model/UI contract.
+    ::autoviz::VisualizationSnapshot wireSnapshot;
+    auto* vehicle = wireSnapshot.mutable_vehicle_state();
+    vehicle->set_longitude_deg(120.123456);
+    vehicle->set_latitude_deg(30.654321);
+    auto* underwater = vehicle->mutable_underwater();
+    underwater->set_usbl_x_m(9.5);
+    underwater->set_usbl_y_m(-1.25);
+    underwater->set_usbl_z_m(4.75);
+
+    auto* remote = wireSnapshot.mutable_task_state()->mutable_remote_control();
+    remote->set_crawl_gear(2);
+    remote->set_crawl_speed_mps(0.75);
+    remote->set_crawl_angular_velocity_radps(-0.2);
+    remote->set_forward_percent(60);
+    remote->set_turn_percent(-20);
+    remote->set_dive_percent(15);
+    remote->set_left_tail_actuator_speed(-90);
+    remote->set_right_tail_actuator_speed(91);
+    remote->set_left_vertical_actuator_speed(-30);
+    remote->set_right_vertical_actuator_speed(31);
+    remote->set_back_vertical_actuator_speed(32);
+    for (int index = 0; index < 16; ++index) {
+        remote->add_power_supply_enabled(index == 0 || index == 15);
+    }
+
+    const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
+    const auto& location = modelSnapshot.localizationStatus;
+    const auto& task = modelSnapshot.taskRuntimeStatus;
+    const bool valuesMatch = location.hasLongitude && location.hasLatitude
+                             && location.hasUsblX && location.hasUsblY && location.hasUsblZ
+                             && std::abs(location.longitude - 120.123456) < 1.0e-12
+                             && std::abs(location.latitude - 30.654321) < 1.0e-12
+                             && std::abs(location.usblX - 9.5) < 1.0e-12
+                             && std::abs(location.usblY + 1.25) < 1.0e-12
+                             && std::abs(location.usblZ - 4.75) < 1.0e-12
+                             && task.hasRemoteControl && task.crawlGear == 2
+                             && std::abs(task.crawlSpeed - 0.75) < 1.0e-12
+                             && std::abs(task.crawlAngularVelocity + 0.2) < 1.0e-12
+                             && task.forwardPercent == 60 && task.turnPercent == -20
+                             && task.divePercent == 15 && task.leftTailActuatorSpeed == -90
+                             && task.rightTailActuatorSpeed == 91
+                             && task.leftVerticalActuatorSpeed == -30
+                             && task.rightVerticalActuatorSpeed == 31
+                             && task.backVerticalActuatorSpeed == 32
+                             && task.powerSupplyCommands.size() == 16
+                             && task.powerSupplyCommands.front() == 1
+                             && task.powerSupplyCommands.back() == 1
+                             && task.powerSupplyCommands.at(1) == 0;
+
+    const auto absentModel = autoviz::network::ProtocolModelConverter::toModelSnapshot(
+        ::autoviz::VisualizationSnapshot{});
+    const bool absencePreserved = !absentModel.localizationStatus.hasLongitude
+                                 && !absentModel.localizationStatus.hasLatitude
+                                 && !absentModel.localizationStatus.hasUsblX
+                                 && !absentModel.localizationStatus.hasUsblY
+                                 && !absentModel.localizationStatus.hasUsblZ
+                                 && !absentModel.taskRuntimeStatus.hasRemoteControl;
+    if (!valuesMatch || !absencePreserved) {
+        error << "shared Server/bag field conversion self-test failed\n";
+    }
+    return valuesMatch;
+}
+
 bool runGoalUuidNormalizationChecks(QTextStream& error)
 {
     // robot_ws 用 %x 逐字节格式化 SystemRunStates.goal_uuid，会丢掉字节前导零。
@@ -245,10 +312,13 @@ int main(int argc, char** argv)
     if (!runActionDiagnosticConversionChecks(error)) {
         return 1;
     }
+    if (!runSharedFieldConversionChecks(error)) {
+        return 1;
+    }
     if (!runGoalUuidNormalizationChecks(error)) {
         return 1;
     }
-    out << "CDR, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, and goal-UUID normalization self-tests: OK\n";
+    out << "CDR, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {

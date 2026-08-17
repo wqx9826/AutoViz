@@ -54,6 +54,18 @@ rosbag2 metadata v5 + SQLite3 DB3
   -> ProtocolModelConverter -> DataManager -> SceneManager / Qt UI
 ```
 
+## 数据源显示等价性（强制）
+
+远程 Server 和本地 rosbag 是同一份 Client 业务数据契约的两个输入，不是两套 UI 功能。
+两条链路都必须产出语义一致的 `VisualizationSnapshot`，随后统一通过
+`ProtocolModelConverter -> DataManager -> SceneManager / Qt UI`。因此，只要某个协议字段被
+Client 的模型或 UI 展示，Server 连接与本地 bag 回放都必须能展示该字段；不得让一个来源静默
+丢弃、另一个来源可见。
+
+新增、删除或修改协议字段、回放 decoder、`ProtocolModelConverter`、内部模型或状态详情 UI 时，
+必须同步审查两条输入链路，并为两者补充字段存在与字段缺失时的等价验证。来源差异只允许体现在
+数据本身不可用时的 optional 缺失，不允许体现在字段语义、单位或 UI 可见性上。
+
 回放 adapter 是 Client 中唯一允许理解 ROS topic/type/CDR 的隔离边界。它与远程源互斥，
 使用 bag 虚拟时钟计算新鲜度；暂停不会让通道按墙钟超时，seek 会重建各通道最近状态并
 清空旧历史。

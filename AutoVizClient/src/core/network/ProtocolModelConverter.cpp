@@ -167,14 +167,25 @@ model::LocalizationStatus convertLocalization(const wire::VehicleState& source)
         target.odomZ = source.underwater().odom_z_m();
         target.depth = source.underwater().depth_m();
         target.height = source.underwater().height_above_bottom_m();
-        target.usblX = source.underwater().usbl_x_m();
-        target.usblY = source.underwater().usbl_y_m();
-        target.usblZ = source.underwater().usbl_z_m();
+        if (source.underwater().has_usbl_x_m()) {
+            target.hasUsblX = true;
+            target.usblX = source.underwater().usbl_x_m();
+        }
+        if (source.underwater().has_usbl_y_m()) {
+            target.hasUsblY = true;
+            target.usblY = source.underwater().usbl_y_m();
+        }
+        if (source.underwater().has_usbl_z_m()) {
+            target.hasUsblZ = true;
+            target.usblZ = source.underwater().usbl_z_m();
+        }
     }
     if (source.has_longitude_deg()) {
+        target.hasLongitude = true;
         target.longitude = source.longitude_deg();
     }
     if (source.has_latitude_deg()) {
+        target.hasLatitude = true;
         target.latitude = source.latitude_deg();
     }
     return target;
@@ -535,6 +546,7 @@ model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
     target.remoteMode = source.remote_mode();
     target.powerEnable = source.power_enable();
     if (source.has_remote_control()) {
+        target.hasRemoteControl = true;
         const auto& remote = source.remote_control();
         target.crawlGear = remote.crawl_gear();
         target.crawlSpeed = remote.crawl_speed_mps();

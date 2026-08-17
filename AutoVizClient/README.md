@@ -310,4 +310,6 @@ Plugins = plugins
 - Client 不依赖 ROS2；bag 回放只支持当前 robot_ws 的固定消息布局。
 - Client 与 Server 的默认 TCP 端口为 `39090`，Server 默认最多接受 8 个 Client。
 - 本地回放和远程连接互斥：开始回放会断开 Server；连接 Server 会停止回放。
+- 远程 Server 快照和本地 bag 解码必须提供相同的 Client 可见字段、语义、单位及字段缺失行为，
+  并统一经 `ProtocolModelConverter -> DataManager -> UI`；任何字段不得只在其中一种数据源显示。
 - 主题、车辆尺寸等运行时文件位于可执行文件同级 `configs/`，交付时必须整体保留。
