@@ -35,13 +35,17 @@ ROS callback
 
 Node 不处理 hello、session 或 socket；VisualizationServer 不理解 ROS。SnapshotStore 仅由
 ROS SingleThreadedExecutor 访问。TCP 慢客户端的旧待发快照会被新快照替换，不建立无界
-快照队列。
+快照队列。三条控制审计 topic 使用 100 深度的有界 best-effort ROS 队列，进入回调后的每个
+语义切换都会追加到会话事件历史；隐藏 Action status/feedback 只刷新诊断，不冒充
+`/system_run_states` 消息推进其序号或接收时间。
 
 ## Client 数据流
 
 - `RemoteVisualizationSource`：连接、v2 hello、完整快照、心跳、错误、重连和 session。
 - `ProtocolModelConverter`：完整 protobuf snapshot 到内部模型的唯一入口。
-- `DataManager`：原子替换值快照；同 session 延续历史轨迹。
+- `DataManager`：原子替换值快照；同 session 延续历史轨迹；只接受当前活动输入来源的 replace/reset。
+- `SnapshotStore` 同时维护控制状态审计历史；三条控制 topic 的当前值均按配置超时清除，
+  但审计事件保留到 session 结束。
 - `SceneManager/UI`：主线程每 50 ms 读内部快照，不 include protobuf，不解析 topic 名。
 
 本地回放是第二条互斥的数据源链路：
@@ -70,9 +74,41 @@ Client 的模型或 UI 展示，Server 连接与本地 bag 回放都必须能展
 使用 bag 虚拟时钟计算新鲜度；暂停不会让通道按墙钟超时，seek 会重建各通道最近状态并
 清空旧历史。
 
+互斥由 `DataManager` 的显式活动来源保证，不依赖网络断开是否及时完成。选择 bag 时
+`MainWindow` 先激活 `Ros2Bag` 再请求断开 Server，远程 snapshot、disconnect reset 和自动重连
+回调随后即使到达也会被拒绝；切回 Server 时先停止本地 session，再激活 `Remote`。状态栏所示
+来源取自实际获准写入的原子快照，而不是某个连接控件的期望状态。
+
 高倍率回放采用有界背压：worker 每次最多占用 4 ms/处理 2000 行，同一批内每个通道只
 解码最后一帧；过载时放慢虚拟时钟，不积压任务。暂停、停止和调速因此可在下一时间片被
 处理。主场景在本地回放时最多 10 Hz 全量重建，状态区仍保持 20 Hz。
+
+控制状态和路径是顺序敏感通道，不参与上述按 topic 合并。回放 cursor 使用 bag 的
+`(timestamp, split index, message id)` 顺序；暂停和调速先把快照同步到报告位置，若处理预算
+不足则回退报告位置，禁止进度领先状态。seek 通过预检生成的中心转向边界过滤旧路径。
+
+控制相关的三条 topic 在回放合并前逐条进入事件追踪器，避免高倍率批处理遗漏瞬时
+`mode=11 -> mode=6`、档位或履带输出切换；数值快照仍可按 topic 合并。
+
+Server 20 Hz 完整快照和本地高倍率回放都可能在 Client 两次 50 ms 刷新之间经过多个命令状态。
+底部控制总览以会话事件历史为来源无关的补偿通道：检测新增的控制命令事件，按顺序将 mode、
+档位和使能切换帧各显示至少 250 ms，并明确标注“切换”；事件队列结束后立即回到完整快照的
+最新值。控制时序的“当前值”行仍显示真实最新 topic 值，不能被展示队列覆盖。
+
+本地回放每次发布时递增协议 snapshot sequence，并把已应用的 bag 时间、控制命令状态和该序号
+作为一个快照写入 `DataManager`。底部状态面板在每次 MainWindow 50 ms 刷新中先构造一份真实
+当前 `ControlStatusSummary`；“控制时序”直接使用当前值和 topic 序号，“当前运动”与“控制指令”
+则从同一摘要派生带 250 ms 停留的切换展示帧。面板内部不再设置第二层墙钟刷新门限。
+
+控制状态 UI 不做跨来源数值回退：“cmd/rev”中的 cmd 只取控制命令，速度、角速度和档位
+反馈只取底盘状态，航向反馈只取定位；`/system_run_states` 只表达 Action 期望。控制曲线按
+控制模式区分航向角与角速度，并在语义切换时结束当前曲线段。命令、底盘和定位各自在 topic
+序号或消息时间变化时追加稀疏样本，横轴使用各自消息时间；UI 刷新不生成采样点，也不以
+最大时间戳把多个 topic 合成同一帧。
+
+中心转向只由实际控制命令的 mode 10/11 判定。进入时 Server 和本地回放立即清除全局/局部
+路径，期间到达的路径只更新来源健康统计；第一条非中心转向命令解除抑制，但旧路径不会恢复，
+必须等待切换边界之后的新路径消息。
 
 断线或 session 变化先清空 DataManager，因此旧会话轨迹不拼接。Server 负责字段超时；
 Client 的 5 秒 watchdog 只处理连接整体失活。

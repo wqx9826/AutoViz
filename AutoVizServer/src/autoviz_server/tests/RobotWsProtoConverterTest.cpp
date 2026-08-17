@@ -145,7 +145,7 @@ TEST(RobotWsProtoConverterTest, PreservesCenterTurningAsGenericManeuver)
     const auto gear = autoviz_server::RobotWsProtoConverter::controlCommand(
         gearSource, kReceiveTimeNs);
     EXPECT_EQ(gear.mode(), autoviz::ControlCommand::MODE_CRAWL);
-    EXPECT_EQ(gear.maneuver(), autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
+    EXPECT_EQ(gear.maneuver(), autoviz::ControlCommand::MANEUVER_NONE);
 }
 
 TEST(RobotWsProtoConverterTest, NormalizesChassisYawAndUsesTypedDiagnostics)
@@ -384,7 +384,7 @@ TEST(SnapshotStoreTest, TracksTopicsAndClearsTimedOutSnapshotFields)
     EXPECT_EQ(after.runtime_state().topic(0).timeout_ns(), 5000000000ULL);
 }
 
-TEST(SnapshotStoreTest, RetainsEventDrivenActionAcrossHealthTimeout)
+TEST(SnapshotStoreTest, ExpiresActionCurrentStateButRetainsAuditEvent)
 {
     autoviz_server::SnapshotStore store({
         {"/system_run_states", "custom_msgs/msg/SystemRunStates", autoviz::DATA_KIND_ACTION_STATE}});
@@ -399,10 +399,170 @@ TEST(SnapshotStoreTest, RetainsEventDrivenActionAcrossHealthTimeout)
                  std::chrono::milliseconds(5000));
     const auto snapshot = store.buildSnapshot(kReceiveTimeNs, 0);
 
-    ASSERT_TRUE(snapshot.has_action_state());
-    EXPECT_EQ(snapshot.action_state().goal_id(), "vertical-goal");
+    EXPECT_FALSE(snapshot.has_action_state());
+    ASSERT_EQ(snapshot.control_state_event_size(), 1);
+    EXPECT_EQ(snapshot.control_state_event(0).goal_id(), "vertical-goal");
+    EXPECT_EQ(snapshot.control_state_event(0).header().sequence(), 1U);
     ASSERT_EQ(snapshot.runtime_state().topic_size(), 1);
     EXPECT_TRUE(snapshot.runtime_state().topic(0).timed_out());
+}
+
+TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)
+{
+    autoviz_server::SnapshotStore store({
+        {"/system_run_states", "custom_msgs/msg/SystemRunStates", autoviz::DATA_KIND_ACTION_STATE},
+        {"/chassis_command", "custom_msgs/msg/ChassisCommand", autoviz::DATA_KIND_CONTROL_COMMAND},
+        {"/chassis_states", "custom_msgs/msg/ChassisStates", autoviz::DATA_KIND_CHASSIS_STATE}});
+    autoviz::ActionState action; action.set_goal_id("goal-6"); action.set_chassis_mode(6);
+    store.updateActionState(action, kReceiveTimeNs);
+    autoviz::ControlCommand command; command.set_mode(autoviz::ControlCommand::MODE_CRAWL); command.set_enabled(false); command.set_target_gear(0);
+    store.updateControlCommand(command, kReceiveTimeNs + 1);
+    command.set_enabled(true); command.set_target_gear(1);
+    store.updateControlCommand(command, kReceiveTimeNs + 2);
+    const auto snapshot = store.buildSnapshot(kReceiveTimeNs + 2, 0);
+    ASSERT_EQ(snapshot.control_command().header().sequence(), 2U);
+    ASSERT_EQ(snapshot.control_state_event_size(), 3);
+    EXPECT_EQ(snapshot.control_state_event(2).goal_id(), "goal-6");
+    EXPECT_TRUE(snapshot.control_state_event(2).current_enabled());
+    EXPECT_EQ(snapshot.control_state_event(2).current_gear(), 1);
+
+    autoviz::ChassisState chassis;
+    chassis.set_gear(0);
+    chassis.mutable_platform()->mutable_left_crawl_motor()->set_output_enabled(false);
+    chassis.mutable_platform()->mutable_right_crawl_motor()->set_output_enabled(false);
+    store.updateChassisState(chassis, kReceiveTimeNs + 3);
+    chassis.mutable_platform()->mutable_left_crawl_motor()->set_output_enabled(true);
+    chassis.mutable_platform()->mutable_right_crawl_motor()->set_output_enabled(true);
+    store.updateChassisState(chassis, kReceiveTimeNs + 4);
+    const auto outputSnapshot = store.buildSnapshot(kReceiveTimeNs + 4, 0);
+    ASSERT_EQ(outputSnapshot.control_state_event_size(), 5);
+    const auto& outputEvent = outputSnapshot.control_state_event(4);
+    EXPECT_EQ(outputEvent.header().sequence(), 2U);
+    EXPECT_FALSE(outputEvent.previous_crawl_output_enabled());
+    EXPECT_TRUE(outputEvent.current_crawl_output_enabled());
+}
+
+TEST(SnapshotStoreTest, RetainsIntermediateCommandEventsBetweenPublishes)
+{
+    autoviz_server::SnapshotStore store({
+        {"/chassis_command", "custom_msgs/msg/ChassisCommand",
+         autoviz::DATA_KIND_CONTROL_COMMAND}});
+
+    autoviz::ControlCommand command;
+    command.set_mode(autoviz::ControlCommand::MODE_CRAWL);
+    command.set_maneuver(autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
+    command.set_enabled(true);
+    command.set_target_gear(4);
+    store.updateControlCommand(command, kReceiveTimeNs);
+
+    command.set_mode(autoviz::ControlCommand::MODE_UNKNOWN);
+    command.set_maneuver(autoviz::ControlCommand::MANEUVER_NONE);
+    command.set_enabled(false);
+    command.set_target_gear(0);
+    store.updateControlCommand(command, kReceiveTimeNs + 1);
+
+    command.set_mode(autoviz::ControlCommand::MODE_CRAWL);
+    command.set_enabled(true);
+    command.set_target_gear(1);
+    store.updateControlCommand(command, kReceiveTimeNs + 2);
+
+    const auto snapshot = store.buildSnapshot(kReceiveTimeNs + 2, 0);
+    ASSERT_TRUE(snapshot.has_control_command());
+    EXPECT_EQ(snapshot.control_command().header().sequence(), 3U);
+    ASSERT_EQ(snapshot.control_state_event_size(), 3);
+    EXPECT_EQ(snapshot.control_state_event(1).previous_mode(), 11);
+    EXPECT_EQ(snapshot.control_state_event(1).current_mode(), 0);
+    EXPECT_FALSE(snapshot.control_state_event(1).current_enabled());
+    EXPECT_EQ(snapshot.control_state_event(2).previous_mode(), 0);
+    EXPECT_EQ(snapshot.control_state_event(2).current_mode(), 6);
+    EXPECT_TRUE(snapshot.control_state_event(2).current_enabled());
+}
+
+TEST(SnapshotStoreTest, ActionDiagnosticsDoNotAdvanceSystemRunStatesMetadata)
+{
+    autoviz_server::SnapshotStore store({
+        {"/system_run_states", "custom_msgs/msg/SystemRunStates",
+         autoviz::DATA_KIND_ACTION_STATE}});
+    autoviz::ActionState action;
+    action.mutable_header()->set_server_receive_time_ns(kReceiveTimeNs);
+    action.set_goal_id("goal-diagnostics");
+    action.set_chassis_mode(6);
+    store.updateActionState(action, kReceiveTimeNs);
+
+    action.set_native_status(2);
+    action.set_native_status_time_ns(kReceiveTimeNs + 10);
+    action.set_feedback_progress(0.5);
+    action.set_feedback_time_ns(kReceiveTimeNs + 11);
+    action.mutable_header()->set_server_receive_time_ns(kReceiveTimeNs + 11);
+    store.updateActionDiagnostics(action);
+
+    const auto snapshot = store.buildSnapshot(kReceiveTimeNs + 11, 0);
+    ASSERT_TRUE(snapshot.has_action_state());
+    EXPECT_EQ(snapshot.action_state().header().sequence(), 1U);
+    EXPECT_EQ(snapshot.action_state().header().server_receive_time_ns(),
+              kReceiveTimeNs);
+    EXPECT_EQ(snapshot.action_state().native_status(), 2);
+    EXPECT_DOUBLE_EQ(snapshot.action_state().feedback_progress(), 0.5);
+    ASSERT_EQ(snapshot.control_state_event_size(), 1);
+    ASSERT_EQ(snapshot.runtime_state().topic_size(), 1);
+    EXPECT_EQ(snapshot.runtime_state().topic(0).message_count(), 1U);
+    EXPECT_EQ(snapshot.runtime_state().topic(0).last_update_time_ns(),
+              kReceiveTimeNs);
+}
+
+TEST(SnapshotStoreTest, ClearsAndSuppressesPathsDuringCenterTurn)
+{
+    autoviz_server::SnapshotStore store({
+        {"/chassis_command", "custom_msgs/msg/ChassisCommand", autoviz::DATA_KIND_CONTROL_COMMAND},
+        {"/global_path", "nav_msgs/msg/Path", autoviz::DATA_KIND_GLOBAL_TRAJECTORY},
+        {"/local_path", "custom_msgs/msg/TrajectoryMsg", autoviz::DATA_KIND_LOCAL_TRAJECTORY}});
+
+    autoviz::Trajectory global;
+    global.add_point()->mutable_path_point()->mutable_position()->set_x_m(1.0);
+    autoviz::Trajectory local;
+    local.add_point()->mutable_path_point()->mutable_position()->set_x_m(2.0);
+    store.updateGlobalTrajectory(global, kReceiveTimeNs);
+    store.updateLocalTrajectory(local, kReceiveTimeNs);
+
+    autoviz::ControlCommand command;
+    command.set_mode(autoviz::ControlCommand::MODE_CRAWL);
+    command.set_maneuver(autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
+    command.set_target_gear(4);
+    store.updateControlCommand(command, kReceiveTimeNs + 1);
+    auto snapshot = store.buildSnapshot(kReceiveTimeNs + 1, 0);
+    EXPECT_FALSE(snapshot.has_global_trajectory());
+    EXPECT_FALSE(snapshot.has_local_trajectory());
+
+    store.updateGlobalTrajectory(global, kReceiveTimeNs + 2);
+    store.updateLocalTrajectory(local, kReceiveTimeNs + 2);
+    snapshot = store.buildSnapshot(kReceiveTimeNs + 2, 0);
+    EXPECT_FALSE(snapshot.has_global_trajectory());
+    EXPECT_FALSE(snapshot.has_local_trajectory());
+    EXPECT_EQ(snapshot.runtime_state().topic(1).message_count(), 2U);
+    EXPECT_EQ(snapshot.runtime_state().topic(2).message_count(), 2U);
+
+    command.set_maneuver(autoviz::ControlCommand::MANEUVER_NONE);
+    command.set_target_gear(0);
+    store.updateControlCommand(command, kReceiveTimeNs + 3);
+    snapshot = store.buildSnapshot(kReceiveTimeNs + 3, 0);
+    EXPECT_FALSE(snapshot.has_global_trajectory());
+    EXPECT_FALSE(snapshot.has_local_trajectory());
+
+    store.updateGlobalTrajectory(global, kReceiveTimeNs + 4);
+    store.updateLocalTrajectory(local, kReceiveTimeNs + 4);
+    snapshot = store.buildSnapshot(kReceiveTimeNs + 4, 0);
+    EXPECT_TRUE(snapshot.has_global_trajectory());
+    EXPECT_TRUE(snapshot.has_local_trajectory());
+
+    autoviz_server::SnapshotStore timeoutStore({
+        {"/chassis_command", "custom_msgs/msg/ChassisCommand", autoviz::DATA_KIND_CONTROL_COMMAND},
+        {"/global_path", "nav_msgs/msg/Path", autoviz::DATA_KIND_GLOBAL_TRAJECTORY}});
+    command.set_maneuver(autoviz::ControlCommand::MANEUVER_YAW_IN_PLACE);
+    timeoutStore.updateControlCommand(command, kReceiveTimeNs);
+    timeoutStore.expire(std::chrono::steady_clock::now() + std::chrono::seconds(6),
+                        std::chrono::milliseconds(5000));
+    timeoutStore.updateGlobalTrajectory(global, kReceiveTimeNs + 1);
+    EXPECT_TRUE(timeoutStore.buildSnapshot(kReceiveTimeNs + 1, 0).has_global_trajectory());
 }
 
 }  // namespace

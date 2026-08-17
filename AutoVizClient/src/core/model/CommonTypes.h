@@ -29,6 +29,9 @@ struct Box2D {
 
 struct Header {
     qint64 timestamp = 0;
+    qint64 sourceTimestamp = 0;
+    qint64 receiveTimestamp = 0;
+    quint64 sequence = 0;
     QString frameId;
 };
 

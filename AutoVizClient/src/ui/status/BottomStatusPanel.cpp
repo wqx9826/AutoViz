@@ -27,11 +27,12 @@
 #include <QVBoxLayout>
 
 #include "core/datacenter/DataManager.h"
+#include "ui/status/ControlStatusSummary.h"
 #include "ui/theme/UiScaleManager.h"
 #include "ui/theme/UiThemeManager.h"
 
 namespace {
-constexpr qint64 kStatusPanelRefreshMs = 200;
+constexpr qint64 kCommandTransitionDisplayMs = 250;
 
 void repolish(QWidget* widget);
 
@@ -649,78 +650,42 @@ QString pathBindingText(const autoviz::model::PathRuntimeStatus& path,
     return path.goalUuid == action.goalUuid ? QStringLiteral("匹配") : QStringLiteral("失配");
 }
 
-QString headingSummaryText(const autoviz::model::LocalizationStatus& localization,
-                           const autoviz::model::ControlCommandStatus& control,
-                           const autoviz::model::ActionRuntimeStatus& action)
+QString headingSummaryText(const autoviz::ui::status::ControlStatusSummary& summary)
 {
-    double targetHeading = 0.0;
-    bool hasTarget = false;
-    if (action.valid && action.state == 1
-        && autoviz::model::isSailingChassisMode(action.chassisMode)) {
-        targetHeading = action.targetHeading;
-        hasTarget = true;
-    } else if (isSailingMode(control)) {
-        targetHeading = control.heading;
-        hasTarget = true;
-    }
-
-    const QString command = hasTarget ? formatAngleDegreesValue(targetHeading) : QStringLiteral("--");
-    const QString feedback = displayAngleDegreesValue(localization.valid, localization.heading);
+    const QString command = summary.hasCommand
+                                ? formatAngleDegreesValue(summary.commandHeading)
+                                : QStringLiteral("--");
+    const QString feedback = displayAngleDegreesValue(summary.hasHeadingFeedback,
+                                                       summary.feedbackHeading);
     return QStringLiteral("%1 / %2").arg(command, feedback);
 }
 
-QString angularVelocitySummaryText(const autoviz::model::LocalizationStatus& localization,
-                                   const autoviz::model::ChassisRuntimeStatus& chassis,
-                                   const autoviz::model::ControlCommandStatus& control,
-                                   const autoviz::model::ActionRuntimeStatus& action)
+QString angularVelocitySummaryText(const autoviz::ui::status::ControlStatusSummary& summary)
 {
-    double target = 0.0;
-    bool hasTarget = false;
-    if (action.valid && action.state == 1
-        && autoviz::model::isCrawlChassisMode(action.chassisMode)) {
-        target = action.targetAngularVelocity;
-        hasTarget = true;
-    } else if (isCrawlMode(control)) {
-        target = control.angularVelocity;
-        hasTarget = true;
-    }
-    const bool hasFeedback = chassis.valid || localization.valid;
-    const double feedbackValue = chassis.valid ? chassis.currentAngularVelocity : localization.omegaZ;
-    const QString command = hasTarget ? formatAngularVelocityDegreesValue(target) : QStringLiteral("--");
-    const QString feedback = hasFeedback ? formatAngularVelocityDegreesValue(feedbackValue) : QStringLiteral("--");
+    const QString command = summary.hasCommand
+                                ? formatAngularVelocityDegreesValue(summary.commandAngularVelocity)
+                                : QStringLiteral("--");
+    const QString feedback = summary.hasChassisFeedback
+                                 ? formatAngularVelocityDegreesValue(summary.feedbackAngularVelocity)
+                                 : QStringLiteral("--");
     return QStringLiteral("%1 / %2").arg(command, feedback);
 }
 
-QString speedSummaryText(const autoviz::model::ControlCommandStatus& control,
-                         const autoviz::model::LocalizationStatus& localization,
-                         const autoviz::model::ChassisRuntimeStatus& chassis,
-                         const autoviz::model::ActionRuntimeStatus& action)
+QString speedSummaryText(const autoviz::ui::status::ControlStatusSummary& summary)
 {
-    bool hasTarget = false;
-    double target = 0.0;
-    if (action.valid && action.state == 1) {
-        hasTarget = true;
-        target = action.targetSpeed;
-    } else if (isCrawlMode(control) || isSailingMode(control)) {
-        hasTarget = true;
-        target = control.speed;
-    }
-
-    const bool useCrawlFeedback = (action.valid && action.state == 1
-                                   && autoviz::model::isCrawlChassisMode(action.chassisMode))
-                                  || isCrawlMode(control);
-    const bool hasFeedback = useCrawlFeedback ? chassis.valid : localization.valid;
-    const double feedback = useCrawlFeedback ? chassis.currentSpeed : localization.velocity;
-    const QString targetText = hasTarget ? formatNumber(target, 2) : QStringLiteral("--");
-    const QString feedbackText = hasFeedback ? formatNumber(feedback, 2) : QStringLiteral("--");
+    const QString targetText = summary.hasCommand
+                                   ? formatNumber(summary.commandSpeed, 2)
+                                   : QStringLiteral("--");
+    const QString feedbackText = summary.hasChassisFeedback
+                                     ? formatNumber(summary.feedbackSpeed, 2)
+                                     : QStringLiteral("--");
     return QStringLiteral("%1 / %2").arg(targetText, feedbackText);
 }
 
-QString gearSummaryText(const autoviz::model::ControlCommandStatus& control,
-                        const autoviz::model::ChassisRuntimeStatus& chassis)
+QString gearSummaryText(const autoviz::ui::status::ControlStatusSummary& summary)
 {
-    const QString target = gearText(control.valid, control.expectedGear);
-    const QString actual = gearText(chassis.valid, chassis.gearStatus);
+    const QString target = gearText(summary.hasCommand, summary.commandGear);
+    const QString actual = gearText(summary.hasChassisFeedback, summary.feedbackGear);
     if (target == QStringLiteral("--") && actual == QStringLiteral("--")) {
         return QStringLiteral("--");
     }
@@ -1048,13 +1013,88 @@ void BottomStatusPanel::appendLog(const QString& message)
     m_logOutput->appendPlainText(QStringLiteral("[%1] %2").arg(timestamp, message));
 }
 
+autoviz::ui::status::ControlStatusSummary BottomStatusPanel::controlSummaryForDisplay(
+    const autoviz::datacenter::VisualizationSnapshot& snapshot,
+    const autoviz::ui::status::ControlStatusSummary& currentSummary)
+{
+    const int inputSource = static_cast<int>(snapshot.runtimeStatus.inputSource);
+    const quint64 snapshotSequence = snapshot.runtimeStatus.snapshotSequence;
+    const QString& sessionId = snapshot.runtimeStatus.sessionId;
+    const int eventCount = snapshot.controlStateEvents.size();
+    const bool resetCursor = !m_controlEventCursorInitialized
+                             || inputSource != m_lastControlInputSource
+                             || sessionId != m_lastControlSessionId
+                             || eventCount < m_seenControlEventCount
+                             || (snapshotSequence > 0
+                                 && m_lastControlSnapshotSequence > 0
+                                 && snapshotSequence < m_lastControlSnapshotSequence);
+
+    if (resetCursor) {
+        m_pendingCommandTransitions.clear();
+        m_commandTransitionActive = false;
+        m_seenControlEventCount = eventCount;
+        m_controlEventCursorInitialized = true;
+    } else {
+        for (int index = m_seenControlEventCount; index < eventCount; ++index) {
+            const auto& event = snapshot.controlStateEvents.at(index);
+            if (event.source != autoviz::model::ControlEventSource::ControlCommand
+                || (!event.hasPreviousMode
+                    && !event.hasPreviousGear
+                    && !event.hasPreviousEnabled)) {
+                continue;
+            }
+            CommandTransitionDisplay transition;
+            transition.hasMode = event.hasCurrentMode;
+            transition.mode = event.currentMode;
+            transition.hasGear = event.hasCurrentGear;
+            transition.gear = event.currentGear;
+            transition.hasEnabled = event.hasCurrentEnabled;
+            transition.enabled = event.currentEnabled;
+            m_pendingCommandTransitions.enqueue(transition);
+        }
+        m_seenControlEventCount = eventCount;
+    }
+    m_lastControlInputSource = inputSource;
+    m_lastControlSessionId = sessionId;
+    m_lastControlSnapshotSequence = snapshotSequence;
+
+    if (m_commandTransitionActive
+        && m_commandTransitionTimer.elapsed() >= kCommandTransitionDisplayMs) {
+        m_commandTransitionActive = false;
+    }
+    if (!m_commandTransitionActive && !m_pendingCommandTransitions.isEmpty()) {
+        m_activeCommandTransition = m_pendingCommandTransitions.dequeue();
+        m_commandTransitionTimer.restart();
+        m_commandTransitionActive = true;
+    }
+
+    auto displayed = currentSummary;
+    if (!m_commandTransitionActive) {
+        return displayed;
+    }
+    displayed.replayingTransition = true;
+    if (m_activeCommandTransition.hasMode) {
+        displayed.hasCommand = true;
+        displayed.commandMode = m_activeCommandTransition.mode;
+    }
+    if (m_activeCommandTransition.hasGear) {
+        displayed.hasCommand = true;
+        displayed.commandGear = m_activeCommandTransition.gear;
+    }
+    if (m_activeCommandTransition.hasEnabled) {
+        displayed.hasCommand = true;
+        displayed.commandEnabled = m_activeCommandTransition.enabled;
+    }
+    return displayed;
+}
+
 void BottomStatusPanel::updateSnapshot(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    if (m_lastStatusRefreshMs > 0 && nowMs - m_lastStatusRefreshMs < kStatusPanelRefreshMs) {
-        return;
-    }
-    m_lastStatusRefreshMs = nowMs;
+    const auto currentControlSummary = autoviz::ui::status::makeControlStatusSummary(
+        snapshot.controlCommandStatus,
+        snapshot.chassisRuntimeStatus,
+        snapshot.localizationStatus);
+    const auto displayControlSummary = controlSummaryForDisplay(snapshot, currentControlSummary);
     if (m_detailTabs != nullptr && m_verticalDetailTab != nullptr) {
         const bool verticalVisible = snapshot.runtimeStatus.inputSource
                                          == autoviz::datacenter::VisualizationInputSource::Mock
@@ -1067,9 +1107,10 @@ void BottomStatusPanel::updateSnapshot(const autoviz::datacenter::VisualizationS
         m_detailTabs->setTabEnabled(verticalTabIndex, verticalVisible);
 #endif
     }
-    updateOverview(snapshot);
+    updateOverview(snapshot, displayControlSummary);
     updateTopicTable(snapshot);
     updateStateTabs(snapshot);
+    updateControlTimeline(snapshot, currentControlSummary);
 }
 
 void BottomStatusPanel::setupUi()
@@ -1080,6 +1121,7 @@ void BottomStatusPanel::setupUi()
     layout->setSpacing(scale.scaled(2));
 
     m_tabs = new QTabWidget(this);
+    m_tabs->setObjectName(QStringLiteral("bottomStatusTabs"));
     m_tabs->setFont(scale.font(scale.fontSizeNormal()));
     m_tabs->setDocumentMode(true);
     m_tabs->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
@@ -1203,8 +1245,12 @@ QGroupBox* BottomStatusPanel::createOverviewGroup(QWidget* parent,
         keyLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
 
         auto* valueLabel = new QLabel(QStringLiteral("--"), group);
+        valueLabel->setObjectName(QStringLiteral("overview.%1").arg(field.first));
         valueLabel->setFont(overviewValueFont());
         valueLabel->setProperty("class", QVariant(isOverviewBadgeKey(field.first) ? QStringLiteral("status-badge") : QStringLiteral("status-value")));
+        if (isOverviewBadgeKey(field.first)) {
+            valueLabel->setProperty("statusLevel", QVariant(QStringLiteral("status-offline")));
+        }
         valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         valueLabel->setTextInteractionFlags(Qt::NoTextInteraction);
         valueLabel->setWordWrap(field.first == QStringLiteral("hardware.faults"));
@@ -1227,16 +1273,30 @@ void BottomStatusPanel::setOverviewValue(const QString& key, const QString& valu
     }
     label->setText(value);
     label->setToolTip(value);
+    bool styleChanged = false;
     if (isOverviewBadgeKey(key)) {
-        label->setProperty("class", QVariant(QStringLiteral("status-badge")));
-        label->setObjectName(overviewBadgeObjectName(value));
+        const QString badgeClass = QStringLiteral("status-badge");
+        const QString statusLevel = overviewBadgeObjectName(value);
+        if (label->property("class").toString() != badgeClass) {
+            label->setProperty("class", QVariant(badgeClass));
+            styleChanged = true;
+        }
+        if (label->property("statusLevel").toString() != statusLevel) {
+            label->setProperty("statusLevel", QVariant(statusLevel));
+            styleChanged = true;
+        }
         label->setAlignment(Qt::AlignCenter);
     } else {
-        label->setProperty("class", QVariant(QStringLiteral("status-value")));
-        label->setObjectName(QString());
+        const QString valueClass = QStringLiteral("status-value");
+        if (label->property("class").toString() != valueClass) {
+            label->setProperty("class", QVariant(valueClass));
+            styleChanged = true;
+        }
         label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     }
-    repolish(label);
+    if (styleChanged) {
+        repolish(label);
+    }
 }
 
 QWidget* BottomStatusPanel::createDetailTab(const QString& title,
@@ -1352,12 +1412,14 @@ void BottomStatusPanel::setupDetailsTab()
     layout->setSpacing(scale.spacingNormal());
 
     m_detailTabs = new QTabWidget(tab);
+    m_detailTabs->setObjectName(QStringLiteral("bottomStatusDetailTabs"));
     m_detailTabs->setFont(scale.font(scale.fontSizeNormal()));
     m_detailTabs->setDocumentMode(true);
     layout->addWidget(m_detailTabs, 1);
 
     setupTopicTab();
     setupStateTabs();
+    setupControlTimelineTab();
 
     m_tabs->addTab(tab, tr("详细信息"));
 }
@@ -1414,6 +1476,72 @@ void BottomStatusPanel::setupTopicTab()
     layout->addWidget(m_topicTable, 1);
 
     m_detailTabs->addTab(tab, tr("ROS Topic"));
+}
+
+void BottomStatusPanel::setupControlTimelineTab()
+{
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    auto* scrollArea = new QScrollArea(m_detailTabs);
+    scrollArea->setObjectName(QStringLiteral("controlTimelineScrollArea"));
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    auto* content = new QWidget(scrollArea);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(scale.marginNormal(), scale.marginNormal(), scale.marginNormal(), scale.marginNormal());
+    layout->setSpacing(scale.spacingNormal());
+
+    auto configureTable = [&scale](QTableWidget* table) {
+        table->setFont(scale.font(scale.fontSizeSmall()));
+        table->verticalHeader()->setVisible(false);
+        table->setShowGrid(false);
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        table->setSelectionMode(QAbstractItemView::SingleSelection);
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setWordWrap(false);
+        table->horizontalHeader()->setHighlightSections(false);
+        table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        table->verticalHeader()->setDefaultSectionSize(scale.scaled(32));
+    };
+
+    auto* associationGroup = new QGroupBox(tr("控制状态时间关联"), content);
+    auto* associationLayout = new QVBoxLayout(associationGroup);
+    m_controlAssociationTable = new QTableWidget(associationGroup);
+    m_controlAssociationTable->setObjectName(QStringLiteral("controlAssociationTable"));
+    configureTable(m_controlAssociationTable);
+    m_controlAssociationTable->setColumnCount(9);
+    m_controlAssociationTable->setHorizontalHeaderLabels({tr("数据来源"), tr("当前值"), tr("接收时间"),
+                                                           tr("序号"), tr("发布端时间"), tr("接收延迟"),
+                                                           tr("刷新年龄"), tr("状态"), tr("Goal UUID")});
+    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(8, QHeaderView::Stretch);
+    m_controlAssociationTable->setMinimumHeight(scale.scaled(150));
+    associationLayout->addWidget(m_controlAssociationTable);
+    layout->addWidget(associationGroup, 0);
+
+    auto* eventGroup = new QGroupBox(tr("模式切换事件时间线"), content);
+    auto* eventLayout = new QVBoxLayout(eventGroup);
+    m_controlEventTable = new QTableWidget(eventGroup);
+    m_controlEventTable->setObjectName(QStringLiteral("controlEventTable"));
+    configureTable(m_controlEventTable);
+    m_controlEventTable->setColumnCount(5);
+    m_controlEventTable->setHorizontalHeaderLabels({tr("消息时间"), tr("序号"), tr("来源"),
+                                                     tr("Goal UUID"), tr("状态变化")});
+    m_controlEventTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_controlEventTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_controlEventTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_controlEventTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_controlEventTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    m_controlEventTable->setMinimumHeight(scale.scaled(280));
+    eventLayout->addWidget(m_controlEventTable);
+    layout->addWidget(eventGroup, 1);
+
+    scrollArea->setWidget(content);
+    m_detailTabs->addTab(scrollArea, tr("控制时序"));
 }
 
 void BottomStatusPanel::setupStateTabs()
@@ -1583,7 +1711,9 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("vertical.buoyancy"), tr("浮力调节步长")}}}});
 }
 
-void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationSnapshot& snapshot)
+void BottomStatusPanel::updateOverview(
+    const autoviz::datacenter::VisualizationSnapshot& snapshot,
+    const autoviz::ui::status::ControlStatusSummary& commandSummary)
 {
     const auto& loc = snapshot.localizationStatus;
     const auto& chassis = snapshot.chassisRuntimeStatus;
@@ -1612,20 +1742,16 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
                                                        chassis.valid && chassis.emergencyAscentActive ? tr("执行中") : tr("未执行"));
     setOverviewValue(QStringLiteral("system.emergency_ascent"), emergencyAscentText);
     setOverviewValue(QStringLiteral("system.task"), taskTypeAndIdText(task));
-    setOverviewValue(QStringLiteral("system.enable"), control.valid ? displayBool(true, control.isEnable)
+    setOverviewValue(QStringLiteral("system.enable"), commandSummary.hasCommand ? displayBool(true, commandSummary.commandEnabled)
                                                                       : displayBool(action.valid, action.isEnable));
 
     setOverviewValue(QStringLiteral("pose.age"), locationTopic != nullptr ? formatAge(locationTopic->ageMs) : QStringLiteral("--"));
 
-    const bool activeAction = action.valid && action.state == 1;
-    const int controlMode = activeAction ? action.chassisMode
-                                             : (control.valid ? control.mode
-                                                              : (action.valid ? action.chassisMode : 0));
-    setOverviewValue(QStringLiteral("control.mode"), chassisModeText(control.valid || action.valid, controlMode));
-    const bool useCrawlFeedback = activeAction
-                                      ? action.chassisMode == 11
-                                      : (isCrawlMode(control)
-                                         || (action.valid && autoviz::model::isCrawlChassisMode(action.chassisMode)));
+    QString displayedMode = chassisModeText(commandSummary.hasCommand, commandSummary.commandMode);
+    if (commandSummary.replayingTransition) displayedMode += tr("（切换）");
+    setOverviewValue(QStringLiteral("control.mode"), displayedMode);
+    const bool useCrawlFeedback = commandSummary.hasCommand
+                                  && autoviz::model::isCrawlChassisMode(commandSummary.commandMode);
     const QString feedbackSpeed = useCrawlFeedback
                                       ? displayNumber(chassis.valid, chassis.currentSpeed, 2)
                                       : displayNumber(loc.valid, loc.velocity, 2);
@@ -1640,19 +1766,21 @@ void BottomStatusPanel::updateOverview(const autoviz::datacenter::VisualizationS
                                                               : QStringLiteral("--"));
     setOverviewValue(QStringLiteral("control.gear"), gearText(chassis.valid, chassis.gearStatus));
 
-    setOverviewValue(QStringLiteral("command.speed"), speedSummaryText(control, loc, chassis, action));
-    setOverviewValue(QStringLiteral("command.heading"), headingSummaryText(loc, control, action));
-    setOverviewValue(QStringLiteral("command.angular"), angularVelocitySummaryText(loc, chassis, control, action));
-    setOverviewValue(QStringLiteral("command.gear"), gearSummaryText(control, chassis));
-    const QString commandState = activeAction
+    setOverviewValue(QStringLiteral("command.speed"), speedSummaryText(commandSummary));
+    setOverviewValue(QStringLiteral("command.heading"), headingSummaryText(commandSummary));
+    setOverviewValue(QStringLiteral("command.angular"), angularVelocitySummaryText(commandSummary));
+    setOverviewValue(QStringLiteral("command.gear"), gearSummaryText(commandSummary));
+    const QString commandMode = commandSummary.replayingTransition
+                                    ? QStringLiteral("%1（切换）")
+                                          .arg(chassisModeText(true, commandSummary.commandMode))
+                                    : chassisModeText(true, commandSummary.commandMode);
+    const QString commandState = commandSummary.hasCommand
                                      ? QStringLiteral("%1 / %2")
-                                           .arg(chassisModeText(true, action.chassisMode),
-                                                action.isEnable ? QStringLiteral("已使能") : QStringLiteral("未使能"))
-                                     : (control.valid
-                                     ? QStringLiteral("%1 / %2")
-                                           .arg(chassisModeText(true, control.mode),
-                                                control.isEnable ? QStringLiteral("已使能") : QStringLiteral("未使能"))
-                                     : (controlTopic == nullptr ? QStringLiteral("等待控制消息") : topicStateText(controlTopic)));
+                                           .arg(commandMode,
+                                                commandSummary.commandEnabled ? QStringLiteral("已使能")
+                                                                              : QStringLiteral("未使能"))
+                                     : (controlTopic == nullptr ? QStringLiteral("等待控制消息")
+                                                                : topicStateText(controlTopic));
     setOverviewValue(QStringLiteral("command.state"), commandState);
 
     setOverviewValue(QStringLiteral("hardware.feedback"), chassisHealthText(chassis, chassisTopic));
@@ -1922,4 +2050,138 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("vertical.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
     setDetailValue(QStringLiteral("vertical.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
     setDetailValue(QStringLiteral("vertical.buoyancy"), displayInt(action.valid, action.buoyancyAdjust));
+}
+
+void BottomStatusPanel::updateControlTimeline(
+    const autoviz::datacenter::VisualizationSnapshot& snapshot,
+    const autoviz::ui::status::ControlStatusSummary& commandSummary)
+{
+    if (m_controlAssociationTable == nullptr || m_controlEventTable == nullptr) {
+        return;
+    }
+
+    struct AssociationRow {
+        QString source;
+        QString value;
+        autoviz::model::Header header;
+        const autoviz::model::TopicStatus* topic = nullptr;
+        QString goalUuid;
+        bool valid = false;
+    };
+
+    const auto* actionTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::ActionState);
+    const auto* commandTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::ControlCommand);
+    const auto* chassisTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::ChassisState);
+    const auto& action = snapshot.actionRuntimeStatus;
+    const auto& command = snapshot.controlCommandStatus;
+    const auto& chassis = snapshot.chassisRuntimeStatus;
+
+    const QString actionValue = action.valid
+                                    ? QStringLiteral("%1 / %2")
+                                          .arg(chassisModeText(true, action.chassisMode),
+                                               action.isEnable ? tr("已使能") : tr("未使能"))
+                                    : QStringLiteral("--");
+    const QString commandValue = commandSummary.hasCommand
+                                     ? QStringLiteral("%1 / %2 / %3")
+                                           .arg(chassisModeText(true, commandSummary.commandMode),
+                                                gearText(true, commandSummary.commandGear),
+                                                commandSummary.commandEnabled ? tr("已使能") : tr("未使能"))
+                                     : QStringLiteral("--");
+    QString crawlOutput = QStringLiteral("--");
+    if (chassis.valid && chassis.leftCrawlMotor.valid && chassis.rightCrawlMotor.valid) {
+        crawlOutput = chassis.leftCrawlMotor.outputEnabled == chassis.rightCrawlMotor.outputEnabled
+                          ? (chassis.leftCrawlMotor.outputEnabled ? tr("履带输出使能") : tr("履带输出未使能"))
+                          : tr("履带输出不一致");
+    }
+    const QString chassisValue = chassis.valid
+                                     ? QStringLiteral("%1 / %2 m/s / %3")
+                                           .arg(gearText(true, chassis.gearStatus),
+                                                formatNumber(chassis.currentSpeed, 2),
+                                                crawlOutput)
+                                     : QStringLiteral("--");
+
+    const QVector<AssociationRow> rows = {
+        {QStringLiteral("/system_run_states.chassis_mode"), actionValue, action.header, actionTopic, action.goalUuid, action.valid},
+        {QStringLiteral("/chassis_command.mode"), commandValue, command.header, commandTopic, action.valid ? action.goalUuid : QString{}, command.valid},
+        {QStringLiteral("/chassis_states.gear_status/current_speed"), chassisValue, chassis.header, chassisTopic, action.valid ? action.goalUuid : QString{}, chassis.valid},
+    };
+
+    m_controlAssociationTable->setRowCount(rows.size());
+    for (int row = 0; row < rows.size(); ++row) {
+        const auto& item = rows.at(row);
+        const qint64 receiveTime = item.header.receiveTimestamp > 0
+                                       ? item.header.receiveTimestamp
+                                       : (item.topic != nullptr ? item.topic->lastUpdateMs : 0);
+        const quint64 sequence = item.header.sequence > 0
+                                     ? item.header.sequence
+                                     : (item.topic != nullptr ? item.topic->messageCount : 0);
+        const QString sourceTime = item.header.sourceTimestamp > 0
+                                       ? formatTime(item.header.sourceTimestamp)
+                                       : tr("不可用");
+        const QString receiveDelay = item.header.sourceTimestamp > 0 && receiveTime > 0
+                                         ? formatAge(qMax<qint64>(0, receiveTime - item.header.sourceTimestamp))
+                                         : tr("不可用");
+        const QString age = item.topic != nullptr && item.topic->messageCount > 0
+                                ? formatAge(item.topic->ageMs)
+                                : QStringLiteral("--");
+        const QString state = item.topic == nullptr || item.topic->messageCount == 0
+                                  ? tr("等待数据")
+                                  : (item.topic->timedOut ? tr("数据过期")
+                                                          : (item.valid ? tr("有效") : tr("无当前值")));
+        const QStringList values = {item.source, item.value, formatTime(receiveTime),
+                                    sequence > 0 ? QString::number(sequence) : QStringLiteral("--"),
+                                    sourceTime, receiveDelay, age, state,
+                                    item.goalUuid.isEmpty() ? QStringLiteral("--") : item.goalUuid};
+        for (int column = 0; column < values.size(); ++column) {
+            m_controlAssociationTable->setItem(row, column, makeItem(values.at(column)));
+        }
+    }
+
+    const int previousEventRows = m_controlEventTable->rowCount();
+    m_controlEventTable->setRowCount(snapshot.controlStateEvents.size());
+    for (int row = 0; row < snapshot.controlStateEvents.size(); ++row) {
+        const auto& event = snapshot.controlStateEvents.at(row);
+        QString source;
+        switch (event.source) {
+        case autoviz::model::ControlEventSource::ActionExpectation: source = tr("Action 期望"); break;
+        case autoviz::model::ControlEventSource::ControlCommand: source = tr("控制命令"); break;
+        case autoviz::model::ControlEventSource::ChassisFeedback: source = tr("底盘反馈"); break;
+        case autoviz::model::ControlEventSource::Unknown: default: source = tr("未知"); break;
+        }
+        QStringList changes;
+        if (event.hasCurrentMode) {
+            changes << tr("模式 %1 -> %2")
+                           .arg(event.hasPreviousMode ? chassisModeText(true, event.previousMode) : QStringLiteral("--"),
+                                chassisModeText(true, event.currentMode));
+        }
+        if (event.hasCurrentGear) {
+            changes << tr("档位 %1 -> %2")
+                           .arg(event.hasPreviousGear ? gearText(true, event.previousGear) : QStringLiteral("--"),
+                                gearText(true, event.currentGear));
+        }
+        if (event.hasCurrentEnabled) {
+            changes << tr("使能 %1 -> %2")
+                           .arg(event.hasPreviousEnabled ? (event.previousEnabled ? tr("使能") : tr("未使能")) : QStringLiteral("--"),
+                                event.currentEnabled ? tr("使能") : tr("未使能"));
+        }
+        if (event.hasCurrentCrawlOutputEnabled) {
+            changes << tr("履带输出 %1 -> %2")
+                           .arg(event.hasPreviousCrawlOutputEnabled ? (event.previousCrawlOutputEnabled ? tr("使能") : tr("未使能")) : QStringLiteral("--"),
+                                event.currentCrawlOutputEnabled ? tr("使能") : tr("未使能"));
+        }
+        const qint64 eventTime = event.header.receiveTimestamp > 0
+                                     ? event.header.receiveTimestamp
+                                     : event.header.timestamp;
+        const QStringList values = {formatTime(eventTime),
+                                    event.header.sequence > 0 ? QString::number(event.header.sequence) : QStringLiteral("--"),
+                                    source,
+                                    event.goalUuid.isEmpty() ? QStringLiteral("--") : event.goalUuid,
+                                    changes.isEmpty() ? QStringLiteral("--") : changes.join(QStringLiteral("；"))};
+        for (int column = 0; column < values.size(); ++column) {
+            m_controlEventTable->setItem(row, column, makeItem(values.at(column)));
+        }
+    }
+    if (m_controlEventTable->rowCount() > previousEventRows) {
+        m_controlEventTable->scrollToBottom();
+    }
 }

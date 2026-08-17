@@ -91,6 +91,27 @@ qint64 maxTimestamp(qint64 lhs, qint64 rhs)
 {
     return std::max(lhs, rhs);
 }
+
+bool topicMessageChanged(quint64 sequence,
+                         quint64 previousSequence,
+                         qint64 timestampMs,
+                         qint64 previousTimestampMs)
+{
+    return sequence > 0 ? sequence != previousSequence
+                        : timestampMs > 0 && timestampMs != previousTimestampMs;
+}
+
+void clearSampleValues(ControlDebugData* data)
+{
+    data->hasCmdSpeed = false;
+    data->hasFeedbackSpeed = false;
+    data->hasSpeedError = false;
+    data->hasCmdYaw = false;
+    data->hasFeedbackYaw = false;
+    data->hasYawError = false;
+    data->hasLateralError = false;
+    data->hasPathYawError = false;
+}
 }  // namespace
 
 ControlPanelWidget::ControlPanelWidget(QWidget* parent)
@@ -108,26 +129,32 @@ ControlPanelWidget::ControlPanelWidget(QWidget* parent)
 
 void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
-    const auto& action = snapshot.actionRuntimeStatus;
-    const bool actionIsActive = action.valid && action.state == 1;
-    const bool actionChanged = actionIsActive
-                               && (!m_actionWasActive || action.goalUuid != m_activeActionGoalId
-                                   || action.chassisMode != m_activeActionMode);
-    if (actionChanged) {
-        // 曲线窗口表达当前动作，不应把 Client 启动至今的历史混入本动作的横轴。
+    const int inputSource = static_cast<int>(snapshot.runtimeStatus.inputSource);
+    const quint64 snapshotSequence = snapshot.runtimeStatus.snapshotSequence;
+    const bool sourceReset = m_sourceInitialized
+                             && (inputSource != m_lastInputSource
+                                 || snapshot.runtimeStatus.sessionId != m_lastSessionId
+                                 || snapshotSequence < m_lastSnapshotSequence);
+    if (sourceReset) clearHistory();
+    m_sourceInitialized = true;
+    m_lastInputSource = inputSource;
+    m_lastSessionId = snapshot.runtimeStatus.sessionId;
+    m_lastSnapshotSequence = snapshotSequence;
+
+    YawMetric nextYawMetric = YawMetric::Unknown;
+    if (snapshot.controlCmd.mode == autoviz::model::ControlMode::Sailing) {
+        nextYawMetric = YawMetric::Heading;
+    } else if (snapshot.controlCmd.mode == autoviz::model::ControlMode::Crawl) {
+        nextYawMetric = YawMetric::AngularVelocity;
+    }
+    if (nextYawMetric != YawMetric::Unknown && nextYawMetric != m_yawMetric) {
         m_buffer.clear();
         m_firstSampleTimestampMs = 0;
-        m_lastBufferedTimestampMs = -1;
         m_speedPlot->clearFrozenRange();
-        m_yawPlot->clearFrozenRange();
         m_pathErrorPlot->clearFrozenRange();
+        m_yawMetric = nextYawMetric;
+        configureYawPlot(m_yawMetric);
     }
-    m_actionWasActive = actionIsActive;
-    if (actionIsActive) {
-        m_activeActionGoalId = action.goalUuid;
-        m_activeActionMode = action.chassisMode;
-    }
-
     m_latestData = buildDebugData(snapshot);
     // reset/restart bag 时主线程会先看见 sourceTimeMs 为 0 的空快照。不能把
     // 当前墙钟当作回放曲线起点：录制时间通常早于今天，后续虚拟时间会全部被
@@ -138,9 +165,86 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
     if (bagClockNotReady) {
         return;
     }
-    if (!m_paused && m_latestData.elapsedMs != m_lastBufferedTimestampMs) {
-        m_buffer.pushData(m_latestData);
-        m_lastBufferedTimestampMs = m_latestData.elapsedMs;
+    if (m_paused) return;
+
+    const auto& commandHeader = snapshot.controlCmd.header;
+    const auto& chassisHeader = snapshot.vehicleChassisInfo.header;
+    const auto& locationHeader = snapshot.vehicleLocation.header;
+    const bool commandUpdated = topicMessageChanged(commandHeader.sequence,
+                                                    m_lastCommandSequence,
+                                                    commandHeader.timestamp,
+                                                    m_lastCommandTimestampMs);
+    const bool chassisUpdated = topicMessageChanged(chassisHeader.sequence,
+                                                    m_lastChassisSequence,
+                                                    chassisHeader.timestamp,
+                                                    m_lastChassisTimestampMs);
+    const bool locationUpdated = topicMessageChanged(locationHeader.sequence,
+                                                     m_lastLocationSequence,
+                                                     locationHeader.timestamp,
+                                                     m_lastLocationTimestampMs);
+
+    if (m_firstSampleTimestampMs == 0) {
+        qint64 firstTimestamp = 0;
+        const auto includeTimestamp = [&firstTimestamp](bool updated, qint64 timestampMs) {
+            if (!updated || timestampMs <= 0) return;
+            firstTimestamp = firstTimestamp == 0 ? timestampMs
+                                                 : std::min(firstTimestamp, timestampMs);
+        };
+        includeTimestamp(commandUpdated, commandHeader.timestamp);
+        includeTimestamp(chassisUpdated, chassisHeader.timestamp);
+        includeTimestamp(locationUpdated, locationHeader.timestamp);
+        m_firstSampleTimestampMs = firstTimestamp;
+    }
+
+    const auto pushTopicSample = [this](qint64 timestampMs,
+                                        bool commandSample,
+                                        bool chassisSample,
+                                        bool locationSample) {
+        if (timestampMs <= 0 || m_firstSampleTimestampMs <= 0) return;
+        auto sample = m_latestData;
+        clearSampleValues(&sample);
+        sample.sourceTimestampMs = timestampMs;
+        sample.elapsedMs = qMax<qint64>(0, timestampMs - m_firstSampleTimestampMs);
+
+        if (commandSample) {
+            sample.hasCmdSpeed = m_latestData.hasCmdSpeed;
+            sample.hasCmdYaw = m_latestData.hasCmdYaw;
+        }
+        if (chassisSample) {
+            sample.hasFeedbackSpeed = m_latestData.hasFeedbackSpeed;
+            sample.hasFeedbackYaw = m_latestData.yawMetric == YawMetric::AngularVelocity
+                                    && m_latestData.hasFeedbackYaw;
+        }
+        if (locationSample) {
+            sample.hasFeedbackYaw = m_latestData.yawMetric == YawMetric::Heading
+                                    && m_latestData.hasFeedbackYaw;
+            sample.hasLateralError = m_latestData.hasLateralError;
+            sample.hasPathYawError = m_latestData.hasPathYawError;
+        }
+        if ((commandSample || chassisSample) && m_latestData.hasSpeedError) {
+            sample.hasSpeedError = true;
+        }
+        if ((commandSample || chassisSample || locationSample)
+            && m_latestData.hasYawError) {
+            sample.hasYawError = true;
+        }
+        m_buffer.pushData(sample);
+    };
+
+    if (commandUpdated) {
+        pushTopicSample(commandHeader.timestamp, true, false, false);
+        m_lastCommandSequence = commandHeader.sequence;
+        m_lastCommandTimestampMs = commandHeader.timestamp;
+    }
+    if (chassisUpdated) {
+        pushTopicSample(chassisHeader.timestamp, false, true, false);
+        m_lastChassisSequence = chassisHeader.sequence;
+        m_lastChassisTimestampMs = chassisHeader.timestamp;
+    }
+    if (locationUpdated) {
+        pushTopicSample(locationHeader.timestamp, false, false, true);
+        m_lastLocationSequence = locationHeader.sequence;
+        m_lastLocationTimestampMs = locationHeader.timestamp;
     }
 }
 
@@ -261,18 +365,44 @@ void ControlPanelWidget::configurePlots()
                             {QStringLiteral("feedback_speed"), QColor("#059669"), Role::FeedbackSpeed, Axis::Left, 2.1},
                             {QStringLiteral("speed_error"), QColor("#DC2626"), Role::SpeedError, Axis::Left, 1.6}});
 
-    m_yawPlot->configure(tr("航向跟踪"),
-                         QStringLiteral("yaw / °"),
-                         QString(),
-                         {{QStringLiteral("cmd_yaw"), QColor("#4F46E5"), Role::CmdYaw, Axis::Left, 2.2},
-                          {QStringLiteral("feedback_yaw"), QColor("#16A34A"), Role::FeedbackYaw, Axis::Left, 2.0},
-                          {QStringLiteral("yaw_error"), QColor("#F97316"), Role::YawError, Axis::Left, 1.7}});
+    configureYawPlot(YawMetric::Unknown);
 
     m_pathErrorPlot->configure(tr("路径误差"),
                                QStringLiteral("lateral / m"),
                                QStringLiteral("body-path / °"),
                                {{QStringLiteral("lateral_error"), QColor("#DC2626"), Role::LateralError, Axis::Left, 2.0},
                                 {QStringLiteral("heading_to_path"), QColor("#0F766E"), Role::PathYawError, Axis::Right, 1.8}});
+}
+
+void ControlPanelWidget::configureYawPlot(YawMetric metric)
+{
+    using Role = PlotCardWidget::ValueRole;
+    using Axis = PlotCardWidget::AxisSide;
+
+    if (metric == YawMetric::AngularVelocity) {
+        m_yawPlot->configure(tr("角速度跟踪"),
+                             QStringLiteral("°/s"),
+                             QString(),
+                             {{QStringLiteral("cmd_yaw_rate"), QColor("#4F46E5"), Role::CmdYaw, Axis::Left, 2.2},
+                              {QStringLiteral("feedback_yaw_rate"), QColor("#16A34A"), Role::FeedbackYaw, Axis::Left, 2.0},
+                              {QStringLiteral("yaw_rate_error"), QColor("#F97316"), Role::YawError, Axis::Left, 1.7}});
+        return;
+    }
+    if (metric == YawMetric::Heading) {
+        m_yawPlot->configure(tr("航向跟踪"),
+                             QStringLiteral("°"),
+                             QString(),
+                             {{QStringLiteral("cmd_heading"), QColor("#4F46E5"), Role::CmdYaw, Axis::Left, 2.2},
+                              {QStringLiteral("feedback_heading"), QColor("#16A34A"), Role::FeedbackYaw, Axis::Left, 2.0},
+                              {QStringLiteral("heading_error"), QColor("#F97316"), Role::YawError, Axis::Left, 1.7}});
+        return;
+    }
+    m_yawPlot->configure(tr("航向/角速度跟踪"),
+                         QStringLiteral("° / °/s"),
+                         QString(),
+                         {{QStringLiteral("cmd"), QColor("#4F46E5"), Role::CmdYaw, Axis::Left, 2.2},
+                          {QStringLiteral("feedback"), QColor("#16A34A"), Role::FeedbackYaw, Axis::Left, 2.0},
+                          {QStringLiteral("error"), QColor("#F97316"), Role::YawError, Axis::Left, 1.7}});
 }
 
 void ControlPanelWidget::refreshPlots()
@@ -289,7 +419,12 @@ void ControlPanelWidget::refreshPlots()
 void ControlPanelWidget::clearHistory()
 {
     m_buffer.clear();
-    m_lastBufferedTimestampMs = -1;
+    m_lastCommandSequence = 0;
+    m_lastChassisSequence = 0;
+    m_lastLocationSequence = 0;
+    m_lastCommandTimestampMs = 0;
+    m_lastChassisTimestampMs = 0;
+    m_lastLocationTimestampMs = 0;
     m_firstSampleTimestampMs = 0;
     m_speedPlot->clearFrozenRange();
     m_yawPlot->clearFrozenRange();
@@ -328,22 +463,37 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     const auto& command = snapshot.controlCmd;
     // 回放曲线展示所有实际收到的控制命令；是否已使能只影响状态提示，
     // 不能把未使能阶段误判为“没有控制数据”。
-    const bool hasControl = status.hasControlCmdData && command.mode != autoviz::model::ControlMode::Unknown;
+    const bool hasCommand = status.hasControlCmdData
+                            && snapshot.controlCommandStatus.valid;
+    const bool hasControlMode = hasCommand
+                                && command.mode != autoviz::model::ControlMode::Unknown;
     const bool hasLocation = status.hasVehicleLocationData;
     const bool hasChassis = status.hasVehicleChassisData;
 
-    data.sourceTimestampMs = maxTimestamp(command.header.timestamp, snapshot.vehicleLocation.header.timestamp);
-    data.sourceTimestampMs = maxTimestamp(data.sourceTimestampMs, snapshot.vehicleChassisInfo.header.timestamp);
-    if (data.sourceTimestampMs == 0) {
+    data.sourceTimestampMs = maxTimestamp(command.header.timestamp,
+                                          snapshot.vehicleChassisInfo.header.timestamp);
+    if (command.mode == autoviz::model::ControlMode::Sailing) {
+        data.sourceTimestampMs = maxTimestamp(data.sourceTimestampMs,
+                                              snapshot.vehicleLocation.header.timestamp);
+    }
+    if (data.sourceTimestampMs == 0
+        && status.inputSource == autoviz::datacenter::VisualizationInputSource::Mock) {
         data.sourceTimestampMs = timelineNowMs;
     }
-    data.timedOut = timelineNowMs - data.sourceTimestampMs > kTimeoutMs;
-    data.mode = data.timedOut ? ControlDebugMode::Error : (hasControl ? ControlDebugMode::Running : ControlDebugMode::Standby);
+    data.timedOut = data.sourceTimestampMs <= 0
+                    || timelineNowMs - data.sourceTimestampMs > kTimeoutMs;
+    data.mode = data.timedOut ? ControlDebugMode::Error
+                              : (hasControlMode ? ControlDebugMode::Running
+                                                : ControlDebugMode::Standby);
 
     if (status.inputSource == autoviz::datacenter::VisualizationInputSource::Mock) {
         data.feedbackSource = QStringLiteral("仿真反馈");
     } else if (command.mode == autoviz::model::ControlMode::Sailing) {
-        data.feedbackSource = hasLocation ? QStringLiteral("定位反馈") : QStringLiteral("定位反馈缺失");
+        data.feedbackSource = hasChassis && hasLocation
+                                  ? QStringLiteral("底盘/定位反馈")
+                                  : (hasChassis ? QStringLiteral("定位反馈缺失")
+                                     : (hasLocation ? QStringLiteral("底盘反馈缺失")
+                                                    : QStringLiteral("底盘/定位反馈缺失")));
     } else if (command.mode == autoviz::model::ControlMode::Crawl) {
         data.feedbackSource = hasChassis ? QStringLiteral("底盘反馈") : QStringLiteral("底盘反馈缺失");
     } else {
@@ -351,29 +501,37 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     }
 
     const bool fresh = !data.timedOut;
-    data.hasCmdSpeed = fresh && hasControl;
+    data.hasCmdSpeed = fresh && hasCommand;
     data.cmdSpeed = command.desiredVelocity;
 
     double cmdYawRadians = 0.0;
     double feedbackYawRadians = 0.0;
+    data.hasFeedbackSpeed = fresh && hasChassis;
+    data.feedbackSpeed = snapshot.vehicleChassisInfo.currentSpeed;
     if (command.mode == autoviz::model::ControlMode::Sailing) {
-        data.hasFeedbackSpeed = fresh && hasLocation;
-        data.feedbackSpeed = snapshot.vehicleLocation.speed;
-        data.hasCmdYaw = fresh && hasControl;
+        data.yawMetric = YawMetric::Heading;
+        data.hasCmdYaw = fresh && hasCommand;
         cmdYawRadians = command.desiredHeading;
         data.cmdYaw = qRadiansToDegrees(cmdYawRadians);
         data.hasFeedbackYaw = fresh && hasLocation;
         feedbackYawRadians = snapshot.vehicleLocation.heading;
         data.feedbackYaw = qRadiansToDegrees(feedbackYawRadians);
     } else if (command.mode == autoviz::model::ControlMode::Crawl) {
-        data.hasFeedbackSpeed = fresh && hasChassis;
-        data.feedbackSpeed = snapshot.vehicleChassisInfo.currentSpeed;
+        data.yawMetric = YawMetric::AngularVelocity;
+        data.hasCmdYaw = fresh && hasCommand;
+        cmdYawRadians = command.desiredAngularVelocity;
+        data.cmdYaw = qRadiansToDegrees(cmdYawRadians);
+        data.hasFeedbackYaw = fresh && hasChassis;
+        feedbackYawRadians = snapshot.vehicleChassisInfo.currentAngularVelocity;
+        data.feedbackYaw = qRadiansToDegrees(feedbackYawRadians);
     }
 
     data.hasSpeedError = data.hasCmdSpeed && data.hasFeedbackSpeed;
     data.speedError = data.cmdSpeed - data.feedbackSpeed;
     data.hasYawError = data.hasCmdYaw && data.hasFeedbackYaw;
-    data.yawError = qRadiansToDegrees(normalizeAngle(cmdYawRadians - feedbackYawRadians));
+    data.yawError = command.mode == autoviz::model::ControlMode::Sailing
+                        ? qRadiansToDegrees(normalizeAngle(cmdYawRadians - feedbackYawRadians))
+                        : qRadiansToDegrees(cmdYawRadians - feedbackYawRadians);
 
     if (fresh && hasLocation && status.hasLocalPathData) {
         double pathYawErrorRadians = 0.0;

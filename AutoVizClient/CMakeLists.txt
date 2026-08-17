@@ -72,6 +72,7 @@ set(AUTOVIZ_CLIENT_SOURCES
     src/ui/LogPanel.cpp
     src/ui/status/BottomStatusPanel.h
     src/ui/status/BottomStatusPanel.cpp
+    src/ui/status/ControlStatusSummary.h
     src/ui/network/ConnectionDialog.h
     src/ui/network/ConnectionDialog.cpp
     src/ui/theme/UiScaleManager.h
@@ -124,6 +125,7 @@ add_custom_command(
 
 add_executable(AutoVizClientPlaybackTests
     tests/PlaybackValidationMain.cpp
+    src/ui/status/ControlStatusSummary.h
     src/core/network/ProtocolModelConverter.cpp
     src/core/playback/RobotWsCdrDecoder.h
     src/core/playback/RobotWsCdrDecoder.cpp
@@ -155,6 +157,26 @@ if(WIN32)
     target_link_libraries(AutoVizPlaybackSourceSmoke PRIVATE Qt6::Core Qt6::Sql)
 else()
     target_link_libraries(AutoVizPlaybackSourceSmoke PRIVATE Qt5::Core Qt5::Sql)
+endif()
+
+add_executable(AutoVizControlStatusUiTests
+    tests/ControlStatusUiMain.cpp
+    src/core/model/VehicleState.cpp
+    src/core/model/PathTypes.cpp
+    src/core/model/ObstacleTypes.cpp
+    src/core/model/ControlTypes.cpp
+    src/core/datacenter/DataManager.cpp
+    src/core/config/VehicleConfig.cpp
+    src/ui/status/BottomStatusPanel.cpp
+    src/ui/status/ControlStatusSummary.h
+    src/ui/theme/UiScaleManager.cpp
+)
+target_include_directories(AutoVizControlStatusUiTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(AutoVizControlStatusUiTests PRIVATE AutoVizProto::AutoVizProto)
+if(WIN32)
+    target_link_libraries(AutoVizControlStatusUiTests PRIVATE Qt6::Core Qt6::Widgets)
+else()
+    target_link_libraries(AutoVizControlStatusUiTests PRIVATE Qt5::Core Qt5::Widgets)
 endif()
 
 # 打包规则独立于正常构建逻辑；仍由标准的 `cmake --install` 执行。

@@ -3,6 +3,8 @@
 #include <QVector>
 #include <QString>
 
+#include "core/model/CommonTypes.h"
+
 namespace autoviz::model {
 
 enum class VisualizationChannel {
@@ -31,6 +33,32 @@ struct TopicStatus {
     quint64 messageCount = 0;
     bool timedOut = true;
 };
+
+enum class ControlEventSource { Unknown, ActionExpectation, ControlCommand, ChassisFeedback };
+
+struct ControlStateEvent {
+    Header header;
+    ControlEventSource source = ControlEventSource::Unknown;
+    QString goalUuid;
+    bool hasPreviousMode = false;
+    int previousMode = 0;
+    bool hasCurrentMode = false;
+    int currentMode = 0;
+    bool hasPreviousGear = false;
+    int previousGear = 0;
+    bool hasCurrentGear = false;
+    int currentGear = 0;
+    bool hasPreviousEnabled = false;
+    bool previousEnabled = false;
+    bool hasCurrentEnabled = false;
+    bool currentEnabled = false;
+    bool hasPreviousCrawlOutputEnabled = false;
+    bool previousCrawlOutputEnabled = false;
+    bool hasCurrentCrawlOutputEnabled = false;
+    bool currentCrawlOutputEnabled = false;
+};
+
+using ControlStateEventList = QVector<ControlStateEvent>;
 
 using TopicStatusList = QVector<TopicStatus>;
 
@@ -127,6 +155,7 @@ enum class VerticalControlMode {
 
 struct ChassisRuntimeStatus {
     bool valid = false;
+    Header header;
     qint64 timestampMs = 0;
     double currentSpeed = 0.0;
     double currentAngularVelocity = 0.0;
@@ -156,6 +185,7 @@ struct ChassisRuntimeStatus {
 
 struct ControlCommandStatus {
     bool valid = false;
+    Header header;
     qint64 timestampMs = 0;
     int mode = 0;
     bool isEnable = false;
@@ -186,6 +216,7 @@ struct PathRuntimeStatus {
 
 struct ActionRuntimeStatus {
     bool valid = false;
+    Header header;
     qint64 timestampMs = 0;
     int owner = 0;
     int state = 0;

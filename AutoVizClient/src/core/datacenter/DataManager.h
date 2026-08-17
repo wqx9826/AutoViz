@@ -20,6 +20,8 @@ enum class VisualizationInputSource {
 
 struct VisualizationRuntimeStatus {
     VisualizationInputSource inputSource = VisualizationInputSource::Mock;
+    quint64 snapshotSequence = 0;
+    QString sessionId;
     bool hasCommonPlanningControlCapability = true;
     bool hasVerticalMotionCapability = false;
     bool hasUnderwaterSystemCapability = false;
@@ -45,6 +47,7 @@ struct VisualizationSnapshot {
     model::ObstacleList obstacles;
     model::ControlCmd controlCmd;
     model::TopicStatusList topicStatuses;
+    model::ControlStateEventList controlStateEvents;
     model::LocalizationStatus localizationStatus;
     model::ChassisRuntimeStatus chassisRuntimeStatus;
     model::ControlCommandStatus controlCommandStatus;
@@ -63,8 +66,10 @@ public:
     DataManager();
 
     void initializeMockData();
-    void resetVisualizationData(VisualizationInputSource inputSource);
-    void replaceVisualizationSnapshot(const VisualizationSnapshot& snapshot,
+    void activateInputSource(VisualizationInputSource inputSource);
+    VisualizationInputSource activeInputSource() const;
+    bool resetVisualizationData(VisualizationInputSource inputSource);
+    bool replaceVisualizationSnapshot(const VisualizationSnapshot& snapshot,
                                       VisualizationInputSource inputSource);
 
     void clearHistoryTrail();
@@ -79,6 +84,7 @@ private:
     void updateRunVisualizationModeLocked();
 
     mutable std::mutex m_mutex;
+    VisualizationInputSource m_activeInputSource = VisualizationInputSource::Mock;
     VisualizationSnapshot m_snapshot;
 };
 

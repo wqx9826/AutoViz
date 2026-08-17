@@ -10,11 +10,18 @@ enum class ControlDebugMode {
     Error
 };
 
+enum class YawMetric {
+    Unknown,
+    Heading,
+    AngularVelocity
+};
+
 struct ControlDebugData {
     qint64 timestampMs = 0;
     qint64 elapsedMs = 0;
     qint64 sourceTimestampMs = 0;
     ControlDebugMode mode = ControlDebugMode::Standby;
+    YawMetric yawMetric = YawMetric::Unknown;
     QString feedbackSource;
     bool timedOut = false;
 

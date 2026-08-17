@@ -157,7 +157,9 @@ void PlotCardWidget::mouseMoveEvent(QMouseEvent* event)
                 bestDistance = distance;
                 const double ageSeconds = static_cast<double>(sample.elapsedMs) / 1000.0;
                 bestText = QStringLiteral("%1\n时间: %2 s\n数值: %3")
-                               .arg(series.label, QString::number(ageSeconds, 'f', 1), formatValue(valueOf(sample, series.role), series.role));
+                               .arg(series.label,
+                                    QString::number(ageSeconds, 'f', 1),
+                                    formatValue(valueOf(sample, series.role), series.role, sample));
             }
         }
     }
@@ -221,7 +223,7 @@ double PlotCardWidget::valueOf(const ControlDebugData& data, ValueRole role)
     return 0.0;
 }
 
-QString PlotCardWidget::valueSuffix(ValueRole role)
+QString PlotCardWidget::valueSuffix(ValueRole role, const ControlDebugData& data)
 {
     switch (role) {
     case ValueRole::CmdSpeed:
@@ -233,15 +235,21 @@ QString PlotCardWidget::valueSuffix(ValueRole role)
     case ValueRole::CmdYaw:
     case ValueRole::FeedbackYaw:
     case ValueRole::YawError:
+        return data.yawMetric == YawMetric::AngularVelocity
+                   ? QStringLiteral(" °/s")
+                   : QStringLiteral(" °");
     case ValueRole::PathYawError:
         return QStringLiteral(" °");
     }
     return {};
 }
 
-QString PlotCardWidget::formatValue(double value, ValueRole role)
+QString PlotCardWidget::formatValue(double value,
+                                    ValueRole role,
+                                    const ControlDebugData& data)
 {
-    return QStringLiteral("%1%2").arg(QString::number(value, 'f', 3), valueSuffix(role));
+    return QStringLiteral("%1%2").arg(QString::number(value, 'f', 3),
+                                      valueSuffix(role, data));
 }
 
 qint64 PlotCardWidget::toRelativeTimeMs(qint64 elapsedMs, qint64 windowStartMs)
@@ -337,7 +345,11 @@ QString PlotCardWidget::currentValuesText() const
     QStringList values;
     for (const auto& series : m_series) {
         if (hasValue(m_latest, series.role)) {
-            values << QStringLiteral("%1 %2").arg(series.label, formatValue(valueOf(m_latest, series.role), series.role));
+            values << QStringLiteral("%1 %2")
+                          .arg(series.label,
+                               formatValue(valueOf(m_latest, series.role),
+                                           series.role,
+                                           m_latest));
         }
         if (values.size() >= 3) {
             break;
@@ -523,11 +535,12 @@ void PlotCardWidget::drawSeries(QPainter& painter,
         QPolygonF current;
         qint64 previousElapsedMs = 0;
         int pointCount = 0;
+        int candidateCount = 0;
         const int step = std::max(1, static_cast<int>(m_samples.size() / std::max(1.0, geometry.plot.width() * 2.0)));
 
         for (int index = 0; index < m_samples.size(); ++index) {
             const auto& sample = m_samples.at(index);
-            if (latestElapsedMs - sample.elapsedMs > m_windowMs || !hasValue(sample, series.role)) {
+            if (latestElapsedMs - sample.elapsedMs > m_windowMs) {
                 if (!current.isEmpty()) {
                     segments.push_back(current);
                     current.clear();
@@ -535,7 +548,10 @@ void PlotCardWidget::drawSeries(QPainter& painter,
                 previousElapsedMs = 0;
                 continue;
             }
-            if (index % step != 0 && index + 1 < m_samples.size()) {
+            // Samples are sparse by topic: a chassis sample has no command value and
+            // vice versa. Missing this series is not itself a segment boundary.
+            if (!hasValue(sample, series.role)) continue;
+            if (candidateCount++ % step != 0 && index + 1 < m_samples.size()) {
                 continue;
             }
             if (previousElapsedMs != 0 && sample.elapsedMs - previousElapsedMs > kDataTimeoutGapMs && !current.isEmpty()) {

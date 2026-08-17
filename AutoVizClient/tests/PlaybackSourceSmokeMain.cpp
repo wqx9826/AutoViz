@@ -15,11 +15,21 @@ int main(int argc, char** argv)
     }
 
     autoviz::datacenter::DataManager manager;
+    manager.activateInputSource(autoviz::datacenter::VisualizationInputSource::Ros2Bag);
     autoviz::playback::LocalRosbagPlaybackSource source(&manager);
     autoviz::playback::RosbagInfo bagInfo;
     QTimer timeout;
     QElapsedTimer pauseLatency;
     bool pauseRequested = false;
+    bool centerTurnScenario = false;
+    enum class Phase { WaitingLoad, CenterSeek, ExitSeek, SecondCenterSeek, OneXSeek, OneXPlaying,
+                       TimelineSeek, TimelinePlaying, FinalSeek, FinalPlaying };
+    Phase phase = Phase::WaitingLoad;
+
+    auto fail = [&](const QString& message) {
+        QTextStream(stderr) << message << '\n';
+        app.exit(1);
+    };
 
     timeout.setSingleShot(true);
     timeout.setInterval(120000);
@@ -41,13 +51,84 @@ int main(int argc, char** argv)
                          bagInfo = info;
                          QTextStream(stdout) << info.name << ": validated, "
                                              << info.channels.size() << " channels\n";
-                         source.setPlaybackRate(8.0);
-                         source.play();
-                         QTimer::singleShot(1500, &app, [&] {
-                             pauseRequested = true;
-                             pauseLatency.start();
-                             source.pause();
-                         });
+                         centerTurnScenario = info.name == QStringLiteral("rosbag2_2026_08_17-03_18_59");
+                         if (centerTurnScenario) {
+                             phase = Phase::CenterSeek;
+                             source.seek(42000000000LL);
+                         } else {
+                             phase = Phase::TimelinePlaying;
+                             source.setPlaybackRate(8.0);
+                             source.play();
+                             QTimer::singleShot(1500, &app, [&] {
+                                 pauseRequested = true;
+                                 pauseLatency.start();
+                                 source.pause();
+                             });
+                         }
+                     });
+    QObject::connect(&source,
+                     &autoviz::playback::LocalRosbagPlaybackSource::positionChanged,
+                     &app,
+                     [&](qint64 positionNs, qint64) {
+                         if (phase == Phase::CenterSeek && qAbs(positionNs - 42000000000LL) < 1000000LL) {
+                             const auto snapshot = manager.getSnapshot();
+                             if (!snapshot.controlCommandStatus.valid
+                                 || snapshot.controlCommandStatus.mode != 11
+                                 || !snapshot.globalPath.points.isEmpty()
+                                 || !snapshot.localPath.points.isEmpty()) {
+                                 fail(QStringLiteral("seek inside center turn retained paths or wrong command mode"));
+                                 return;
+                             }
+                             phase = Phase::ExitSeek;
+                             source.seek(81000000000LL);
+                         } else if (phase == Phase::ExitSeek && qAbs(positionNs - 81000000000LL) < 1000000LL) {
+                             const auto snapshot = manager.getSnapshot();
+                             if (!snapshot.controlCommandStatus.valid
+                                 || snapshot.controlCommandStatus.mode != 6
+                                 || snapshot.runtimeStatus.snapshotSequence == 0
+                                 || snapshot.globalPath.points.isEmpty()
+                                 || snapshot.localPath.points.isEmpty()) {
+                                 fail(QStringLiteral("post-center seek did not restore mode=6 from new paths"));
+                                 return;
+                             }
+                             phase = Phase::SecondCenterSeek;
+                             source.seek(131000000000LL);
+                         } else if (phase == Phase::SecondCenterSeek
+                                    && qAbs(positionNs - 131000000000LL) < 1000000LL) {
+                             const auto snapshot = manager.getSnapshot();
+                             if (!snapshot.controlCommandStatus.valid
+                                 || snapshot.controlCommandStatus.mode != 11
+                                 || !snapshot.globalPath.points.isEmpty()
+                                 || !snapshot.localPath.points.isEmpty()) {
+                                 fail(QStringLiteral("second center-turn boundary did not restore mode=11 suppression"));
+                                 return;
+                             }
+                             phase = Phase::OneXSeek;
+                             source.seek(79000000000LL);
+                         } else if (phase == Phase::OneXSeek
+                                    && qAbs(positionNs - 79000000000LL) < 1000000LL) {
+                             phase = Phase::OneXPlaying;
+                             source.setPlaybackRate(1.0);
+                             source.play();
+                             QTimer::singleShot(2500, &app, [&] {
+                                 pauseRequested = true;
+                                 pauseLatency.start();
+                                 source.pause();
+                             });
+                         } else if (phase == Phase::TimelineSeek && qAbs(positionNs - 38000000000LL) < 1000000LL) {
+                             phase = Phase::TimelinePlaying;
+                             source.setPlaybackRate(8.0);
+                             source.play();
+                             QTimer::singleShot(6000, &app, [&] {
+                                 pauseRequested = true;
+                                 pauseLatency.start();
+                                 source.pause();
+                             });
+                         } else if (phase == Phase::FinalSeek
+                                    && qAbs(positionNs - qMax<qint64>(0, bagInfo.durationNs() - 1000000000LL)) < 1000000LL) {
+                             phase = Phase::FinalPlaying;
+                             source.play();
+                         }
                      });
     QObject::connect(&source,
                      &autoviz::playback::LocalRosbagPlaybackSource::playbackStateChanged,
@@ -61,10 +142,63 @@ int main(int argc, char** argv)
                                  app.exit(1);
                                  return;
                              }
+                             if (phase == Phase::OneXPlaying) {
+                                 const auto snapshot = manager.getSnapshot();
+                                 bool sawExit = false;
+                                 bool sawCrawl = false;
+                                 for (const auto& event : snapshot.controlStateEvents) {
+                                     if (event.source != autoviz::model::ControlEventSource::ControlCommand) continue;
+                                     sawExit |= event.hasPreviousMode && event.previousMode == 11
+                                                && event.hasCurrentMode && event.currentMode == 0;
+                                     sawCrawl |= event.hasPreviousMode && event.previousMode == 0
+                                                 && event.hasCurrentMode && event.currentMode == 6;
+                                 }
+                                 if (!snapshot.controlCommandStatus.valid
+                                     || snapshot.controlCommandStatus.mode != 6
+                                     || snapshot.runtimeStatus.snapshotSequence == 0
+                                     || !sawExit || !sawCrawl) {
+                                     fail(QStringLiteral("1x playback retained mode=11 after 11->0->6"));
+                                     return;
+                                 }
+                                 QTextStream(stdout) << "1x transition pause latency: " << latency << " ms\n";
+                                 pauseRequested = false;
+                                 phase = Phase::TimelineSeek;
+                                 source.seek(38000000000LL);
+                                 return;
+                             }
                              QTextStream(stdout) << "8x pause latency: " << latency << " ms\n";
+                             if (centerTurnScenario) {
+                                 const auto snapshot = manager.getSnapshot();
+                                 bool sawEnter = false;
+                                 bool sawExit = false;
+                                 bool sawCrawl = false;
+                                 bool sawCrawlOutput = false;
+                                 bool allEventsSequenced = true;
+                                 for (const auto& event : snapshot.controlStateEvents) {
+                                     allEventsSequenced &= event.header.sequence > 0;
+                                     if (event.source == autoviz::model::ControlEventSource::ChassisFeedback
+                                         && event.hasCurrentCrawlOutputEnabled) {
+                                         sawCrawlOutput = true;
+                                     }
+                                     if (event.source != autoviz::model::ControlEventSource::ControlCommand) continue;
+                                     sawEnter |= event.hasPreviousMode && event.previousMode == 6
+                                                 && event.hasCurrentMode && event.currentMode == 11;
+                                     sawExit |= event.hasPreviousMode && event.previousMode == 11
+                                                && event.hasCurrentMode && event.currentMode == 0;
+                                     sawCrawl |= event.hasPreviousMode && event.previousMode == 0
+                                                 && event.hasCurrentMode && event.currentMode == 6;
+                                 }
+                                 if (!snapshot.controlCommandStatus.valid
+                                     || snapshot.controlCommandStatus.mode != 6
+                                     || !sawEnter || !sawExit || !sawCrawl
+                                     || !sawCrawlOutput || !allEventsSequenced) {
+                                     fail(QStringLiteral("8x playback lost 6->11->0->6 command events or sequences"));
+                                     return;
+                                 }
+                             }
                              pauseRequested = false;
+                             phase = Phase::FinalSeek;
                              source.seek(qMax<qint64>(0, bagInfo.durationNs() - 1000000000LL));
-                             source.play();
                          }
                          if (state == autoviz::playback::PlaybackState::Completed) {
                              const auto snapshot = manager.getSnapshot();

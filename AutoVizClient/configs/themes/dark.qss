@@ -72,17 +72,20 @@ QLabel[class="status-badge"] {
     padding: 1px 4px;
     qproperty-alignment: AlignCenter;
 }
-QLabel#status-normal {
+QLabel#status-normal,
+QLabel[statusLevel="status-normal"] {
     color: #6EF2A0;
     background: #153822;
     border: 1px solid #6EF2A0;
 }
-QLabel#status-warn {
+QLabel#status-warn,
+QLabel[statusLevel="status-warn"] {
     color: #FFB45C;
     background: #3A2614;
     border: 1px solid #FFB45C;
 }
-QLabel#status-offline {
+QLabel#status-offline,
+QLabel[statusLevel="status-offline"] {
     color: #B6B6BC;
     background: #2A2A30;
     border: 1px solid #2D2D34;

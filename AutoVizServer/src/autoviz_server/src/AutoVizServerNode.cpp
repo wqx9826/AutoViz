@@ -128,31 +128,33 @@ std::uint64_t AutoVizServerNode::nowNs() const
 
 void AutoVizServerNode::createSubscriptions()
 {
-    // rosbag 回放和实时发布都兼容 best_effort；队列只保留最新调试数据。
-    const auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
+    // rosbag 回放和实时发布都兼容 best_effort。控制审计通道使用更深的
+    // 有界队列，避免 SingleThreadedExecutor 短时繁忙时在进入回调前丢掉切换帧。
+    const auto latestQos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
+    const auto controlAuditQos = rclcpp::QoS(rclcpp::KeepLast(100)).best_effort();
     m_locationSubscription = create_subscription<custom_msgs::msg::Location>(
-        m_topics.location, qos,
+        m_topics.location, latestQos,
         std::bind(&AutoVizServerNode::onLocation, this, std::placeholders::_1));
     m_obstacleSubscription = create_subscription<custom_msgs::msg::FinalTargetArray>(
-        m_topics.obstacles, qos,
+        m_topics.obstacles, latestQos,
         std::bind(&AutoVizServerNode::onObstacles, this, std::placeholders::_1));
     m_controlSubscription = create_subscription<custom_msgs::msg::ChassisCommand>(
-        m_topics.controlCommand, qos,
+        m_topics.controlCommand, controlAuditQos,
         std::bind(&AutoVizServerNode::onControl, this, std::placeholders::_1));
     m_chassisSubscription = create_subscription<custom_msgs::msg::ChassisStates>(
-        m_topics.chassisState, qos,
+        m_topics.chassisState, controlAuditQos,
         std::bind(&AutoVizServerNode::onChassis, this, std::placeholders::_1));
     m_actionSubscription = create_subscription<custom_msgs::msg::SystemRunStates>(
-        m_topics.actionState, qos,
+        m_topics.actionState, controlAuditQos,
         std::bind(&AutoVizServerNode::onAction, this, std::placeholders::_1));
     m_taskSubscription = create_subscription<custom_msgs::msg::TaskParams>(
-        m_topics.taskState, qos,
+        m_topics.taskState, latestQos,
         std::bind(&AutoVizServerNode::onTask, this, std::placeholders::_1));
     m_localPathSubscription = create_subscription<custom_msgs::msg::TrajectoryMsg>(
-        m_topics.localPath, qos,
+        m_topics.localPath, latestQos,
         std::bind(&AutoVizServerNode::onLocalPath, this, std::placeholders::_1));
     m_globalPathSubscription = create_subscription<nav_msgs::msg::Path>(
-        m_topics.globalPath, qos,
+        m_topics.globalPath, latestQos,
         std::bind(&AutoVizServerNode::onGlobalPath, this, std::placeholders::_1));
     // 原生 action topic 仅补充详情诊断；公开 SystemRunStates 才是主界面契约。
     const auto actionStatusQos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable().transient_local();
@@ -274,7 +276,7 @@ void AutoVizServerNode::updateActionNativeStatus(const std::string& goalId,
         || !RobotWsProtoConverter::sameGoalUuid(goalId, m_latestActionState.goal_id())) return;
     m_latestActionState.set_native_status(status);
     m_latestActionState.set_native_status_time_ns(receiveTimeNs);
-    m_store->updateActionState(m_latestActionState, receiveTimeNs);
+    m_store->updateActionDiagnostics(m_latestActionState);
 }
 
 void AutoVizServerNode::updateActionProgress(const std::string& goalId,
@@ -290,7 +292,7 @@ void AutoVizServerNode::updateActionProgress(const std::string& goalId,
         || !RobotWsProtoConverter::sameGoalUuid(goalId, m_latestActionState.goal_id())) return;
     m_latestActionState.set_feedback_progress(progress);
     m_latestActionState.set_feedback_time_ns(receiveTimeNs);
-    m_store->updateActionState(m_latestActionState, receiveTimeNs);
+    m_store->updateActionDiagnostics(m_latestActionState);
 }
 
 AutoVizServerNode::ActionDiagnostic& AutoVizServerNode::diagnosticFor(const std::string& goalId)

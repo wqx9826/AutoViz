@@ -55,6 +55,9 @@ Client                         Server
 - major 不一致返回 fatal ProtocolError；同 major 的 minor 可兼容。
 - 握手前禁止快照；握手后立即发送最新快照。
 - optional 字段缺失就是当前无数据，Client 原子替换，不存在 CLEAR。
+- `VisualizationSnapshot.control_state_event` 是当前 session 的完整控制状态审计历史；记录
+  Action 期望、控制下发和底盘反馈的模式/档位/使能/履带输出切换及当时 Goal UUID。断线或
+  session 改变清空该历史。
 - session 变化或断线必须清空全部远程状态和历史轨迹。
 - Server 最多 20 Hz 合并脏数据；空闲用心跳，不重复发送相同快照。
 
@@ -90,7 +93,8 @@ Client                         Server
 `ControlCommand.maneuver` 使用 field 15（12..14 已保留），当前取值为 `NONE` 或
 `YAW_IN_PLACE`。它与 `ControlCommand.mode` 正交：前者表达原地/中心转向，后者表达
 `CRAWL` 或 `SAILING` 平台类型；UI 据此显示“爬行中心转向”或“航行中心转向”。robot_ws
-Adapter 将 `ChassisCommand.mode` 的 10/11，以及 `expected_gear` 的 4，统一映射为该语义。
+Adapter 只将 `ChassisCommand.mode` 的 10/11 映射为该语义；`expected_gear=4` 只表达期望
+中心转向档位，不能反向改变命令模式。
 
 `UnderwaterCommand.vertical_control_mode` 使用 field 10，取值为 `NONE`、`DEPTH_HOLD`、
 `HEIGHT_HOLD`。它是唯一决定垂向目标量和 UI 趋势轴的协议语义；`BuoyancyCommand`
@@ -125,6 +129,9 @@ robot_ws 输出。不要在读取 `goal_uuid` 时尝试把非 canonical 字符�
 ## 单位和兼容
 
 - 长度 m，速度 m/s，加速度 m/s²，时间戳 Unix epoch ns。
+- `ChassisCommand`、`ChassisStates`、`SystemRunStates` 当前没有 ROS Header。其 `Header` 只填
+  `server_receive_time_ns`（本地回放为 rosbag 记录时间）和 per-topic `sequence`，不伪造
+  `source_time_ns`；因此发布端时间及源到 Server 延迟在 UI 中明确为不可用。
 - 经度/纬度为 WGS-84 度；USBL 本地位置为 m，且只作定位诊断。
 - 角度 rad、角速度 rad/s；heading 东向 0、逆时针/左转正。
 - UI 显示层才转成度和 °/s。

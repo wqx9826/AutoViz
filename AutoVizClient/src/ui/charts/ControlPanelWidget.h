@@ -31,6 +31,7 @@ public:
 private:
     void setupUi();
     void configurePlots();
+    void configureYawPlot(YawMetric metric);
     void refreshPlots();
     void setWindowFromCombo();
     ControlDebugData buildDebugData(const autoviz::datacenter::VisualizationSnapshot& snapshot);
@@ -47,10 +48,17 @@ private:
     ControlPlotBuffer m_buffer;
     ControlDebugData m_latestData;
     qint64 m_firstSampleTimestampMs = 0;
-    qint64 m_lastBufferedTimestampMs = -1;
-    QString m_activeActionGoalId;
-    int m_activeActionMode = 0;
-    bool m_actionWasActive = false;
+    quint64 m_lastCommandSequence = 0;
+    quint64 m_lastChassisSequence = 0;
+    quint64 m_lastLocationSequence = 0;
+    qint64 m_lastCommandTimestampMs = 0;
+    qint64 m_lastChassisTimestampMs = 0;
+    qint64 m_lastLocationTimestampMs = 0;
+    YawMetric m_yawMetric = YawMetric::Unknown;
+    quint64 m_lastSnapshotSequence = 0;
+    int m_lastInputSource = -1;
+    QString m_lastSessionId;
+    bool m_sourceInitialized = false;
     bool m_paused = false;
     bool m_renderingSuspended = false;
 };

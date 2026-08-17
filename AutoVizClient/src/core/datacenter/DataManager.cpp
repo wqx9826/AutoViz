@@ -33,6 +33,7 @@ DataManager::DataManager()
 void DataManager::initializeMockData()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+    m_activeInputSource = VisualizationInputSource::Mock;
     const qint64 mockTimestamp = QDateTime::currentMSecsSinceEpoch();
     m_snapshot.vehicleLocation = model::createMockVehicleLocation();
     m_snapshot.vehicleChassisInfo = model::createMockVehicleChassisInfo();
@@ -232,9 +233,24 @@ void DataManager::initializeMockData()
     appendHistoryTrailPointLocked();
 }
 
-void DataManager::resetVisualizationData(VisualizationInputSource inputSource)
+void DataManager::activateInputSource(VisualizationInputSource inputSource)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+    m_activeInputSource = inputSource;
+}
+
+VisualizationInputSource DataManager::activeInputSource() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_activeInputSource;
+}
+
+bool DataManager::resetVisualizationData(VisualizationInputSource inputSource)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (inputSource != m_activeInputSource) {
+        return false;
+    }
     m_snapshot.vehicleLocation = model::VehicleLocation{};
     m_snapshot.vehicleChassisInfo = model::VehicleChassisInfo{};
     m_snapshot.globalPath = model::Trajectory{};
@@ -244,6 +260,7 @@ void DataManager::resetVisualizationData(VisualizationInputSource inputSource)
     m_snapshot.obstacles = model::ObstacleList{};
     m_snapshot.controlCmd = model::ControlCmd{};
     m_snapshot.topicStatuses = model::TopicStatusList{};
+    m_snapshot.controlStateEvents = model::ControlStateEventList{};
     m_snapshot.localizationStatus = model::LocalizationStatus{};
     m_snapshot.chassisRuntimeStatus = model::ChassisRuntimeStatus{};
     m_snapshot.controlCommandStatus = model::ControlCommandStatus{};
@@ -256,12 +273,16 @@ void DataManager::resetVisualizationData(VisualizationInputSource inputSource)
     m_snapshot.runVisualizationMode = model::RunVisualizationMode::Unknown;
     m_snapshot.runtimeStatus = VisualizationRuntimeStatus{};
     m_snapshot.runtimeStatus.inputSource = inputSource;
+    return true;
 }
 
-void DataManager::replaceVisualizationSnapshot(const VisualizationSnapshot& snapshot,
-                                               VisualizationInputSource inputSource)
+bool DataManager::replaceVisualizationSnapshot(const VisualizationSnapshot& snapshot,
+                                                VisualizationInputSource inputSource)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+    if (inputSource != m_activeInputSource) {
+        return false;
+    }
     const auto existingConfig = m_snapshot.vehicleConfig;
     const auto existingHistory = m_snapshot.historyTrail;
     m_snapshot = snapshot;
@@ -274,6 +295,7 @@ void DataManager::replaceVisualizationSnapshot(const VisualizationSnapshot& snap
     updatePathEndpointLocked();
     updateRunVisualizationModeLocked();
     appendHistoryTrailPointLocked();
+    return true;
 }
 
 void DataManager::clearHistoryTrail()

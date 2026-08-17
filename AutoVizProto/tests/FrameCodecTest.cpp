@@ -145,6 +145,11 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     auto* topic = snapshot->mutable_runtime_state()->add_topic();
     topic->set_name("/location");
     topic->set_data_kind(wire::DATA_KIND_VEHICLE_STATE);
+    auto* event = snapshot->add_control_state_event();
+    event->set_source(wire::ControlStateEvent::SOURCE_CONTROL_COMMAND);
+    event->set_previous_mode(11);
+    event->set_current_mode(6);
+    event->set_goal_id("goal-v2.1");
 
     wire::FrameBytes stream;
     for (const auto& envelope : expected) {
@@ -167,12 +172,16 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     EXPECT_TRUE(actual.control_command().underwater().emergency_ascent());
     EXPECT_TRUE(actual.task_state().underwater().release_emergency_ascent());
     EXPECT_EQ(actual.runtime_state().topic(0).data_kind(), wire::DATA_KIND_VEHICLE_STATE);
+    ASSERT_EQ(actual.control_state_event_size(), 1);
+    EXPECT_EQ(actual.control_state_event(0).previous_mode(), 11);
+    EXPECT_EQ(actual.control_state_event(0).current_mode(), 6);
+    EXPECT_EQ(actual.control_state_event(0).goal_id(), "goal-v2.1");
 }
 
 TEST(ProtocolVersionTest, AcceptsOnlyV2MajorVersion)
 {
     EXPECT_EQ(wire::kProtocolMajor, 2U);
-    EXPECT_EQ(wire::kProtocolMinor, 0U);
+    EXPECT_EQ(wire::kProtocolMinor, 1U);
     EXPECT_TRUE(wire::isProtocolMajorCompatible(2U));
     EXPECT_FALSE(wire::isProtocolMajorCompatible(1U));
 }

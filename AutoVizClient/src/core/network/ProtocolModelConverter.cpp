@@ -16,14 +16,16 @@ qint64 timestampMs(const wire::Header& header)
 {
     const auto ns = header.has_source_time_ns() ? header.source_time_ns()
                                                 : header.server_receive_time_ns();
-    return ns > 0 ? static_cast<qint64>(ns / 1000000ULL)
-                  : QDateTime::currentMSecsSinceEpoch();
+    return ns > 0 ? static_cast<qint64>(ns / 1000000ULL) : 0;
 }
 
 model::Header convertHeader(const wire::Header& source)
 {
     model::Header target;
     target.timestamp = timestampMs(source);
+    target.sourceTimestamp = source.has_source_time_ns() ? static_cast<qint64>(source.source_time_ns() / 1000000ULL) : 0;
+    target.receiveTimestamp = source.has_server_receive_time_ns() ? static_cast<qint64>(source.server_receive_time_ns() / 1000000ULL) : 0;
+    target.sequence = source.sequence();
     target.frameId = QString::fromStdString(source.frame_id());
     return target;
 }
@@ -233,6 +235,7 @@ model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& sourc
 {
     model::ChassisRuntimeStatus target;
     target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
     target.timestampMs = source.has_header() ? timestampMs(source.header())
                                              : QDateTime::currentMSecsSinceEpoch();
     target.currentSpeed = source.speed_mps();
@@ -461,6 +464,7 @@ model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& sou
 {
     model::ControlCommandStatus target;
     target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
     target.timestampMs = source.has_header() ? timestampMs(source.header())
                                              : QDateTime::currentMSecsSinceEpoch();
     const bool yawInPlace = source.maneuver()
@@ -500,6 +504,7 @@ model::ActionRuntimeStatus convertAction(const wire::ActionState& source)
 {
     model::ActionRuntimeStatus target;
     target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
     target.timestampMs = source.has_header() ? timestampMs(source.header())
                                              : QDateTime::currentMSecsSinceEpoch();
     target.owner = source.owner();
@@ -587,6 +592,38 @@ model::TopicStatusList convertTopics(const wire::RuntimeState& source)
     return target;
 }
 
+model::ControlEventSource convertControlEventSource(wire::ControlStateEvent::Source source)
+{
+    switch (source) {
+    case wire::ControlStateEvent::SOURCE_ACTION_EXPECTATION: return model::ControlEventSource::ActionExpectation;
+    case wire::ControlStateEvent::SOURCE_CONTROL_COMMAND: return model::ControlEventSource::ControlCommand;
+    case wire::ControlStateEvent::SOURCE_CHASSIS_FEEDBACK: return model::ControlEventSource::ChassisFeedback;
+    default: return model::ControlEventSource::Unknown;
+    }
+}
+
+model::ControlStateEventList convertControlEvents(const wire::VisualizationSnapshot& source)
+{
+    model::ControlStateEventList result;
+    result.reserve(source.control_state_event_size());
+    for (const auto& item : source.control_state_event()) {
+        model::ControlStateEvent event;
+        if (item.has_header()) event.header = convertHeader(item.header());
+        event.source = convertControlEventSource(item.source());
+        event.goalUuid = QString::fromStdString(item.goal_id());
+        event.hasPreviousMode = item.has_previous_mode(); event.previousMode = item.previous_mode();
+        event.hasCurrentMode = item.has_current_mode(); event.currentMode = item.current_mode();
+        event.hasPreviousGear = item.has_previous_gear(); event.previousGear = item.previous_gear();
+        event.hasCurrentGear = item.has_current_gear(); event.currentGear = item.current_gear();
+        event.hasPreviousEnabled = item.has_previous_enabled(); event.previousEnabled = item.previous_enabled();
+        event.hasCurrentEnabled = item.has_current_enabled(); event.currentEnabled = item.current_enabled();
+        event.hasPreviousCrawlOutputEnabled = item.has_previous_crawl_output_enabled(); event.previousCrawlOutputEnabled = item.previous_crawl_output_enabled();
+        event.hasCurrentCrawlOutputEnabled = item.has_current_crawl_output_enabled(); event.currentCrawlOutputEnabled = item.current_crawl_output_enabled();
+        result.push_back(event);
+    }
+    return result;
+}
+
 model::PathRuntimeStatus makePathStatus(const wire::Trajectory& source)
 {
     model::PathRuntimeStatus status;
@@ -607,6 +644,8 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
 {
     datacenter::VisualizationSnapshot target;
     target.runtimeStatus.inputSource = datacenter::VisualizationInputSource::Remote;
+    target.runtimeStatus.snapshotSequence = source.sequence();
+    target.runtimeStatus.sessionId = QString::fromStdString(source.session_id());
     target.runtimeStatus.hasCommonPlanningControlCapability = false;
     target.runtimeStatus.sourceTimeMs = source.has_server_time_ns()
                                             ? static_cast<qint64>(source.server_time_ns() / 1000000ULL)
@@ -671,6 +710,7 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     if (source.has_runtime_state()) {
         target.topicStatuses = convertTopics(source.runtime_state());
     }
+    target.controlStateEvents = convertControlEvents(source);
     if (source.has_vehicle_parameters()) {
         target.vehicleConfig.vehicleLength = source.vehicle_parameters().length_m();
         target.vehicleConfig.vehicleWidth = source.vehicle_parameters().width_m();

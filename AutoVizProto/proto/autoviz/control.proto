@@ -34,6 +34,29 @@ message ControlCommand {
   optional Maneuver maneuver = 15 [default = MANEUVER_NONE];
 }
 
+// 控制状态变更的会话内审计记录。它描述 Adapter 已归一化的语义，而非 ROS 字段路径。
+message ControlStateEvent {
+  enum Source {
+    SOURCE_UNKNOWN = 0;
+    SOURCE_ACTION_EXPECTATION = 1;
+    SOURCE_CONTROL_COMMAND = 2;
+    SOURCE_CHASSIS_FEEDBACK = 3;
+  }
+
+  optional Header header = 1;
+  optional Source source = 2 [default = SOURCE_UNKNOWN];
+  optional string goal_id = 3;
+  optional sint32 previous_mode = 4;
+  optional sint32 current_mode = 5;
+  optional sint32 previous_gear = 6;
+  optional sint32 current_gear = 7;
+  optional bool previous_enabled = 8;
+  optional bool current_enabled = 9;
+  // 履带左右输出同时有效且为 true 才为 enabled；不一致时由 Adapter 省略本字段。
+  optional bool previous_crawl_output_enabled = 10;
+  optional bool current_crawl_output_enabled = 11;
+}
+
 message ActionState {
   optional Header header = 1;
   optional sint32 owner = 2;

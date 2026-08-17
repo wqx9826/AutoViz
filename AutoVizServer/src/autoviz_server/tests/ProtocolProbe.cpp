@@ -36,13 +36,20 @@ bool sendEnvelope(tcp::socket& socket, const autoviz::Envelope& envelope)
 int main(int argc, char** argv)
 {
     if (argc < 4) {
-        std::cerr << "usage: autoviz_protocol_probe HOST PORT SECONDS [--require-obstacles]\n";
+        std::cerr << "usage: autoviz_protocol_probe HOST PORT SECONDS "
+                     "[--require-obstacles] [--require-command-transition]\n";
         return 2;
     }
     const std::string host = argv[1];
     const auto port = static_cast<std::uint16_t>(std::stoul(argv[2]));
     const auto duration = std::chrono::seconds(std::stoi(argv[3]));
-    const bool requireObstacles = argc > 4 && std::string(argv[4]) == "--require-obstacles";
+    bool requireObstacles = false;
+    bool requireCommandTransition = false;
+    for (int index = 4; index < argc; ++index) {
+        const std::string option = argv[index];
+        requireObstacles |= option == "--require-obstacles";
+        requireCommandTransition |= option == "--require-command-transition";
+    }
 
     asio::io_context context;
     tcp::socket socket(context);
@@ -79,6 +86,8 @@ int main(int argc, char** argv)
     bool verticalCapability = false;
     bool underwaterCapability = false;
     bool platformCapability = false;
+    bool sawCommandExit = false;
+    bool sawCommandCrawl = false;
     std::vector<autoviz::TopicStatus> latestTopics;
 
     const auto deadline = std::chrono::steady_clock::now() + duration;
@@ -131,6 +140,17 @@ int main(int argc, char** argv)
                 action |= snapshot.has_action_state();
                 task |= snapshot.has_task_state();
                 obstacles |= snapshot.has_obstacles();
+                for (const auto& event : snapshot.control_state_event()) {
+                    if (event.source()
+                            != autoviz::ControlStateEvent::SOURCE_CONTROL_COMMAND
+                        || !event.has_previous_mode() || !event.has_current_mode()) {
+                        continue;
+                    }
+                    sawCommandExit |= event.previous_mode() == 11
+                                      && event.current_mode() == 0;
+                    sawCommandCrawl |= event.previous_mode() == 0
+                                       && event.current_mode() == 6;
+                }
                 if (snapshot.has_runtime_state()) {
                     latestTopics.assign(snapshot.runtime_state().topic().begin(),
                                         snapshot.runtime_state().topic().end());
@@ -157,6 +177,8 @@ int main(int argc, char** argv)
               << ",action:" << action
               << ",task:" << task
               << ",obstacles:" << obstacles << "]\n";
+    std::cout << "command_transitions=[11_to_0:" << sawCommandExit
+              << ",0_to_6:" << sawCommandCrawl << "]\n";
     for (const auto& topic : latestTopics) {
         std::cout << "topic=" << topic.name()
                   << " count=" << topic.message_count()
@@ -167,8 +189,11 @@ int main(int argc, char** argv)
     const bool sevenBagFields = vehicle && chassis && control && globalPath
                                 && localPath && action && task;
     const bool expectedFields = requireObstacles ? obstacles : sevenBagFields;
+    const bool expectedTransitions = !requireCommandTransition
+                                     || (sawCommandExit && sawCommandCrawl);
     return gotHello && commonCapability && verticalCapability
                    && underwaterCapability && platformCapability && expectedFields
+                   && expectedTransitions
                ? 0
                : 9;
 }

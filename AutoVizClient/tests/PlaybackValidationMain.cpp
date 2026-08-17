@@ -13,6 +13,7 @@
 
 #include "core/network/ProtocolModelConverter.h"
 #include "core/playback/RobotWsCdrDecoder.h"
+#include "ui/status/ControlStatusSummary.h"
 
 namespace {
 
@@ -32,6 +33,38 @@ void appendCdrFloat64(QByteArray* payload, double value)
     for (int index = 0; index < 8; ++index) {
         appendCdrByte(payload, static_cast<quint8>((bits >> (index * 8)) & 0xffU));
     }
+}
+
+void appendCdrInt16(QByteArray* payload, qint16 value)
+{
+    while ((payload->size() - 4) % 2 != 0) {
+        payload->append('\0');
+    }
+    appendCdrByte(payload, static_cast<quint8>(value & 0xff));
+    appendCdrByte(payload, static_cast<quint8>((static_cast<quint16>(value) >> 8) & 0xff));
+}
+
+void appendZeroMotorState(QByteArray* payload)
+{
+    appendCdrFloat64(payload, 0.0);
+    appendCdrFloat64(payload, 0.0);
+    appendCdrInt16(payload, 0);
+    appendCdrFloat64(payload, 0.0);
+    appendCdrByte(payload, 1);
+    appendCdrByte(payload, 0);
+    appendCdrInt16(payload, 0);
+    appendCdrInt16(payload, 0);
+    appendCdrByte(payload, 0);
+    appendCdrByte(payload, 0);
+}
+
+void appendZeroMotorCommand(QByteArray* payload)
+{
+    appendCdrByte(payload, 0);
+    appendCdrByte(payload, 0);
+    appendCdrByte(payload, 0);
+    appendCdrFloat64(payload, 0.0);
+    appendCdrFloat64(payload, 0.0);
 }
 
 bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
@@ -73,6 +106,158 @@ bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
         return false;
     }
     return true;
+}
+
+bool runModeGearIndependenceChecks(QTextStream& error)
+{
+    QByteArray payload(4, '\0');
+    payload[1] = char(1);  // CDR_LE
+    appendCdrByte(&payload, 6);       // autonomous crawl
+    appendCdrByte(&payload, 1);       // enabled
+    appendCdrByte(&payload, 0);       // emergency ascent
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrFloat64(&payload, 0.2);
+    appendCdrByte(&payload, 4);       // center-turn gear, independent of mode
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+
+    ::autoviz::VisualizationSnapshot wireSnapshot;
+    QString detail;
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_command", "custom_msgs/msg/ChassisCommand", payload, 1,
+            &wireSnapshot, &detail)) {
+        error << "mode/gear independence CDR self-test failed: " << detail << '\n';
+        return false;
+    }
+    const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
+    const bool ok = wireSnapshot.control_command().maneuver()
+                        == ::autoviz::ControlCommand::MANEUVER_NONE
+                    && modelSnapshot.controlCommandStatus.mode == 6
+                    && modelSnapshot.controlCommandStatus.expectedGear == 4;
+    if (!ok) {
+        error << "mode=6/gear=4 was incorrectly inferred as center turn\n";
+    }
+    return ok;
+}
+
+bool runChassisYawNormalizationChecks(QTextStream& error)
+{
+    QByteArray payload(4, '\0');
+    payload[1] = char(1);  // CDR_LE
+    for (int index = 0; index < 5; ++index) appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 1);  // water heartbeat
+    appendCdrByte(&payload, 0);  // tank level
+    appendCdrByte(&payload, 0);  // tank level is raw
+    appendCdrByte(&payload, 0);  // tank state
+    appendCdrByte(&payload, 2);  // gear
+    appendCdrFloat64(&payload, -0.48);
+    appendCdrFloat64(&payload, -0.22);  // robot_ws: left turn is negative
+    appendCdrByte(&payload, 0);         // left actuator fault
+    appendCdrByte(&payload, 0);         // right actuator fault
+    appendCdrByte(&payload, 1);         // crawl heartbeat
+    appendZeroMotorState(&payload);
+    appendZeroMotorState(&payload);
+    appendZeroMotorCommand(&payload);
+    appendZeroMotorCommand(&payload);
+
+    for (int index = 0; index < 4; ++index) appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 24.0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    for (int index = 0; index < 12; ++index) appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 1);  // DCDC enabled
+    for (int index = 0; index < 16; ++index) appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 80);  // SOC
+    appendCdrFloat64(&payload, 24.0);
+    appendCdrByte(&payload, 0);   // emergency ascent
+
+    ::autoviz::VisualizationSnapshot snapshot;
+    QString detail;
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_states", "custom_msgs/msg/ChassisStates", payload, 1,
+            &snapshot, &detail)) {
+        error << "ChassisStates yaw normalization CDR self-test failed: " << detail << '\n';
+        return false;
+    }
+    const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    const bool ok = std::abs(snapshot.chassis_state().yaw_rate_radps() - 0.22) < 1.0e-12
+                    && std::abs(modelSnapshot.chassisRuntimeStatus.currentAngularVelocity - 0.22) < 1.0e-12
+                    && std::abs(modelSnapshot.chassisRuntimeStatus.currentSpeed + 0.48) < 1.0e-12;
+    if (!ok) {
+        error << "ChassisStates yaw sign was not normalized\n";
+    }
+    return ok;
+}
+
+bool runControlStatusSummaryChecks(QTextStream& error)
+{
+    ::autoviz::VisualizationSnapshot wireSnapshot;
+    auto* command = wireSnapshot.mutable_control_command();
+    command->mutable_header()->set_server_receive_time_ns(1234000000ULL);
+    command->mutable_header()->set_sequence(42);
+    command->set_mode(::autoviz::ControlCommand::MODE_CRAWL);
+    command->set_enabled(true);
+    command->set_target_speed_mps(0.5144444704);
+    command->set_target_heading_rad(0.75);
+    command->set_target_yaw_rate_radps(0.369556);
+    command->set_target_gear(2);
+
+    auto* action = wireSnapshot.mutable_action_state();
+    action->set_state(1);
+    action->set_chassis_mode(6);
+    action->set_enabled(true);
+    action->set_target_speed_mps(0.0);
+    action->set_target_heading_rad(0.0);
+    action->set_target_yaw_rate_radps(0.0);
+
+    auto* chassis = wireSnapshot.mutable_chassis_state();
+    chassis->mutable_header()->set_server_receive_time_ns(1235000000ULL);
+    chassis->mutable_header()->set_sequence(43);
+    chassis->set_speed_mps(-0.48);
+    chassis->set_yaw_rate_radps(0.22);
+    chassis->set_gear(2);
+    auto* location = wireSnapshot.mutable_vehicle_state();
+    location->set_heading_rad(1.25);
+
+    const auto snapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
+    const auto summary = autoviz::ui::status::makeControlStatusSummary(
+        snapshot.controlCommandStatus,
+        snapshot.chassisRuntimeStatus,
+        snapshot.localizationStatus);
+    const bool ok = summary.hasCommand && summary.commandMode == 6
+                    && summary.commandEnabled && summary.commandGear == 2
+                    && std::abs(summary.commandSpeed - 0.5144444704) < 1.0e-12
+                    && std::abs(summary.commandHeading - 0.75) < 1.0e-12
+                    && std::abs(summary.commandAngularVelocity - 0.369556) < 1.0e-12
+                    && snapshot.controlCommandStatus.header.receiveTimestamp == 1234
+                    && snapshot.controlCommandStatus.header.sourceTimestamp == 0
+                    && snapshot.controlCommandStatus.header.sequence == 42
+                    && summary.hasChassisFeedback && summary.feedbackGear == 2
+                    && std::abs(summary.feedbackSpeed + 0.48) < 1.0e-12
+                    && std::abs(summary.feedbackAngularVelocity - 0.22) < 1.0e-12
+                    && snapshot.chassisRuntimeStatus.header.receiveTimestamp == 1235
+                    && snapshot.chassisRuntimeStatus.header.sourceTimestamp == 0
+                    && snapshot.chassisRuntimeStatus.header.sequence == 43
+                    && summary.hasHeadingFeedback
+                    && std::abs(summary.feedbackHeading - 1.25) < 1.0e-12;
+    if (!ok) {
+        error << "control status summary selected Action expectations instead of command/feedback topics\n";
+    }
+    return ok;
 }
 
 bool runCdrSafetyChecks(QTextStream& error)
@@ -300,6 +485,15 @@ int main(int argc, char** argv)
     if (!runCurrentChassisCommandLayoutChecks(error)) {
         return 1;
     }
+    if (!runModeGearIndependenceChecks(error)) {
+        return 1;
+    }
+    if (!runChassisYawNormalizationChecks(error)) {
+        return 1;
+    }
+    if (!runControlStatusSummaryChecks(error)) {
+        return 1;
+    }
     if (!runCenterTurnConversionChecks(error)) {
         return 1;
     }
@@ -318,7 +512,7 @@ int main(int argc, char** argv)
     if (!runGoalUuidNormalizationChecks(error)) {
         return 1;
     }
-    out << "CDR, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
+    out << "CDR, command-summary source selection, chassis yaw normalization, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {
@@ -338,6 +532,8 @@ int main(int argc, char** argv)
 
         qint64 total = 0;
         qint64 commandCenterTurnMessages = 0;
+        qint64 invalidDisabledCommandMessages = 0;
+        qint64 nonZeroCommandYawMessages = 0;
         qint64 actionCenterTurnMessages = 0;
         qint64 hiddenStatusMessages = 0;
         qint64 hiddenFeedbackMessages = 0;
@@ -399,6 +595,30 @@ int main(int argc, char** argv)
                         }
                         ++commandCenterTurnMessages;
                     }
+                    if (wireSnapshot.has_control_command()) {
+                        const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
+                        if (wireSnapshot.control_command().mode() == ::autoviz::ControlCommand::MODE_UNKNOWN
+                            && !wireSnapshot.control_command().enabled()) {
+                            if (!modelSnapshot.controlCommandStatus.valid
+                                || modelSnapshot.controlCommandStatus.mode != 0
+                                || modelSnapshot.controlCommandStatus.isEnable) {
+                                error << directory.dirName() << ": invalid disabled command changed during model conversion\n";
+                                ++failures;
+                                break;
+                            }
+                            ++invalidDisabledCommandMessages;
+                        }
+                        const double wireYawRate = wireSnapshot.control_command().target_yaw_rate_radps();
+                        if (std::abs(modelSnapshot.controlCmd.desiredAngularVelocity - wireYawRate) > 1.0e-12
+                            || std::abs(modelSnapshot.controlCommandStatus.angularVelocity - wireYawRate) > 1.0e-12) {
+                            error << directory.dirName() << ": command angular velocity changed during model conversion\n";
+                            ++failures;
+                            break;
+                        }
+                        if (std::abs(wireYawRate) > 1.0e-9) {
+                            ++nonZeroCommandYawMessages;
+                        }
+                    }
                     if (wireSnapshot.has_action_state()
                         && (wireSnapshot.action_state().chassis_mode() == 10
                             || wireSnapshot.action_state().chassis_mode() == 11)) {
@@ -433,6 +653,8 @@ int main(int argc, char** argv)
         if (!failures) {
             out << directory.dirName() << ": OK, " << total << " supported messages, "
                 << commandCenterTurnMessages << " command center-turn messages, "
+                << invalidDisabledCommandMessages << " invalid disabled command messages, "
+                << nonZeroCommandYawMessages << " non-zero command yaw-rate messages, "
                 << actionCenterTurnMessages << " action center-turn messages, "
                 << "hidden[status:" << hiddenStatusMessages
                 << ",feedback:" << hiddenFeedbackMessages << "], "

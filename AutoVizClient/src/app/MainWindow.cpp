@@ -527,8 +527,9 @@ void MainWindow::openRosbagPlaybackDialog()
 {
     if (m_playbackDialog == nullptr) {
         m_playbackDialog = new autoviz::ui::playback::RosbagPlaybackDialog(m_playbackSource, this);
-        connect(m_playbackDialog, &autoviz::ui::playback::RosbagPlaybackDialog::playbackStarting,
-                this, [this]() {
+        const auto activatePlayback = [this]() {
+                    m_dataManager->activateInputSource(
+                        autoviz::datacenter::VisualizationInputSource::Ros2Bag);
                     if (m_remoteSource != nullptr) m_remoteSource->disconnectFromServer();
                     m_controlPanel->clearHistory();
                     // 清空主线程可见的旧快照，避免 Worker 刚开始新会话时仍把上一轮
@@ -547,13 +548,19 @@ void MainWindow::openRosbagPlaybackDialog()
                             m_sceneManager->setMainViewMode(m_effectiveMainViewMode);
                         }
                     }
-                });
+                };
+        connect(m_playbackDialog, &autoviz::ui::playback::RosbagPlaybackDialog::playbackLoading,
+                this, activatePlayback);
+        connect(m_playbackDialog, &autoviz::ui::playback::RosbagPlaybackDialog::playbackStarting,
+                this, activatePlayback);
     }
     m_playbackDialog->show();m_playbackDialog->raise();m_playbackDialog->activateWindow();
 }
 
 void MainWindow::initializeRemoteDataSource()
 {
+    m_dataManager->activateInputSource(
+        autoviz::datacenter::VisualizationInputSource::Remote);
     m_dataManager->resetVisualizationData(
         autoviz::datacenter::VisualizationInputSource::Remote);
     m_remoteSource = new autoviz::network::RemoteVisualizationSource(m_dataManager, this);
@@ -599,6 +606,10 @@ void MainWindow::openConnectionDialog()
     settings.setValue(QStringLiteral("server/port"), m_connectionDialog->port());
     settings.setValue(QStringLiteral("server/auto_connect"), m_connectionDialog->autoConnect());
     if (m_playbackSource != nullptr) m_playbackSource->stop();
+    m_dataManager->activateInputSource(
+        autoviz::datacenter::VisualizationInputSource::Remote);
+    m_dataManager->resetVisualizationData(
+        autoviz::datacenter::VisualizationInputSource::Remote);
     // 连接切换属于会话级别变化：与回放起点切换相同，需要一并清空 SceneManager
     // 内残留的垂向段/上一次运行模式记忆以及 ControlPanel 历史曲线，否则新连接
     // 的首个垂向请求会因为跳变检测失效或旧 startTimestampMs 残留而卡在 t=0。

@@ -1,6 +1,7 @@
 #include "core/playback/LocalRosbagPlaybackSource.h"
 
 #include <algorithm>
+#include <limits>
 
 #include <QDateTime>
 #include <QDir>
@@ -23,6 +24,8 @@ namespace autoviz::playback {
 namespace wire = ::autoviz;
 
 namespace {
+constexpr qint64 kTopicTimeoutNs = 5000000000LL;
+
 QString scalar(const QString& yaml, const QString& key)
 {
     QRegularExpression re(QStringLiteral("(?m)^\\s*%1:\\s*([^\\r\\n]+)\\s*$").arg(QRegularExpression::escape(key)));
@@ -53,18 +56,19 @@ public slots:
     void play()
     {
         if(!m_info.isValid()||m_state==PlaybackState::Validating||m_state==PlaybackState::Error)return;
+        if((m_state==PlaybackState::Paused||m_state==PlaybackState::Ready)&&m_cursorReady){m_clock.restart();m_clockBaseNs=m_positionNs;m_state=PlaybackState::Playing;m_timer->start();emit stateChanged(m_state,tr("正在播放"));return;}
         if(m_state==PlaybackState::Completed){m_positionNs=0;resetSnapshot();}
         else if(m_state==PlaybackState::Ready||m_state==PlaybackState::Stopped)resetSnapshot();
         if(!prepareCursor(m_info.startTimeNs+m_positionNs)){emit failed(m_query.lastError().text());return;}
         m_clock.restart();m_clockBaseNs=m_positionNs;m_state=PlaybackState::Playing;m_timer->start();emit stateChanged(m_state,tr("正在播放"));
     }
-    void pause(){if(m_state!=PlaybackState::Playing)return;advanceClock();m_timer->stop();m_state=PlaybackState::Paused;emit stateChanged(m_state,tr("已暂停"));emit position(m_positionNs,m_info.durationNs());}
+    void pause(){if(m_state!=PlaybackState::Playing)return;advanceClock();synchronizeToPosition();m_timer->stop();m_state=PlaybackState::Paused;emit stateChanged(m_state,tr("已暂停"));emit position(m_positionNs,m_info.durationNs());}
     void stop(){m_timer->stop();m_positionNs=0;resetSnapshot();m_state=m_info.isValid()?PlaybackState::Stopped:PlaybackState::Empty;emit position(0,m_info.durationNs());emit stateChanged(m_state,tr("已停止"));}
     void seek(qint64 relative)
     {
-        if(!m_info.isValid())return;const bool resume=m_state==PlaybackState::Playing;m_timer->stop();m_positionNs=qBound<qint64>(0,relative,m_info.durationNs());rebuildAt(m_info.startTimeNs+m_positionNs);emit position(m_positionNs,m_info.durationNs());if(resume){m_clock.restart();m_clockBaseNs=m_positionNs;prepareCursor(m_info.startTimeNs+m_positionNs+1);m_timer->start();}
+        if(!m_info.isValid())return;const bool resume=m_state==PlaybackState::Playing;m_timer->stop();m_positionNs=qBound<qint64>(0,relative,m_info.durationNs());rebuildAt(m_info.startTimeNs+m_positionNs);emit position(m_positionNs,m_info.durationNs());if(resume){m_clock.restart();m_clockBaseNs=m_positionNs;m_timer->start();}
     }
-    void setRate(double value){advanceClock();m_rate=qBound(0.1,value,8.0);m_clock.restart();m_clockBaseNs=m_positionNs;emit rateChanged(m_rate);}
+    void setRate(double value){if(m_state==PlaybackState::Playing){advanceClock();synchronizeToPosition();}m_rate=qBound(0.1,value,8.0);m_clock.restart();m_clockBaseNs=m_positionNs;emit rateChanged(m_rate);}
 
 signals:
     void progress(int,const QString&);void loaded(const RosbagInfo&);void stateChanged(PlaybackState,const QString&);void position(qint64,qint64);void rateChanged(double);void failed(const QString&);
@@ -75,6 +79,19 @@ private:
         QString topic;
         QString type;
         QByteArray payload;
+        int splitIndex = 0;
+        qint64 messageId = 0;
+    };
+
+    struct OrderingKey {
+        qint64 timestampNs = 0;
+        int splitIndex = 0;
+        qint64 messageId = 0;
+    };
+
+    struct CenterTurnTransition {
+        OrderingKey key;
+        bool active = false;
     };
 
     bool inspectMetadata(const QString& directory,RosbagInfo& info,QString& error)
@@ -92,6 +109,15 @@ private:
     QString unionSql(const QString& columns,const QString& where={}) const
     {
         QStringList parts;for(int i=0;i<m_files.size();++i){const QString schema=i?QStringLiteral("bag%1.").arg(i):QString{};parts<<QStringLiteral("SELECT %1 FROM %2messages m JOIN %2topics t ON t.id=m.topic_id %3").arg(columns,schema,where);}return parts.join(" UNION ALL ");
+    }
+    QString messageUnionSql(const QString& where={}) const
+    {
+        QStringList parts;
+        for(int i=0;i<m_files.size();++i){
+            const QString schema=i?QStringLiteral("bag%1.").arg(i):QString{};
+            parts<<QStringLiteral("SELECT m.timestamp timestamp,t.name name,t.type type,m.data data,%1 split_index,m.id message_id FROM %2messages m JOIN %2topics t ON t.id=m.topic_id %3").arg(i).arg(schema,where);
+        }
+        return parts.join(" UNION ALL ");
     }
     QString supportedTopicListSql() const
     {
@@ -114,40 +140,109 @@ private:
         info.startTimeNs=q.value(0).toLongLong();info.endTimeNs=q.value(1).toLongLong();
         info.channels=channels.values().toVector();for(const auto&c:info.channels)if(!c.present&&c.topic!="/targets/final_objects")info.warnings<<tr("缺少通道 %1").arg(c.topic);
         emit progress(5,tr("正在完整解码 %1 条受支持消息").arg(supportedCount));
-        const QString decodeSql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data",QStringLiteral("WHERE t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp";q.setForwardOnly(true);if(!q.exec(decodeSql)){error=q.lastError().text();return false;}qint64 n=0;while(q.next()){wire::VisualizationSnapshot scratch;QString detail;if(!RobotWsCdrDecoder::decode(q.value(1).toString(),q.value(2).toString(),q.value(3).toByteArray(),q.value(0).toULongLong(),&scratch,&detail)){error=tr("消息解码失败：%1，第 %2 条：%3").arg(q.value(1).toString()).arg(n+1).arg(detail);return false;}++n;if(n%10000==0)emit progress(5+static_cast<int>(94.0*n/supportedCount),tr("已验证 %1 / %2 条消息").arg(n).arg(supportedCount));}return true;
+        m_centerTurnTransitions.clear();
+        bool hasCenterTurnState=false;
+        bool centerTurnState=false;
+        const QString decodeSql=messageUnionSql(QStringLiteral("WHERE t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp,split_index,message_id";q.setForwardOnly(true);if(!q.exec(decodeSql)){error=q.lastError().text();return false;}qint64 n=0;while(q.next()){wire::VisualizationSnapshot scratch;QString detail;if(!RobotWsCdrDecoder::decode(q.value(1).toString(),q.value(2).toString(),q.value(3).toByteArray(),q.value(0).toULongLong(),&scratch,&detail)){error=tr("消息解码失败：%1，第 %2 条：%3").arg(q.value(1).toString()).arg(n+1).arg(detail);return false;}if(q.value(1).toString()==QStringLiteral("/chassis_command")&&scratch.has_control_command()){const bool active=scratch.control_command().maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;if(!hasCenterTurnState||active!=centerTurnState){m_centerTurnTransitions.push_back({{q.value(0).toLongLong(),q.value(4).toInt(),q.value(5).toLongLong()},active});hasCenterTurnState=true;centerTurnState=active;}}++n;if(n%10000==0)emit progress(5+static_cast<int>(94.0*n/supportedCount),tr("已验证 %1 / %2 条消息").arg(n).arg(supportedCount));}return true;
+    }
+    static bool keyLess(const OrderingKey& left, const OrderingKey& right)
+    {
+        if (left.timestampNs != right.timestampNs) return left.timestampNs < right.timestampNs;
+        if (left.splitIndex != right.splitIndex) return left.splitIndex < right.splitIndex;
+        return left.messageId < right.messageId;
+    }
+    static OrderingKey keyFor(const PendingMessage& message)
+    {
+        return {message.timestampNs, message.splitIndex, message.messageId};
+    }
+    static bool isSequentialTopic(const QString& topic)
+    {
+        return topic == QStringLiteral("/chassis_command")
+               || topic == QStringLiteral("/chassis_states")
+               || topic == QStringLiteral("/system_run_states")
+               || topic == QStringLiteral("/global_path")
+               || topic == QStringLiteral("/local_path");
     }
     void resetSnapshot()
     {
-        m_snapshot.Clear();m_actionDiagnostics.clear();m_snapshot.set_session_id(QStringLiteral("local:%1").arg(m_info.name).toStdString());auto*src=m_snapshot.mutable_source();src->set_source_id(m_info.name.toStdString());src->set_communication_type("ROS2 Bag");src->set_communication_version("Humble");src->set_description("Local robot_ws rosbag2 sqlite3 playback");src->add_capability(wire::CAPABILITY_COMMON_PLANNING_CONTROL);src->add_capability(wire::CAPABILITY_VERTICAL_MOTION);src->add_capability(wire::CAPABILITY_UNDERWATER_SYSTEM);src->add_capability(wire::CAPABILITY_PLATFORM_DIAGNOSTICS);m_counts.clear();m_lastTimes.clear();if(m_dataManager)m_dataManager->resetVisualizationData(datacenter::VisualizationInputSource::Ros2Bag);
+        m_snapshot.Clear();m_actionDiagnostics.clear();m_snapshotSequence=0;m_snapshot.set_session_id(QStringLiteral("local:%1").arg(m_info.name).toStdString());auto*src=m_snapshot.mutable_source();src->set_source_id(m_info.name.toStdString());src->set_communication_type("ROS2 Bag");src->set_communication_version("Humble");src->set_description("Local robot_ws rosbag2 sqlite3 playback");src->add_capability(wire::CAPABILITY_COMMON_PLANNING_CONTROL);src->add_capability(wire::CAPABILITY_VERTICAL_MOTION);src->add_capability(wire::CAPABILITY_UNDERWATER_SYSTEM);src->add_capability(wire::CAPABILITY_PLATFORM_DIAGNOSTICS);m_counts.clear();m_lastTimes.clear();m_centerTurnActive=false;m_hasPending=false;m_cursorReady=false;m_cursorExhausted=false;if(m_dataManager)m_dataManager->resetVisualizationData(datacenter::VisualizationInputSource::Ros2Bag);
+    }
+    void clearTopicSnapshot(const QString& topic)
+    {
+        if(topic==QStringLiteral("/location"))m_snapshot.clear_vehicle_state();
+        else if(topic==QStringLiteral("/targets/final_objects"))m_snapshot.clear_obstacles();
+        else if(topic==QStringLiteral("/chassis_command")){m_snapshot.clear_control_command();m_centerTurnActive=false;}
+        else if(topic==QStringLiteral("/chassis_states"))m_snapshot.clear_chassis_state();
+        else if(topic==QStringLiteral("/system_run_states"))m_snapshot.clear_action_state();
+        else if(topic==QStringLiteral("/task_params"))m_snapshot.clear_task_state();
+        else if(topic==QStringLiteral("/local_path"))m_snapshot.clear_local_trajectory();
+        else if(topic==QStringLiteral("/global_path"))m_snapshot.clear_global_trajectory();
     }
     void updateRuntime(qint64 now)
     {
-        auto*r=m_snapshot.mutable_runtime_state();r->clear_topic();for(const auto&c:m_info.channels){if(!c.present)continue;auto*t=r->add_topic();t->set_name(c.topic.toStdString());t->set_type(c.type.toStdString());t->set_data_kind(RobotWsCdrDecoder::dataKind(c.topic));t->set_message_count(m_counts.value(c.topic));t->set_last_update_time_ns(m_lastTimes.value(c.topic));t->set_timeout_ns(5000000000ULL);t->set_timed_out(m_lastTimes.value(c.topic)>0&&now-m_lastTimes.value(c.topic)>5000000000LL);}
+        auto*r=m_snapshot.mutable_runtime_state();r->clear_topic();
+        for(const auto&c:m_info.channels){
+            if(!c.present)continue;
+            const qint64 last=m_lastTimes.value(c.topic);
+            const bool timedOut=last<=0||now-last>kTopicTimeoutNs;
+            if(timedOut)clearTopicSnapshot(c.topic);
+            auto*t=r->add_topic();t->set_name(c.topic.toStdString());t->set_type(c.type.toStdString());t->set_data_kind(RobotWsCdrDecoder::dataKind(c.topic));t->set_message_count(m_counts.value(c.topic));t->set_last_update_time_ns(last);t->set_timeout_ns(kTopicTimeoutNs);t->set_timed_out(timedOut);
+        }
     }
     bool prepareCursor(qint64 absolute)
     {
-        const QString sql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data",QStringLiteral("WHERE m.timestamp >= ? AND t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp";m_query=QSqlQuery(m_db);m_query.setForwardOnly(true);m_query.prepare(sql);for(int i=0;i<m_files.size();++i)m_query.addBindValue(absolute);m_hasPending=false;return m_query.exec();
+        const QString sql=messageUnionSql(QStringLiteral("WHERE m.timestamp >= ? AND t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp,split_index,message_id";m_query=QSqlQuery(m_db);m_query.setForwardOnly(true);m_query.prepare(sql);for(int i=0;i<m_files.size();++i)m_query.addBindValue(absolute);m_hasPending=false;m_cursorExhausted=false;m_cursorReady=m_query.exec();return m_cursorReady;
     }
     void rebuildAt(qint64 absolute)
     {
         resetSnapshot();
-        QVector<PendingMessage> latest;
-        for(const auto& topic:RobotWsCdrDecoder::supportedTopics()){
-            const QString sql=unionSql("m.timestamp timestamp,t.name name,t.type type,m.data data","WHERE m.timestamp <= ? AND t.name = ?")+" ORDER BY timestamp DESC LIMIT 1";
-            QSqlQuery q(m_db);q.prepare(sql);for(int i=0;i<m_files.size();++i){q.addBindValue(absolute);q.addBindValue(topic);}if(q.exec()&&q.next())latest.push_back(messageFromRow(q));
-        }
-        std::sort(latest.begin(), latest.end(), [](const PendingMessage& left, const PendingMessage& right) {
-            return left.timestampNs < right.timestampNs;
-        });
-        for (const auto& message : latest) {
-            if (decodeMessage(message)) {
-                m_counts[message.topic]++;
-                m_lastTimes[message.topic] = message.timestampNs;
-            }
-        }
         const QString countSql=QStringLiteral("SELECT name,COUNT(*),MAX(timestamp) FROM (%1) GROUP BY name").arg(unionSql("m.timestamp timestamp,t.name name",QStringLiteral("WHERE m.timestamp <= ? AND t.name IN %1").arg(supportedTopicListSql())));
         QSqlQuery counts(m_db);counts.prepare(countSql);for(int i=0;i<m_files.size();++i)counts.addBindValue(absolute);if(counts.exec())while(counts.next()){m_counts[counts.value(0).toString()]=counts.value(1).toULongLong();m_lastTimes[counts.value(0).toString()]=counts.value(2).toLongLong();}
-        publish(absolute);prepareCursor(absolute+1);
+
+        const OrderingKey targetKey{absolute,std::numeric_limits<int>::max(),std::numeric_limits<qint64>::max()};
+        bool centerAtTarget=false;
+        bool hasTransition=false;
+        bool hasExitBoundary=false;
+        OrderingKey exitBoundary;
+        for(const auto&transition:m_centerTurnTransitions){
+            if(keyLess(targetKey,transition.key))break;
+            if(hasTransition&&centerAtTarget&&!transition.active){exitBoundary=transition.key;hasExitBoundary=true;}
+            centerAtTarget=transition.active;
+            hasTransition=true;
+        }
+
+        QVector<PendingMessage> latest;
+        for(const auto& topic:RobotWsCdrDecoder::supportedTopics()){
+            const QString sql=messageUnionSql("WHERE m.timestamp <= ? AND t.name = ?")+" ORDER BY timestamp DESC,split_index DESC,message_id DESC LIMIT 1";
+            QSqlQuery q(m_db);q.prepare(sql);for(int i=0;i<m_files.size();++i){q.addBindValue(absolute);q.addBindValue(topic);}if(!q.exec()||!q.next())continue;
+            const PendingMessage message=messageFromRow(q);
+            latest.push_back(message);
+        }
+
+        bool commandTimedOut=false;
+        for(const auto&message:latest){
+            if(message.topic!=QStringLiteral("/chassis_command"))continue;
+            commandTimedOut=absolute-message.timestampNs>kTopicTimeoutNs;
+            if(commandTimedOut&&centerAtTarget){
+                centerAtTarget=false;
+                exitBoundary={message.timestampNs+kTopicTimeoutNs,
+                              std::numeric_limits<int>::max(),
+                              std::numeric_limits<qint64>::max()};
+                hasExitBoundary=true;
+            }
+            break;
+        }
+        latest.erase(std::remove_if(latest.begin(),latest.end(),[&](const PendingMessage&message){
+            if(commandTimedOut&&message.topic==QStringLiteral("/chassis_command"))return true;
+            const bool path=message.topic==QStringLiteral("/global_path")
+                            ||message.topic==QStringLiteral("/local_path");
+            return path&&(centerAtTarget
+                          ||(hasExitBoundary&&!keyLess(exitBoundary,keyFor(message))));
+        }),latest.end());
+        std::sort(latest.begin(),latest.end(),[](const PendingMessage&left,const PendingMessage&right){return keyLess(keyFor(left),keyFor(right));});
+        for(const auto&message:latest)applyMessage(message,m_counts.value(message.topic));
+        publish(absolute);
+        prepareCursor(absolute+1);
     }
     PendingMessage messageFromRow(const QSqlQuery& q) const
     {
@@ -156,6 +251,8 @@ private:
         message.topic = q.value(1).toString();
         message.type = q.value(2).toString();
         message.payload = q.value(3).toByteArray();
+        message.splitIndex = q.value(4).toInt();
+        message.messageId = q.value(5).toLongLong();
         return message;
     }
     bool decodeMessage(const PendingMessage& message)
@@ -169,21 +266,39 @@ private:
                                          &error,
                                          &m_actionDiagnostics);
     }
-    void decodeRow(const QSqlQuery& q)
+    void stampSequence(const QString& topic, quint64 sequence, int firstEvent)
     {
-        const PendingMessage message = messageFromRow(q);
-        if (decodeMessage(message)) {
-            m_counts[message.topic]++;
-            m_lastTimes[message.topic] = message.timestampNs;
-        }
+        if(topic=="/chassis_command"&&m_snapshot.has_control_command())m_snapshot.mutable_control_command()->mutable_header()->set_sequence(sequence);
+        else if(topic=="/chassis_states"&&m_snapshot.has_chassis_state())m_snapshot.mutable_chassis_state()->mutable_header()->set_sequence(sequence);
+        else if(topic=="/system_run_states"&&m_snapshot.has_action_state())m_snapshot.mutable_action_state()->mutable_header()->set_sequence(sequence);
+        for(int index=firstEvent;index<m_snapshot.control_state_event_size();++index)m_snapshot.mutable_control_state_event(index)->mutable_header()->set_sequence(sequence);
     }
-    void publish(qint64 now){updateRuntime(now);m_snapshot.set_server_time_ns(now);if(m_dataManager)m_dataManager->replaceVisualizationSnapshot(network::ProtocolModelConverter::toModelSnapshot(m_snapshot),datacenter::VisualizationInputSource::Ros2Bag);}
-    void advanceClock(){if(m_state==PlaybackState::Playing&&m_clock.isValid())m_positionNs=qMin(m_info.durationNs(),m_clockBaseNs+static_cast<qint64>(m_clock.elapsed()*1000000.0*m_rate));}
-    void tick()
+    bool applyMessage(const PendingMessage& message, quint64 sequence)
     {
-        advanceClock();
-        const qint64 requestedPositionNs = m_positionNs;
-        const qint64 target = m_info.startTimeNs + requestedPositionNs;
+        const bool globalPath=message.topic==QStringLiteral("/global_path");
+        const bool localPath=message.topic==QStringLiteral("/local_path");
+        if(m_centerTurnActive&&(globalPath||localPath)){
+            if(globalPath)m_snapshot.clear_global_trajectory();else m_snapshot.clear_local_trajectory();
+            return true;
+        }
+        const int firstEvent=m_snapshot.control_state_event_size();
+        if(!decodeMessage(message))return false;
+        stampSequence(message.topic,sequence,firstEvent);
+        if(message.topic==QStringLiteral("/chassis_command")&&m_snapshot.has_control_command()){
+            const bool center=m_snapshot.control_command().maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
+            if(center&&!m_centerTurnActive){m_snapshot.clear_global_trajectory();m_snapshot.clear_local_trajectory();}
+            m_centerTurnActive=center;
+        }
+        return true;
+    }
+    void publish(qint64 now){updateRuntime(now);m_snapshot.set_sequence(++m_snapshotSequence);m_snapshot.set_server_time_ns(now);if(m_dataManager)m_dataManager->replaceVisualizationSnapshot(network::ProtocolModelConverter::toModelSnapshot(m_snapshot),datacenter::VisualizationInputSource::Ros2Bag);}
+    void advanceClock(){if(m_state==PlaybackState::Playing&&m_clock.isValid())m_positionNs=qMin(m_info.durationNs(),m_clockBaseNs+static_cast<qint64>(m_clock.elapsed()*1000000.0*m_rate));}
+    struct ProcessResult {
+        bool reachedTarget = true;
+        qint64 effectiveTimeNs = 0;
+    };
+    ProcessResult processUntil(qint64 target)
+    {
         QElapsedTimer budget;
         budget.start();
         QMap<QString, PendingMessage> latestByTopic;
@@ -193,16 +308,17 @@ private:
 
         while (true) {
             if (!m_hasPending) {
-                if (!m_query.next()) break;
+                if (!m_query.next()) {m_cursorExhausted=true;break;}
                 m_pendingTs = m_query.value(0).toLongLong();
                 m_hasPending = true;
             }
             if (m_pendingTs > target) break;
 
             const PendingMessage message = messageFromRow(m_query);
-            latestByTopic[message.topic] = message;
             m_counts[message.topic]++;
             m_lastTimes[message.topic] = message.timestampNs;
+            if(isSequentialTopic(message.topic))applyMessage(message,m_counts.value(message.topic));
+            else latestByTopic[message.topic] = message;
             lastProcessedNs = message.timestampNs;
             m_hasPending = false;
             ++processedRows;
@@ -223,22 +339,33 @@ private:
             return left.timestampNs < right.timestampNs;
         });
         for (const auto& message : latestMessages) {
-            decodeMessage(message);
+            applyMessage(message,m_counts.value(message.topic));
         }
-        if (!latestByTopic.isEmpty()) publish(reachedTarget ? target : lastProcessedNs);
-
-        if (!reachedTarget) {
-            // 播放线程过载时降低虚拟时钟，而不是积压无限工作或阻塞命令队列。
-            m_positionNs = qBound<qint64>(0, lastProcessedNs - m_info.startTimeNs, m_info.durationNs());
-            m_clockBaseNs = m_positionNs;
+        const qint64 effectiveTimeNs=reachedTarget?target:lastProcessedNs;
+        publish(effectiveTimeNs);
+        return {reachedTarget,effectiveTimeNs};
+    }
+    void synchronizeToPosition()
+    {
+        if(!m_cursorReady)return;
+        const auto result=processUntil(m_info.startTimeNs+m_positionNs);
+        if(!result.reachedTarget){
+            m_positionNs=qBound<qint64>(0,result.effectiveTimeNs-m_info.startTimeNs,m_info.durationNs());
+            m_clockBaseNs=m_positionNs;
             m_clock.restart();
         }
+    }
+    void tick()
+    {
+        advanceClock();
+        synchronizeToPosition();
+
         emit position(m_positionNs,m_info.durationNs());
-        if(m_positionNs>=m_info.durationNs()&&!m_hasPending&&!m_query.next()){m_timer->stop();m_state=PlaybackState::Completed;emit stateChanged(m_state,tr("播放完成"));}
+        if(m_positionNs>=m_info.durationNs()&&!m_hasPending&&m_cursorExhausted){m_timer->stop();m_state=PlaybackState::Completed;emit stateChanged(m_state,tr("播放完成"));}
     }
     void closeDb(){m_query=QSqlQuery();if(m_db.isValid()){m_db.close();m_db=QSqlDatabase();}if(!m_connection.isEmpty()){QSqlDatabase::removeDatabase(m_connection);m_connection.clear();}}
 
-    datacenter::DataManager*m_dataManager=nullptr;QTimer* m_timer=nullptr;QElapsedTimer m_clock;QSqlDatabase m_db;QSqlQuery m_query;QString m_connection;QStringList m_files;RosbagInfo m_info;PlaybackState m_state=PlaybackState::Empty;wire::VisualizationSnapshot m_snapshot;RobotWsCdrDecoder::ActionDiagnosticCache m_actionDiagnostics;QMap<QString,quint64>m_counts;QMap<QString,qint64>m_lastTimes;qint64 m_positionNs=0,m_clockBaseNs=0,m_pendingTs=0;double m_rate=1.0;bool m_hasPending=false;
+    datacenter::DataManager*m_dataManager=nullptr;QTimer* m_timer=nullptr;QElapsedTimer m_clock;QSqlDatabase m_db;QSqlQuery m_query;QString m_connection;QStringList m_files;RosbagInfo m_info;PlaybackState m_state=PlaybackState::Empty;wire::VisualizationSnapshot m_snapshot;RobotWsCdrDecoder::ActionDiagnosticCache m_actionDiagnostics;QMap<QString,quint64>m_counts;QMap<QString,qint64>m_lastTimes;QVector<CenterTurnTransition>m_centerTurnTransitions;quint64 m_snapshotSequence=0;qint64 m_positionNs=0,m_clockBaseNs=0,m_pendingTs=0;double m_rate=1.0;bool m_hasPending=false,m_cursorReady=false,m_cursorExhausted=false,m_centerTurnActive=false;
 };
 
 LocalRosbagPlaybackSource::LocalRosbagPlaybackSource(datacenter::DataManager*dm,QObject*parent):QObject(parent)

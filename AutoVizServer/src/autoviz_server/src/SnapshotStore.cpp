@@ -44,6 +44,8 @@ void SnapshotStore::updateVehicleState(wire::VehicleState value, std::uint64_t r
 
 void SnapshotStore::updateChassisState(wire::ChassisState value, std::uint64_t receiveTimeNs)
 {
+    value.mutable_header()->set_sequence(nextSequence(wire::DATA_KIND_CHASSIS_STATE));
+    trackChassisEvent(value);
     m_snapshot.mutable_chassis_state()->Swap(&value);
     record(wire::DATA_KIND_CHASSIS_STATE, receiveTimeNs);
 }
@@ -51,6 +53,14 @@ void SnapshotStore::updateChassisState(wire::ChassisState value, std::uint64_t r
 void SnapshotStore::updateControlCommand(wire::ControlCommand value,
                                          std::uint64_t receiveTimeNs)
 {
+    value.mutable_header()->set_sequence(nextSequence(wire::DATA_KIND_CONTROL_COMMAND));
+    const bool centerTurn = value.maneuver() == wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
+    if (centerTurn && !m_centerTurnActive) {
+        m_snapshot.clear_global_trajectory();
+        m_snapshot.clear_local_trajectory();
+    }
+    m_centerTurnActive = centerTurn;
+    trackCommandEvent(value);
     m_snapshot.mutable_control_command()->Swap(&value);
     record(wire::DATA_KIND_CONTROL_COMMAND, receiveTimeNs);
 }
@@ -58,14 +68,18 @@ void SnapshotStore::updateControlCommand(wire::ControlCommand value,
 void SnapshotStore::updateGlobalTrajectory(wire::Trajectory value,
                                            std::uint64_t receiveTimeNs)
 {
-    m_snapshot.mutable_global_trajectory()->Swap(&value);
+    if (!m_centerTurnActive) {
+        m_snapshot.mutable_global_trajectory()->Swap(&value);
+    }
     record(wire::DATA_KIND_GLOBAL_TRAJECTORY, receiveTimeNs);
 }
 
 void SnapshotStore::updateLocalTrajectory(wire::Trajectory value,
                                           std::uint64_t receiveTimeNs)
 {
-    m_snapshot.mutable_local_trajectory()->Swap(&value);
+    if (!m_centerTurnActive) {
+        m_snapshot.mutable_local_trajectory()->Swap(&value);
+    }
     record(wire::DATA_KIND_LOCAL_TRAJECTORY, receiveTimeNs);
 }
 
@@ -77,6 +91,8 @@ void SnapshotStore::updateObstacles(wire::ObstacleSet value, std::uint64_t recei
 
 void SnapshotStore::updateActionState(wire::ActionState value, std::uint64_t receiveTimeNs)
 {
+    value.mutable_header()->set_sequence(nextSequence(wire::DATA_KIND_ACTION_STATE));
+    trackActionEvent(value);
     // SystemRunStates: 2=canceling, 3=succeeded, 4=aborted. 只保存最近一次
     // 终态，用于详情页；当前快照仍始终表达最新公开聚合状态。
     if (value.state() == 2 || value.state() == 3 || value.state() == 4) {
@@ -88,6 +104,21 @@ void SnapshotStore::updateActionState(wire::ActionState value, std::uint64_t rec
     }
     m_snapshot.mutable_action_state()->Swap(&value);
     record(wire::DATA_KIND_ACTION_STATE, receiveTimeNs);
+}
+
+void SnapshotStore::updateActionDiagnostics(wire::ActionState value)
+{
+    if (!m_snapshot.has_action_state()) {
+        return;
+    }
+
+    value.mutable_header()->CopyFrom(m_snapshot.action_state().header());
+    if (m_snapshot.action_state().has_recent_terminal()) {
+        value.mutable_recent_terminal()->CopyFrom(
+            m_snapshot.action_state().recent_terminal());
+    }
+    m_snapshot.mutable_action_state()->Swap(&value);
+    m_dirty = true;
 }
 
 void SnapshotStore::updateTaskState(wire::TaskState value, std::uint64_t receiveTimeNs)
@@ -105,13 +136,8 @@ void SnapshotStore::expire(std::chrono::steady_clock::time_point now,
                               || now - topic.lastReceive > timeout;
         if (timedOut && !topic.timedOut) {
             topic.timedOut = true;
-            // SystemRunStates 是 Action 生命周期聚合状态，实际系统可只在状态迁移时
-            // 发布。超时应作为健康诊断呈现，但不能因为没有心跳就清空正在执行的
-            // Action；否则 Client 会在定位仍持续更新时错误冻结 T-Z 曲线。
-            // 当前 Action 只由下一 Action、明确终态或 Server session 重置替换。
-            if (topic.spec.dataKind != wire::DATA_KIND_ACTION_STATE) {
-                clear(topic.spec.dataKind);
-            }
+            // 当前状态不可由过期缓存推断；事件历史仍保留在 snapshot 中供审计。
+            clear(topic.spec.dataKind);
             m_dirty = true;
         } else if (!timedOut) {
             topic.timedOut = false;
@@ -191,6 +217,90 @@ void SnapshotStore::record(wire::DataKind dataKind, std::uint64_t receiveTimeNs)
     m_dirty = true;
 }
 
+std::uint64_t SnapshotStore::nextSequence(wire::DataKind dataKind)
+{
+    const auto* state = monitor(dataKind);
+    return state == nullptr ? 0 : state->messageCount + 1;
+}
+
+void SnapshotStore::appendControlEvent(const wire::ControlStateEvent& event)
+{
+    m_snapshot.add_control_state_event()->CopyFrom(event);
+}
+
+void SnapshotStore::trackActionEvent(const wire::ActionState& value)
+{
+    if (m_hasActionSemantic && value.chassis_mode() == m_actionMode) return;
+    wire::ControlStateEvent event;
+    event.mutable_header()->CopyFrom(value.header());
+    event.set_source(wire::ControlStateEvent::SOURCE_ACTION_EXPECTATION);
+    event.set_goal_id(value.goal_id());
+    if (m_hasActionSemantic) event.set_previous_mode(m_actionMode);
+    event.set_current_mode(value.chassis_mode());
+    appendControlEvent(event);
+    m_hasActionSemantic = true;
+    m_actionMode = value.chassis_mode();
+}
+
+void SnapshotStore::trackCommandEvent(const wire::ControlCommand& value)
+{
+    const bool yawInPlace = value.maneuver() == wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
+    const std::int32_t mode = value.mode() == wire::ControlCommand::MODE_CRAWL
+                                  ? (yawInPlace ? 11 : 6)
+                                  : (value.mode() == wire::ControlCommand::MODE_SAILING ? (yawInPlace ? 10 : 0) : 0);
+    if (m_hasCommandSemantic && mode == m_commandMode && value.target_gear() == m_commandGear
+        && value.enabled() == m_commandEnabled) return;
+    wire::ControlStateEvent event;
+    event.mutable_header()->CopyFrom(value.header());
+    event.set_source(wire::ControlStateEvent::SOURCE_CONTROL_COMMAND);
+    if (m_snapshot.has_action_state()) event.set_goal_id(m_snapshot.action_state().goal_id());
+    if (m_hasCommandSemantic) {
+        event.set_previous_mode(m_commandMode);
+        event.set_previous_gear(m_commandGear);
+        event.set_previous_enabled(m_commandEnabled);
+    }
+    event.set_current_mode(mode);
+    event.set_current_gear(value.target_gear());
+    event.set_current_enabled(value.enabled());
+    appendControlEvent(event);
+    m_hasCommandSemantic = true;
+    m_commandMode = mode;
+    m_commandGear = value.target_gear();
+    m_commandEnabled = value.enabled();
+}
+
+void SnapshotStore::trackChassisEvent(const wire::ChassisState& value)
+{
+    bool hasOutput = false;
+    bool output = false;
+    if (value.has_platform() && value.platform().has_left_crawl_motor()
+        && value.platform().has_right_crawl_motor()) {
+        const bool left = value.platform().left_crawl_motor().output_enabled();
+        const bool right = value.platform().right_crawl_motor().output_enabled();
+        hasOutput = left == right;
+        output = left;
+    }
+    if (m_hasChassisSemantic && value.gear() == m_chassisGear
+        && (!hasOutput || (m_hasChassisOutputSemantic && output == m_chassisOutputEnabled))) return;
+    wire::ControlStateEvent event;
+    event.mutable_header()->CopyFrom(value.header());
+    event.set_source(wire::ControlStateEvent::SOURCE_CHASSIS_FEEDBACK);
+    if (m_snapshot.has_action_state()) event.set_goal_id(m_snapshot.action_state().goal_id());
+    if (m_hasChassisSemantic) {
+        event.set_previous_gear(m_chassisGear);
+        if (m_hasChassisOutputSemantic) event.set_previous_crawl_output_enabled(m_chassisOutputEnabled);
+    }
+    event.set_current_gear(value.gear());
+    if (hasOutput) event.set_current_crawl_output_enabled(output);
+    appendControlEvent(event);
+    m_hasChassisSemantic = true;
+    m_chassisGear = value.gear();
+    if (hasOutput) {
+        m_hasChassisOutputSemantic = true;
+        m_chassisOutputEnabled = output;
+    }
+}
+
 void SnapshotStore::clear(wire::DataKind dataKind)
 {
     switch (dataKind) {
@@ -202,6 +312,7 @@ void SnapshotStore::clear(wire::DataKind dataKind)
         break;
     case wire::DATA_KIND_CONTROL_COMMAND:
         m_snapshot.clear_control_command();
+        m_centerTurnActive = false;
         break;
     case wire::DATA_KIND_GLOBAL_TRAJECTORY:
         m_snapshot.clear_global_trajectory();

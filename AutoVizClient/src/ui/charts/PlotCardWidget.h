@@ -65,8 +65,8 @@ private:
 
     static bool hasValue(const ControlDebugData& data, ValueRole role);
     static double valueOf(const ControlDebugData& data, ValueRole role);
-    static QString valueSuffix(ValueRole role);
-    static QString formatValue(double value, ValueRole role);
+    static QString valueSuffix(ValueRole role, const ControlDebugData& data);
+    static QString formatValue(double value, ValueRole role, const ControlDebugData& data);
     static qint64 toRelativeTimeMs(qint64 elapsedMs, qint64 windowStartMs);
 
     PlotGeometry geometryFor(const QRect& bounds) const;

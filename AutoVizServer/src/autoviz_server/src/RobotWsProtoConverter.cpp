@@ -34,8 +34,8 @@ void fillHeader(wire::Header* header,
                 const std::string& module,
                 const std::string& frame = {})
 {
-    header->set_source_time_ns(sourceTimeNs);
-    header->set_server_receive_time_ns(receiveTimeNs);
+    if (sourceTimeNs > 0) header->set_source_time_ns(sourceTimeNs);
+    if (receiveTimeNs > 0) header->set_server_receive_time_ns(receiveTimeNs);
     header->set_module_name(module);
     if (!frame.empty()) {
         header->set_frame_id(frame);
@@ -292,7 +292,7 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
     const custom_msgs::msg::ChassisCommand& message, std::uint64_t receiveTimeNs)
 {
     wire::ControlCommand command;
-    fillHeader(command.mutable_header(), receiveTimeNs, receiveTimeNs,
+    fillHeader(command.mutable_header(), 0, receiveTimeNs,
                "robot_ws.chassis_command");
     const bool crawl = message.mode == 6 || message.mode == 8 || message.mode == 11;
     const bool sailing = (message.mode >= 1 && message.mode <= 5)
@@ -300,7 +300,7 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
     command.set_mode(crawl ? wire::ControlCommand::MODE_CRAWL
                            : (sailing ? wire::ControlCommand::MODE_SAILING
                                       : wire::ControlCommand::MODE_UNKNOWN));
-    command.set_maneuver((message.mode == 10 || message.mode == 11 || message.expected_gear == 4)
+    command.set_maneuver((message.mode == 10 || message.mode == 11)
                              ? wire::ControlCommand::MANEUVER_YAW_IN_PLACE
                              : wire::ControlCommand::MANEUVER_NONE);
     command.set_enabled(message.is_enable);
@@ -327,7 +327,7 @@ wire::ChassisState RobotWsProtoConverter::chassisState(
     const custom_msgs::msg::ChassisStates& message, std::uint64_t receiveTimeNs)
 {
     wire::ChassisState chassis;
-    fillHeader(chassis.mutable_header(), receiveTimeNs, receiveTimeNs,
+    fillHeader(chassis.mutable_header(), 0, receiveTimeNs,
                "robot_ws.chassis_states");
     chassis.set_speed_mps(message.current_speed);
     // robot_ws 反馈左转为负；AutoViz 统一为逆时针/左转为正。
@@ -439,7 +439,7 @@ wire::ActionState RobotWsProtoConverter::actionState(
     const custom_msgs::msg::SystemRunStates& message, std::uint64_t receiveTimeNs)
 {
     wire::ActionState state;
-    fillHeader(state.mutable_header(), receiveTimeNs, receiveTimeNs,
+    fillHeader(state.mutable_header(), 0, receiveTimeNs,
                "robot_ws.system_run_states");
     state.set_owner(message.owner);
     state.set_state(message.state);
