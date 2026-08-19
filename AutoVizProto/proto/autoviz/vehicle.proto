@@ -22,6 +22,22 @@ message VehicleState {
   optional uint64 gps_time = 14;
   optional double longitude_deg = 15;
   optional double latitude_deg = 16;
+  optional sint64 start_time_s = 17;
+  optional double gauss_x_m = 18;
+  optional double gauss_y_m = 19;
+  optional double gauss_z_m = 20;
+  optional double origin_longitude_deg = 21;
+  optional double origin_latitude_deg = 22;
+  optional double origin_x_m = 23;
+  optional double origin_y_m = 24;
+  optional double origin_z_m = 25;
+  optional double odom_heading_rad = 26;
+  optional double angular_velocity_x_radps = 27;
+  optional double angular_velocity_y_radps = 28;
+  optional sint64 usbl_message_word_1 = 29;
+  optional sint64 usbl_message_word_2 = 30;
+  optional sint64 usbl_message_word_3 = 31;
+  optional sint64 usbl_message_word_4 = 32;
 }
 
 message CrawlMotorState {
@@ -79,10 +95,19 @@ message PlatformDiagnostics {
   repeated PowerChannelState power_channel = 7;
 }
 
+// 当前 robot_ws 尾推驱动器的 CAN 遥测。id 使其不绑定固定推进器数量。
+message TailThrusterMotorState {
+  optional string id = 1;
+  optional double bus_current_a = 2;
+  optional sint32 controller_temperature_c = 3;
+  optional double target_speed_rpm = 4;
+  optional double actual_speed_rpm = 5;
+}
+
 message ChassisState {
   optional Header header = 1;
   optional double speed_mps = 2;
-  // 协议统一为逆时针/左转为正。
+  // robot_ws 监控反馈原值；Adapter 不按挡位或车辆坐标系改写符号。
   optional double yaw_rate_radps = 3;
   optional sint32 gear = 4;
   optional double throttle_percent = 5;
@@ -92,6 +117,7 @@ message ChassisState {
   optional PlatformDiagnostics platform = 9;
   optional UnderwaterChassisState underwater = 10;
   reserved 11 to 13;
+  repeated TailThrusterMotorState tail_thruster_motor = 14;
 }
 
 message VehicleParameters {

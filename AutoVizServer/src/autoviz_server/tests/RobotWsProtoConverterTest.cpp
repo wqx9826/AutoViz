@@ -59,7 +59,7 @@ TEST(RobotWsProtoConverterTest, ConvertsLocationAndKeepsVerticalQuantitiesDistin
     EXPECT_DOUBLE_EQ(actual.underwater().usbl_z_m(), 4.75);
 }
 
-TEST(RobotWsProtoConverterTest, ConvertsOnlyDrawableFinalTargets)
+TEST(RobotWsProtoConverterTest, ConvertsFinalTargetsIncludingPointTargets)
 {
     custom_msgs::msg::FinalTargetArray source;
     source.header.frame_id = "odom";
@@ -82,12 +82,13 @@ TEST(RobotWsProtoConverterTest, ConvertsOnlyDrawableFinalTargets)
 
     const auto actual = autoviz_server::RobotWsProtoConverter::obstacles(
         source, kReceiveTimeNs);
-    ASSERT_EQ(actual.obstacle_size(), 1);
+    ASSERT_EQ(actual.obstacle_size(), 2);
     EXPECT_EQ(actual.obstacle(0).id(), "42");
     EXPECT_EQ(actual.obstacle(0).source_class(), valid.CLASS_MINE);
     EXPECT_DOUBLE_EQ(actual.obstacle(0).center().x_m(), 10.0);
     EXPECT_DOUBLE_EQ(actual.obstacle(0).length_m(), 3.0);
     EXPECT_TRUE(actual.obstacle(0).has_heading_rad());
+    EXPECT_FALSE(actual.obstacle(1).dimensions_valid());
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsCommonAndUnderwaterControlCommand)
@@ -148,7 +149,7 @@ TEST(RobotWsProtoConverterTest, PreservesCenterTurningAsGenericManeuver)
     EXPECT_EQ(gear.maneuver(), autoviz::ControlCommand::MANEUVER_NONE);
 }
 
-TEST(RobotWsProtoConverterTest, NormalizesChassisYawAndUsesTypedDiagnostics)
+TEST(RobotWsProtoConverterTest, PreservesChassisYawAndUsesTypedDiagnostics)
 {
     custom_msgs::msg::ChassisStates source;
     source.current_speed = 1.2;
@@ -157,6 +158,10 @@ TEST(RobotWsProtoConverterTest, NormalizesChassisYawAndUsesTypedDiagnostics)
     source.water_tank_level_status = 73;
     source.water_tank_status = source.WATER_TANK_FILLING;
     source.left_tail_actuator_status = 3;
+    source.left_tail_motor_bus_current = 4.5;
+    source.left_tail_motor_controller_temperature = 31;
+    source.left_tail_motor_target_speed_rpm = 120.0;
+    source.left_tail_motor_actual_speed_rpm = 118.0;
     source.crawl_heartbeat = 12;
     source.left_crawl_motor_speed_rpm = 321.0;
     source.left_crawl_motor_fault = true;
@@ -171,13 +176,15 @@ TEST(RobotWsProtoConverterTest, NormalizesChassisYawAndUsesTypedDiagnostics)
 
     const auto actual = autoviz_server::RobotWsProtoConverter::chassisState(
         source, kReceiveTimeNs);
-    EXPECT_DOUBLE_EQ(actual.yaw_rate_radps(), 0.75);
+    EXPECT_DOUBLE_EQ(actual.yaw_rate_radps(), -0.75);
     EXPECT_EQ(actual.underwater().water_tank_level(), 73);
     EXPECT_EQ(actual.underwater().water_tank_state(),
               autoviz::WATER_TANK_STATE_FILLING);
     EXPECT_TRUE(actual.underwater().emergency_ascent_active());
     EXPECT_EQ(actual.underwater().thruster(0).fault_code(), 3);
     ASSERT_TRUE(actual.has_platform());
+    ASSERT_EQ(actual.tail_thruster_motor_size(), 2);
+    EXPECT_DOUBLE_EQ(actual.tail_thruster_motor(0).actual_speed_rpm(), 118.0);
     EXPECT_EQ(actual.platform().crawl_heartbeat(), 12);
     EXPECT_DOUBLE_EQ(actual.platform().left_crawl_motor().speed_rpm(), 321.0);
     EXPECT_EQ(actual.platform().left_crawl_motor().actuator_fault_code(), 6);

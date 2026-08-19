@@ -28,6 +28,13 @@ struct VehicleLocation {
     double pitch = 0.0;
     Vector3D Velocity;
     Vector3D Acceleration;
+    qint64 startTimeS = 0;
+    double gaussX = 0.0, gaussY = 0.0, gaussZ = 0.0;
+    double originLongitude = 0.0, originLatitude = 0.0;
+    double originX = 0.0, originY = 0.0, originZ = 0.0;
+    double odomHeading = 0.0;
+    double omegaX = 0.0, omegaY = 0.0;
+    qint64 usblMessageWords[4] = {};
 };
 
 struct VehicleChassisInfo {

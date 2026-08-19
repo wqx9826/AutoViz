@@ -15,7 +15,7 @@ Windows 开发基线统一为 Qt 6.10、Qt Kit 自带 MinGW 13.1 和同工具链
 静态库；Qt Creator/CLion 必须选择该编译器，禁止混入 MSYS2 UCRT64 的 protobuf/Abseil
 二进制。Linux Client 保持 Qt5，并使用 Linux 本机工具链重建自己的协议 SDK。
 
-协议为 2.1，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
+协议为 2.2，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
 Envelope，最大 16 MiB。传输仅有 ClientHello、ServerHello、VisualizationSnapshot、
 Heartbeat、ProtocolError。
 
@@ -26,7 +26,7 @@ Heartbeat、ProtocolError。
 通用协议可选字段，当前 Adapter 无输入。
 
 角度为 rad、角速度为 rad/s，heading 东向为 0、逆时针/左转为正。Server 将
-SystemRunStates 目标角速度从 deg/s 转 rad/s，将 ChassisStates 左负右正反馈取反。
+SystemRunStates 目标角速度从 deg/s 转 rad/s；ChassisStates 与 Location 角速度按源值透传。
 `odom_z`、`depth`、`height_above_bottom` 保持三个独立字段。
 
 动作类别按 `SystemRunStates.owner` 和 `chassis_mode` 共同判定：只有
@@ -42,8 +42,11 @@ rosbag Adapter 必须产生完全相同的字段语义。
 
 保留 main 的 XY、T-Z、路径、障碍物、控制曲线、状态详情、图层、居中、缩放和主题。
 UI 根据 capability 启用垂向、水下和平台诊断内容。公共 UI 只看内部模型；ROS topic/type
-只作为来源健康诊断文本显示。控制曲线按实际收到的控制命令、定位和底盘反馈采样；控制
-命令的 `enabled` 仅表示执行状态，不会丢弃未使能或切换阶段的回放曲线。
+只作为来源健康诊断文本显示。运动总览与控制指令的数据源固定为：`/chassis_command` 提供
+cmd 速度/航向/角速度/模式/档位/使能，`/location` 提供速度/航向/omega_z 的 rev，
+`/chassis_states` 仅提供爬行速度、爬行角速度和档位反馈。左侧控制曲线的目标值来自
+`/chassis_command`，反馈值来自 `/location`；控制命令的 `enabled` 只表达当前执行状态，
+不再驱动额外的“无效/未使能”过渡展示逻辑。
 
 Client 菜单中，“主视图显示管理”属于视图操作；“文件”提供已部署 `configs/` 目录入口
 （车辆尺寸 JSON 与浅色主题 QSS）以及退出；当前固定使用已验收的浅色 UI 基线，暂不开放
@@ -59,6 +62,8 @@ Client 图标保存在 `AutoVizClient/assets/autoviz_icon.png`，是透明 RGBA 
 
 运动总览固定使用六张卡片的 3×2 布局；连接状态、capability 和数据新鲜度仅更新卡片中的
 状态和值，不改变卡片结构或位置，保证未连接、刚连接和稳定运行时的扫读位置一致。
+详细信息的“控制时序”关联表中，数据来源、当前值和 Goal UUID 为长文本列，时间/序号/年龄/状态
+为紧凑列；列宽按职责固定，窄窗口允许表格自身横向滚动，禁止单元格互相覆盖。
 
 ## 默认运行参数
 

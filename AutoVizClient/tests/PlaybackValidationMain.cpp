@@ -147,7 +147,7 @@ bool runModeGearIndependenceChecks(QTextStream& error)
     return ok;
 }
 
-bool runChassisYawNormalizationChecks(QTextStream& error)
+bool runLegacyChassisPassThroughChecks(QTextStream& error)
 {
     QByteArray payload(4, '\0');
     payload[1] = char(1);  // CDR_LE
@@ -158,7 +158,7 @@ bool runChassisYawNormalizationChecks(QTextStream& error)
     appendCdrByte(&payload, 0);  // tank state
     appendCdrByte(&payload, 2);  // gear
     appendCdrFloat64(&payload, -0.48);
-    appendCdrFloat64(&payload, -0.22);  // robot_ws: left turn is negative
+    appendCdrFloat64(&payload, -0.22);  // robot_ws 原始反馈值，回放保持不变
     appendCdrByte(&payload, 0);         // left actuator fault
     appendCdrByte(&payload, 0);         // right actuator fault
     appendCdrByte(&payload, 1);         // crawl heartbeat
@@ -190,15 +190,22 @@ bool runChassisYawNormalizationChecks(QTextStream& error)
     if (!autoviz::playback::RobotWsCdrDecoder::decode(
             "/chassis_states", "custom_msgs/msg/ChassisStates", payload, 1,
             &snapshot, &detail)) {
-        error << "ChassisStates yaw normalization CDR self-test failed: " << detail << '\n';
+        error << "legacy ChassisStates CDR self-test failed: " << detail << '\n';
+        return false;
+    }
+    if (autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_states", "custom_msgs/msg/ChassisStates", payload.left(payload.size() - 1), 1,
+            &snapshot, &detail)) {
+        error << "invalid ChassisStates CDR length was accepted\n";
         return false;
     }
     const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
-    const bool ok = std::abs(snapshot.chassis_state().yaw_rate_radps() - 0.22) < 1.0e-12
-                    && std::abs(modelSnapshot.chassisRuntimeStatus.currentAngularVelocity - 0.22) < 1.0e-12
+    const bool ok = std::abs(snapshot.chassis_state().yaw_rate_radps() + 0.22) < 1.0e-12
+                    && std::abs(modelSnapshot.chassisRuntimeStatus.currentAngularVelocity + 0.22) < 1.0e-12
+                    && snapshot.chassis_state().tail_thruster_motor_size() == 0
                     && std::abs(modelSnapshot.chassisRuntimeStatus.currentSpeed + 0.48) < 1.0e-12;
     if (!ok) {
-        error << "ChassisStates yaw sign was not normalized\n";
+        error << "legacy ChassisStates was not passed through unchanged\n";
     }
     return ok;
 }
@@ -232,6 +239,8 @@ bool runControlStatusSummaryChecks(QTextStream& error)
     chassis->set_gear(2);
     auto* location = wireSnapshot.mutable_vehicle_state();
     location->set_heading_rad(1.25);
+    location->set_speed_mps(0.73);
+    location->set_yaw_rate_radps(-0.31);
 
     const auto snapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
     const auto summary = autoviz::ui::status::makeControlStatusSummary(
@@ -247,12 +256,12 @@ bool runControlStatusSummaryChecks(QTextStream& error)
                     && snapshot.controlCommandStatus.header.sourceTimestamp == 0
                     && snapshot.controlCommandStatus.header.sequence == 42
                     && summary.hasChassisFeedback && summary.feedbackGear == 2
-                    && std::abs(summary.feedbackSpeed + 0.48) < 1.0e-12
-                    && std::abs(summary.feedbackAngularVelocity - 0.22) < 1.0e-12
+                    && std::abs(summary.feedbackSpeed - 0.73) < 1.0e-12
+                    && std::abs(summary.feedbackAngularVelocity + 0.31) < 1.0e-12
                     && snapshot.chassisRuntimeStatus.header.receiveTimestamp == 1235
                     && snapshot.chassisRuntimeStatus.header.sourceTimestamp == 0
                     && snapshot.chassisRuntimeStatus.header.sequence == 43
-                    && summary.hasHeadingFeedback
+                    && summary.hasLocalizationFeedback
                     && std::abs(summary.feedbackHeading - 1.25) < 1.0e-12;
     if (!ok) {
         error << "control status summary selected Action expectations instead of command/feedback topics\n";
@@ -488,7 +497,7 @@ int main(int argc, char** argv)
     if (!runModeGearIndependenceChecks(error)) {
         return 1;
     }
-    if (!runChassisYawNormalizationChecks(error)) {
+    if (!runLegacyChassisPassThroughChecks(error)) {
         return 1;
     }
     if (!runControlStatusSummaryChecks(error)) {
@@ -512,7 +521,7 @@ int main(int argc, char** argv)
     if (!runGoalUuidNormalizationChecks(error)) {
         return 1;
     }
-    out << "CDR, command-summary source selection, chassis yaw normalization, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
+    out << "CDR, command-summary source selection, legacy chassis pass-through, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {
@@ -539,6 +548,7 @@ int main(int argc, char** argv)
         qint64 hiddenFeedbackMessages = 0;
         qint64 actionWithNativeStatus = 0;
         qint64 actionWithFeedback = 0;
+        qint64 chassisWithTailTelemetry = 0;
         autoviz::playback::RobotWsCdrDecoder::ActionDiagnosticCache diagnostics;
         QStringList quotedTopics;
         for (const auto& topic : autoviz::playback::RobotWsCdrDecoder::supportedTopics()) {
@@ -641,6 +651,11 @@ int main(int argc, char** argv)
                     } else if (topic.endsWith(QLatin1String("/_action/feedback"))) {
                         ++hiddenFeedbackMessages;
                     }
+                    if (topic == QLatin1String("/chassis_states")
+                        && wireSnapshot.has_chassis_state()
+                        && wireSnapshot.chassis_state().tail_thruster_motor_size() > 0) {
+                        ++chassisWithTailTelemetry;
+                    }
                     ++total;
                 }
                 database.close();
@@ -659,7 +674,7 @@ int main(int argc, char** argv)
                 << "hidden[status:" << hiddenStatusMessages
                 << ",feedback:" << hiddenFeedbackMessages << "], "
                 << "action[native_status:" << actionWithNativeStatus
-                << ",feedback:" << actionWithFeedback << "]\n";
+                << ",feedback:" << actionWithFeedback << "], chassis_tail:" << chassisWithTailTelemetry << "\n";
         }
     }
     return failures ? 1 : 0;

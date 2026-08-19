@@ -665,6 +665,17 @@ void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
         const QPointF center = toScenePoint(obstacle.position.position);
         const double x = center.x();
         const double y = center.y();
+        if (obstacle.shape == autoviz::model::ObstacleShapeType::Point) {
+            auto* marker = m_scene->addEllipse(x - 0.25, y - 0.25, 0.5, 0.5,
+                                               QPen(QColor("#ef476f"), 0.0),
+                                               QBrush(QColor(239, 71, 111, 180)));
+            marker->setToolTip(QStringLiteral("%1\nid=%2 class=%3\n点目标（无有效尺寸）")
+                                   .arg(obstacle.sourceTopic.isEmpty() ? QStringLiteral("obstacle") : obstacle.sourceTopic)
+                                   .arg(obstacle.id)
+                                   .arg(obstacle.classLabel.isEmpty() ? QString::number(obstacle.sourceClass) : obstacle.classLabel));
+            includeVisibleContentBounds(marker->sceneBoundingRect());
+            continue;
+        }
         auto* rect = m_scene->addRect(x - obstacle.length * 0.5,
                                       y - obstacle.width * 0.5,
                                       obstacle.length,

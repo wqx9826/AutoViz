@@ -49,10 +49,8 @@ private:
     ControlDebugData m_latestData;
     qint64 m_firstSampleTimestampMs = 0;
     quint64 m_lastCommandSequence = 0;
-    quint64 m_lastChassisSequence = 0;
     quint64 m_lastLocationSequence = 0;
     qint64 m_lastCommandTimestampMs = 0;
-    qint64 m_lastChassisTimestampMs = 0;
     qint64 m_lastLocationTimestampMs = 0;
     YawMetric m_yawMetric = YawMetric::Unknown;
     quint64 m_lastSnapshotSequence = 0;

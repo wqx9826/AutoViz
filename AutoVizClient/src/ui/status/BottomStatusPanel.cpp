@@ -32,8 +32,6 @@
 #include "ui/theme/UiThemeManager.h"
 
 namespace {
-constexpr qint64 kCommandTransitionDisplayMs = 250;
-
 void repolish(QWidget* widget);
 
 QString formatAge(qint64 ageMs)
@@ -655,7 +653,7 @@ QString headingSummaryText(const autoviz::ui::status::ControlStatusSummary& summ
     const QString command = summary.hasCommand
                                 ? formatAngleDegreesValue(summary.commandHeading)
                                 : QStringLiteral("--");
-    const QString feedback = displayAngleDegreesValue(summary.hasHeadingFeedback,
+    const QString feedback = displayAngleDegreesValue(summary.hasLocalizationFeedback,
                                                        summary.feedbackHeading);
     return QStringLiteral("%1 / %2").arg(command, feedback);
 }
@@ -665,7 +663,7 @@ QString angularVelocitySummaryText(const autoviz::ui::status::ControlStatusSumma
     const QString command = summary.hasCommand
                                 ? formatAngularVelocityDegreesValue(summary.commandAngularVelocity)
                                 : QStringLiteral("--");
-    const QString feedback = summary.hasChassisFeedback
+    const QString feedback = summary.hasLocalizationFeedback
                                  ? formatAngularVelocityDegreesValue(summary.feedbackAngularVelocity)
                                  : QStringLiteral("--");
     return QStringLiteral("%1 / %2").arg(command, feedback);
@@ -676,7 +674,7 @@ QString speedSummaryText(const autoviz::ui::status::ControlStatusSummary& summar
     const QString targetText = summary.hasCommand
                                    ? formatNumber(summary.commandSpeed, 2)
                                    : QStringLiteral("--");
-    const QString feedbackText = summary.hasChassisFeedback
+    const QString feedbackText = summary.hasLocalizationFeedback
                                      ? formatNumber(summary.feedbackSpeed, 2)
                                      : QStringLiteral("--");
     return QStringLiteral("%1 / %2").arg(targetText, feedbackText);
@@ -1013,88 +1011,12 @@ void BottomStatusPanel::appendLog(const QString& message)
     m_logOutput->appendPlainText(QStringLiteral("[%1] %2").arg(timestamp, message));
 }
 
-autoviz::ui::status::ControlStatusSummary BottomStatusPanel::controlSummaryForDisplay(
-    const autoviz::datacenter::VisualizationSnapshot& snapshot,
-    const autoviz::ui::status::ControlStatusSummary& currentSummary)
-{
-    const int inputSource = static_cast<int>(snapshot.runtimeStatus.inputSource);
-    const quint64 snapshotSequence = snapshot.runtimeStatus.snapshotSequence;
-    const QString& sessionId = snapshot.runtimeStatus.sessionId;
-    const int eventCount = snapshot.controlStateEvents.size();
-    const bool resetCursor = !m_controlEventCursorInitialized
-                             || inputSource != m_lastControlInputSource
-                             || sessionId != m_lastControlSessionId
-                             || eventCount < m_seenControlEventCount
-                             || (snapshotSequence > 0
-                                 && m_lastControlSnapshotSequence > 0
-                                 && snapshotSequence < m_lastControlSnapshotSequence);
-
-    if (resetCursor) {
-        m_pendingCommandTransitions.clear();
-        m_commandTransitionActive = false;
-        m_seenControlEventCount = eventCount;
-        m_controlEventCursorInitialized = true;
-    } else {
-        for (int index = m_seenControlEventCount; index < eventCount; ++index) {
-            const auto& event = snapshot.controlStateEvents.at(index);
-            if (event.source != autoviz::model::ControlEventSource::ControlCommand
-                || (!event.hasPreviousMode
-                    && !event.hasPreviousGear
-                    && !event.hasPreviousEnabled)) {
-                continue;
-            }
-            CommandTransitionDisplay transition;
-            transition.hasMode = event.hasCurrentMode;
-            transition.mode = event.currentMode;
-            transition.hasGear = event.hasCurrentGear;
-            transition.gear = event.currentGear;
-            transition.hasEnabled = event.hasCurrentEnabled;
-            transition.enabled = event.currentEnabled;
-            m_pendingCommandTransitions.enqueue(transition);
-        }
-        m_seenControlEventCount = eventCount;
-    }
-    m_lastControlInputSource = inputSource;
-    m_lastControlSessionId = sessionId;
-    m_lastControlSnapshotSequence = snapshotSequence;
-
-    if (m_commandTransitionActive
-        && m_commandTransitionTimer.elapsed() >= kCommandTransitionDisplayMs) {
-        m_commandTransitionActive = false;
-    }
-    if (!m_commandTransitionActive && !m_pendingCommandTransitions.isEmpty()) {
-        m_activeCommandTransition = m_pendingCommandTransitions.dequeue();
-        m_commandTransitionTimer.restart();
-        m_commandTransitionActive = true;
-    }
-
-    auto displayed = currentSummary;
-    if (!m_commandTransitionActive) {
-        return displayed;
-    }
-    displayed.replayingTransition = true;
-    if (m_activeCommandTransition.hasMode) {
-        displayed.hasCommand = true;
-        displayed.commandMode = m_activeCommandTransition.mode;
-    }
-    if (m_activeCommandTransition.hasGear) {
-        displayed.hasCommand = true;
-        displayed.commandGear = m_activeCommandTransition.gear;
-    }
-    if (m_activeCommandTransition.hasEnabled) {
-        displayed.hasCommand = true;
-        displayed.commandEnabled = m_activeCommandTransition.enabled;
-    }
-    return displayed;
-}
-
 void BottomStatusPanel::updateSnapshot(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
     const auto currentControlSummary = autoviz::ui::status::makeControlStatusSummary(
         snapshot.controlCommandStatus,
         snapshot.chassisRuntimeStatus,
         snapshot.localizationStatus);
-    const auto displayControlSummary = controlSummaryForDisplay(snapshot, currentControlSummary);
     if (m_detailTabs != nullptr && m_verticalDetailTab != nullptr) {
         const bool verticalVisible = snapshot.runtimeStatus.inputSource
                                          == autoviz::datacenter::VisualizationInputSource::Mock
@@ -1107,7 +1029,7 @@ void BottomStatusPanel::updateSnapshot(const autoviz::datacenter::VisualizationS
         m_detailTabs->setTabEnabled(verticalTabIndex, verticalVisible);
 #endif
     }
-    updateOverview(snapshot, displayControlSummary);
+    updateOverview(snapshot, currentControlSummary);
     updateTopicTable(snapshot);
     updateStateTabs(snapshot);
     updateControlTimeline(snapshot, currentControlSummary);
@@ -1166,9 +1088,11 @@ void BottomStatusPanel::setupOverviewTab()
     layout->addWidget(createOverviewGroup(tab,
                                           tr("当前运动"),
                                           {{QStringLiteral("control.mode"), tr("底盘模式")},
-                                           {QStringLiteral("control.speed"), tr("当前速度（m/s）")},
+                                           {QStringLiteral("control.crawl_speed"), tr("爬行速度（m/s）")},
+                                           {QStringLiteral("control.sailing_speed"), tr("航行速度（m/s）")},
                                            {QStringLiteral("control.heading"), tr("当前航向（°）")},
-                                           {QStringLiteral("control.angular"), tr("当前角速度（°/s）")},
+                                           {QStringLiteral("control.crawl_angular"), tr("爬行角速度（°/s）")},
+                                           {QStringLiteral("control.omega_z"), tr("角速度 omega_z（°/s）")},
                                            {QStringLiteral("control.gear"), tr("当前档位")},
                                            {QStringLiteral("pose.age"), tr("定位延迟")}}),
                       0,
@@ -1515,10 +1439,28 @@ void BottomStatusPanel::setupControlTimelineTab()
     m_controlAssociationTable->setHorizontalHeaderLabels({tr("数据来源"), tr("当前值"), tr("接收时间"),
                                                            tr("序号"), tr("发布端时间"), tr("接收延迟"),
                                                            tr("刷新年龄"), tr("状态"), tr("Goal UUID")});
-    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_controlAssociationTable->horizontalHeader()->setSectionResizeMode(8, QHeaderView::Stretch);
+    // Keep long identity/value columns readable while compact metadata columns
+    // use only the space their values require. A table-level horizontal scroll
+    // bar handles narrow detail panes without letting cells overlap.
+    m_controlAssociationTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    auto* associationHeader = m_controlAssociationTable->horizontalHeader();
+    for (int column = 0; column < m_controlAssociationTable->columnCount(); ++column) {
+        associationHeader->setSectionResizeMode(column, QHeaderView::Fixed);
+    }
+    const QVector<int> associationWidths = {
+        scale.scaled(280),  // data source
+        scale.scaled(240),  // current value
+        scale.scaled(150),  // receive time
+        scale.scaled(60),   // sequence
+        scale.scaled(150),  // source time
+        scale.scaled(100),  // receive delay
+        scale.scaled(100),  // age
+        scale.scaled(110),  // state
+        scale.scaled(280),  // goal UUID
+    };
+    for (int column = 0; column < associationWidths.size(); ++column) {
+        m_controlAssociationTable->setColumnWidth(column, associationWidths.at(column));
+    }
     m_controlAssociationTable->setMinimumHeight(scale.scaled(150));
     associationLayout->addWidget(m_controlAssociationTable);
     layout->addWidget(associationGroup, 0);
@@ -1552,6 +1494,7 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("loc.time"), tr("更新时间")},
                        {QStringLiteral("loc.topic"), tr("车辆状态通道")},
                        {QStringLiteral("loc.gps_time"), tr("GPS 时间")},
+                       {QStringLiteral("loc.start_time"), tr("定位启动时间 (s)")},
                        {QStringLiteral("loc.status_error"), tr("定位状态/错误码")}}},
                      {tr("空间姿态"),
                       {{QStringLiteral("loc.odom"), tr("里程计 X/Y/Z")},
@@ -1559,6 +1502,12 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("loc.depth_height"), tr("深度/高度")},
                        {QStringLiteral("loc.longitude_latitude"), tr("经度/纬度 (°)")},
                        {QStringLiteral("loc.usbl"), tr("USBL 定位 X/Y/Z (m)")}}},
+                     {tr("定位诊断"),
+                      {{QStringLiteral("loc.odom_heading"), tr("odom heading (°)")},
+                       {QStringLiteral("loc.gauss"), tr("高斯坐标 X/Y/Z (m)")},
+                       {QStringLiteral("loc.origin"), tr("原点经纬度/X/Y/Z")},
+                       {QStringLiteral("loc.omega_xy"), tr("角速度 X/Y (°/s)")},
+                       {QStringLiteral("loc.usbl_words"), tr("USBL 原始消息字")}}},
                      {tr("运动反馈"),
                       {{QStringLiteral("loc.velocity_xyz"), tr("速度 X/Y/Z")},
                        {QStringLiteral("loc.velocity"), tr("合速度")},
@@ -1590,6 +1539,8 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("chassis.right_motor"), tr("右履带电机")},
                        {QStringLiteral("chassis.motor_controller"), tr("控制器就绪/输出")},
                        {QStringLiteral("chassis.motor_command"), tr("指令回采")}}},
+                     {tr("尾推驱动器"),
+                      {{QStringLiteral("chassis.tail_motor"), tr("母线电流/温度/目标/实际 rpm")}}},
                      {tr("执行器与故障"),
                      {{QStringLiteral("chassis.heartbeat"), tr("水面/爬行心跳")},
                        {QStringLiteral("chassis.tail_actuator"), tr("尾部执行器 L/R")},
@@ -1602,6 +1553,7 @@ void BottomStatusPanel::setupStateTabs()
                       {{QStringLiteral("control.state"), tr("数据状态")},
                        {QStringLiteral("control.time"), tr("更新时间")},
                        {QStringLiteral("control.mode_enable"), tr("控制模式/使能")},
+                       {QStringLiteral("control.source_mode"), tr("来源原始模式码")},
                        {QStringLiteral("control.navi_mode"), tr("航行依赖模式")},
                        {QStringLiteral("control.expected_gear"), tr("期望挡位")},
                        {QStringLiteral("control.water_enabled"), tr("水面执行器使能")}}},
@@ -1689,7 +1641,8 @@ void BottomStatusPanel::setupStateTabs()
                      {tr("任务参数"),
                       {{QStringLiteral("task.state"), tr("任务数据状态")},
                        {QStringLiteral("task.type_id"), tr("任务类型/ID")},
-                       {QStringLiteral("task.enable_estop"), tr("任务使能/急停")},
+                       {QStringLiteral("task.enable_estop"), tr("启动请求/急停/动作使能")},
+                       {QStringLiteral("task.buoyancy"), tr("任务浮力指令")},
                        {QStringLiteral("task.remote_power"), tr("遥控模式/电源使能")},
                        {QStringLiteral("task.release_emergency_ascent"), tr("紧急上浮解除按钮")}}},
                      {tr("遥控指令"),
@@ -1748,32 +1701,23 @@ void BottomStatusPanel::updateOverview(
     setOverviewValue(QStringLiteral("pose.age"), locationTopic != nullptr ? formatAge(locationTopic->ageMs) : QStringLiteral("--"));
 
     QString displayedMode = chassisModeText(commandSummary.hasCommand, commandSummary.commandMode);
-    if (commandSummary.replayingTransition) displayedMode += tr("（切换）");
     setOverviewValue(QStringLiteral("control.mode"), displayedMode);
-    const bool useCrawlFeedback = commandSummary.hasCommand
-                                  && autoviz::model::isCrawlChassisMode(commandSummary.commandMode);
-    const QString feedbackSpeed = useCrawlFeedback
-                                      ? displayNumber(chassis.valid, chassis.currentSpeed, 2)
-                                      : displayNumber(loc.valid, loc.velocity, 2);
-    setOverviewValue(QStringLiteral("control.speed"), feedbackSpeed == QStringLiteral("--")
-                                                            ? QStringLiteral("--")
-                                                            : feedbackSpeed);
+    setOverviewValue(QStringLiteral("control.crawl_speed"), displayNumber(chassis.valid, chassis.currentSpeed, 2));
+    setOverviewValue(QStringLiteral("control.sailing_speed"), displayNumber(loc.valid, loc.velocity, 2));
     setOverviewValue(QStringLiteral("control.heading"), displayAngleDegreesValue(loc.valid, loc.heading));
-    const bool hasAngularFeedback = chassis.valid || loc.valid;
-    const double angularFeedback = chassis.valid ? chassis.currentAngularVelocity : loc.omegaZ;
-    setOverviewValue(QStringLiteral("control.angular"), hasAngularFeedback
-                                                              ? formatAngularVelocityDegreesValue(angularFeedback)
+    setOverviewValue(QStringLiteral("control.crawl_angular"), chassis.valid
+                                                              ? formatAngularVelocityDegreesValue(chassis.currentAngularVelocity)
                                                               : QStringLiteral("--"));
+    setOverviewValue(QStringLiteral("control.omega_z"), loc.valid
+                                                         ? formatAngularVelocityDegreesValue(loc.omegaZ)
+                                                         : QStringLiteral("--"));
     setOverviewValue(QStringLiteral("control.gear"), gearText(chassis.valid, chassis.gearStatus));
 
     setOverviewValue(QStringLiteral("command.speed"), speedSummaryText(commandSummary));
     setOverviewValue(QStringLiteral("command.heading"), headingSummaryText(commandSummary));
     setOverviewValue(QStringLiteral("command.angular"), angularVelocitySummaryText(commandSummary));
     setOverviewValue(QStringLiteral("command.gear"), gearSummaryText(commandSummary));
-    const QString commandMode = commandSummary.replayingTransition
-                                    ? QStringLiteral("%1（切换）")
-                                          .arg(chassisModeText(true, commandSummary.commandMode))
-                                    : chassisModeText(true, commandSummary.commandMode);
+    const QString commandMode = chassisModeText(true, commandSummary.commandMode);
     const QString commandState = commandSummary.hasCommand
                                      ? QStringLiteral("%1 / %2")
                                            .arg(commandMode,
@@ -1857,6 +1801,7 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("loc.time"), formatTime(loc.timestampMs));
     setDetailValue(QStringLiteral("loc.topic"), topicFreshnessText(findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::VehicleState)));
     setDetailValue(QStringLiteral("loc.gps_time"), displayInt64(loc.valid, loc.gpsTime));
+    setDetailValue(QStringLiteral("loc.start_time"), displayInt64(loc.valid, loc.startTimeS));
     setDetailValue(QStringLiteral("loc.status_error"), loc.valid ? QStringLiteral("%1 / %2").arg(loc.status).arg(loc.error) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.odom"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.odomX), formatNumber(loc.odomY), formatNumber(loc.odomZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.attitude"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatAngleDegrees(loc.heading), formatAngleDegrees(loc.pitch), formatAngleDegrees(loc.roll)) : QStringLiteral("--"));
@@ -1872,6 +1817,11 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
                                                             loc.hasUsblY ? formatNumber(loc.usblY) : QStringLiteral("--"),
                                                             loc.hasUsblZ ? formatNumber(loc.usblZ) : QStringLiteral("--"))
                                                  : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.odom_heading"), displayAngleDegrees(loc.valid, loc.odomHeading));
+    setDetailValue(QStringLiteral("loc.gauss"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.gaussX), formatNumber(loc.gaussY), formatNumber(loc.gaussZ)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.origin"), loc.valid ? QStringLiteral("%1 / %2 / %3 / %4 / %5").arg(formatNumber(loc.originLongitude, 6), formatNumber(loc.originLatitude, 6), formatNumber(loc.originX), formatNumber(loc.originY), formatNumber(loc.originZ)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.omega_xy"), loc.valid ? QStringLiteral("%1 / %2").arg(formatAngularVelocityDegrees(loc.omegaX), formatAngularVelocityDegrees(loc.omegaY)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("loc.usbl_words"), loc.valid ? QStringLiteral("%1 / %2 / %3 / %4").arg(loc.usblMessageWords[0]).arg(loc.usblMessageWords[1]).arg(loc.usblMessageWords[2]).arg(loc.usblMessageWords[3]) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.velocity_xyz"), loc.valid ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(loc.velocityX), formatNumber(loc.velocityY), formatNumber(loc.velocityZ)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("loc.velocity"), displayNumber(loc.valid, loc.velocity));
     setDetailValue(QStringLiteral("loc.omega_z"), displayAngularVelocityDegrees(loc.valid, loc.omegaZ));
@@ -1920,11 +1870,19 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("chassis.right_motor"), motorFeedbackText(chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_controller"), motorControllerText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_command"), motorCommandText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
+    QString tailMotorText = QStringLiteral("无此版本数据");
+    if (chassis.valid && !chassis.tailThrusterMotors.isEmpty()) {
+        QStringList values;
+        for (const auto& motor : chassis.tailThrusterMotors) values << QStringLiteral("%1: %2A / %3°C / %4 / %5").arg(motor.id).arg(formatNumber(motor.busCurrent)).arg(motor.controllerTemperature).arg(formatNumber(motor.targetSpeedRpm)).arg(formatNumber(motor.actualSpeedRpm));
+        tailMotorText = values.join(QStringLiteral("; "));
+    }
+    setDetailValue(QStringLiteral("chassis.tail_motor"), tailMotorText);
 
     const auto& control = snapshot.controlCommandStatus;
     setDetailValue(QStringLiteral("control.state"), validText(control.valid));
     setDetailValue(QStringLiteral("control.time"), formatTime(control.timestampMs));
     setDetailValue(QStringLiteral("control.mode_enable"), control.valid ? QStringLiteral("%1 / %2").arg(chassisModeText(true, control.mode), displayBool(true, control.isEnable)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("control.source_mode"), displayInt(control.valid, control.sourceMode));
     setDetailValue(QStringLiteral("control.navi_mode"), naviModeText(control.valid, control.naviMode));
     setDetailValue(QStringLiteral("control.expected_gear"), gearText(control.valid, control.expectedGear));
     setDetailValue(QStringLiteral("control.water_enabled"), displayBool(control.valid, control.isUseWaterActuator));
@@ -2002,7 +1960,8 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("action_detail.recent_time"), formatTime(recentAction.timestampMs));
     setDetailValue(QStringLiteral("task.state"), validText(task.valid));
     setDetailValue(QStringLiteral("task.type_id"), taskTypeAndIdText(task));
-    setDetailValue(QStringLiteral("task.enable_estop"), task.valid ? QStringLiteral("%1 / %2").arg(displayBool(true, task.taskEnable), displayBool(true, task.emergencyStop)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.enable_estop"), task.valid ? QStringLiteral("%1 / %2 / %3").arg(displayBool(true, task.taskStartRequested), displayBool(true, task.emergencyStop), displayBool(true, task.actionEnabled)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.buoyancy"), buoyancyCommandText(task.valid, task.buoyancyAdjust));
     setDetailValue(QStringLiteral("task.remote_power"), task.valid ? QStringLiteral("%1 / %2").arg(task.remoteMode).arg(task.powerEnable) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("task.release_emergency_ascent"), task.valid
                                                                          ? (task.releaseEmergencyAscent

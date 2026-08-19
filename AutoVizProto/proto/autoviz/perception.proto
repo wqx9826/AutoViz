@@ -32,9 +32,14 @@ message Obstacle {
   optional double confidence = 15;
   repeated TrajectoryPoint predicted_point = 16;
   repeated DiagnosticMetric attribute = 17;
+  optional bool geodetic_valid = 18;
+  optional GeodeticPosition geodetic_position = 19;
+  optional bool dimensions_valid = 20;
+  optional bool heading_valid = 21;
 }
 
 message ObstacleSet {
   optional Header header = 1;
   repeated Obstacle obstacle = 2;
+  optional uint32 source_task_id = 3;
 }

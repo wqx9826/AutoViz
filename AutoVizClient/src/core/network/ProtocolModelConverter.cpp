@@ -137,6 +137,13 @@ model::VehicleLocation convertVehicle(const wire::VehicleState& source)
         target.Acceleration.y = source.linear_acceleration_mps2().y();
         target.Acceleration.z = source.linear_acceleration_mps2().z();
     }
+    target.startTimeS = source.start_time_s();
+    target.gaussX = source.gauss_x_m(); target.gaussY = source.gauss_y_m(); target.gaussZ = source.gauss_z_m();
+    target.originLongitude = source.origin_longitude_deg(); target.originLatitude = source.origin_latitude_deg();
+    target.originX = source.origin_x_m(); target.originY = source.origin_y_m(); target.originZ = source.origin_z_m();
+    target.odomHeading = source.odom_heading_rad(); target.omegaX = source.angular_velocity_x_radps(); target.omegaY = source.angular_velocity_y_radps();
+    target.usblMessageWords[0] = source.usbl_message_word_1(); target.usblMessageWords[1] = source.usbl_message_word_2();
+    target.usblMessageWords[2] = source.usbl_message_word_3(); target.usblMessageWords[3] = source.usbl_message_word_4();
     return target;
 }
 
@@ -190,6 +197,13 @@ model::LocalizationStatus convertLocalization(const wire::VehicleState& source)
         target.hasLatitude = true;
         target.latitude = source.latitude_deg();
     }
+    target.startTimeS = source.start_time_s();
+    target.gaussX = source.gauss_x_m(); target.gaussY = source.gauss_y_m(); target.gaussZ = source.gauss_z_m();
+    target.originLongitude = source.origin_longitude_deg(); target.originLatitude = source.origin_latitude_deg();
+    target.originX = source.origin_x_m(); target.originY = source.origin_y_m(); target.originZ = source.origin_z_m();
+    target.odomHeading = source.odom_heading_rad(); target.omegaX = source.angular_velocity_x_radps(); target.omegaY = source.angular_velocity_y_radps();
+    target.usblMessageWords[0] = source.usbl_message_word_1(); target.usblMessageWords[1] = source.usbl_message_word_2();
+    target.usblMessageWords[2] = source.usbl_message_word_3(); target.usblMessageWords[3] = source.usbl_message_word_4();
     return target;
 }
 
@@ -306,6 +320,15 @@ model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& sourc
             target.powerSupplyStatuses.push_back(channel.status());
         }
     }
+    for (const auto& motor : source.tail_thruster_motor()) {
+        model::ChassisRuntimeStatus::TailMotor converted;
+        converted.id = QString::fromStdString(motor.id());
+        converted.busCurrent = motor.bus_current_a();
+        converted.controllerTemperature = motor.controller_temperature_c();
+        converted.targetSpeedRpm = motor.target_speed_rpm();
+        converted.actualSpeedRpm = motor.actual_speed_rpm();
+        target.tailThrusterMotors.push_back(converted);
+    }
     return target;
 }
 
@@ -339,6 +362,27 @@ model::TrajectoryPoint convertTrajectoryPoint(const wire::TrajectoryPoint& sourc
     target.l = source.lateral_offset_m();
     target.dlDt = source.lateral_speed_mps();
     target.ddlDt = source.lateral_acceleration_mps2();
+    if (source.has_pose()) {
+        const auto& pose = source.pose(); target.hasPose = true;
+        if (pose.has_position()) { target.position.x = pose.position().x_m(); target.position.y = pose.position().y_m(); target.z = pose.position().z_m(); }
+        target.quaternionX = pose.quaternion_x(); target.quaternionY = pose.quaternion_y(); target.quaternionZ = pose.quaternion_z(); target.quaternionW = pose.quaternion_w();
+    }
+    if (source.has_velocity_3d() && source.velocity_3d().has_linear()) {
+        const auto& linear = source.velocity_3d().linear(); target.hasVelocity3d = true;
+        target.velocity3d.x = linear.x(); target.velocity3d.y = linear.y(); target.velocity3d.z = linear.z();
+    }
+    if (source.has_velocity_3d() && source.velocity_3d().has_angular()) {
+        const auto& angular = source.velocity_3d().angular(); target.hasVelocity3d = true;
+        target.angularVelocity3d.x = angular.x(); target.angularVelocity3d.y = angular.y(); target.angularVelocity3d.z = angular.z();
+    }
+    if (source.has_acceleration_3d() && source.acceleration_3d().has_linear()) {
+        const auto& linear = source.acceleration_3d().linear(); target.hasAcceleration3d = true;
+        target.acceleration3d.x = linear.x(); target.acceleration3d.y = linear.y(); target.acceleration3d.z = linear.z();
+    }
+    if (source.has_acceleration_3d() && source.acceleration_3d().has_angular()) {
+        const auto& angular = source.acceleration_3d().angular(); target.hasAcceleration3d = true;
+        target.angularAcceleration3d.x = angular.x(); target.angularAcceleration3d.y = angular.y(); target.angularAcceleration3d.z = angular.z();
+    }
     return target;
 }
 
@@ -406,6 +450,11 @@ model::ObstacleList convertObstacles(const wire::ObstacleSet& source)
         obstacle.position.theta = item.has_heading_rad() ? item.heading_rad() : 0.0;
         obstacle.length = item.length_m();
         obstacle.width = item.width_m();
+        obstacle.dimensionsValid = item.dimensions_valid();
+        obstacle.headingValid = item.heading_valid();
+        obstacle.geodeticValid = item.geodetic_valid();
+        if (item.has_geodetic_position()) { obstacle.longitude = item.geodetic_position().longitude_deg(); obstacle.latitude = item.geodetic_position().latitude_deg(); obstacle.depth = item.geodetic_position().depth_m(); obstacle.heightAboveBottom = item.geodetic_position().height_above_bottom_m(); }
+        if (!obstacle.dimensionsValid) obstacle.shape = model::ObstacleShapeType::Point;
         obstacle.boundingBox.center = obstacle.position.position;
         obstacle.boundingBox.heading = item.heading_rad();
         obstacle.boundingBox.length = item.length_m();
@@ -480,6 +529,7 @@ model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& sou
                                               : (verticalMode == model::VerticalControlMode::DepthHold ? 4 : 0)))
                              : 0);
     target.isEnable = source.enabled();
+    target.sourceMode = source.source_mode();
     target.speed = source.target_speed_mps();
     target.angularVelocity = source.target_yaw_rate_radps();
     target.expectedGear = source.target_gear();
@@ -545,9 +595,13 @@ model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
     target.taskType = source.task_type();
     target.taskId = source.task_id();
     target.taskEnable = source.enabled();
+    target.taskStartRequested = source.has_task_start_requested() ? source.task_start_requested() : source.enabled();
+    target.actionEnabled = source.action_enabled();
     target.emergencyStop = source.emergency_stop();
     target.releaseEmergencyAscent = source.has_underwater()
                                         && source.underwater().release_emergency_ascent();
+    target.buoyancyAdjust = source.has_underwater()
+                                ? convertBuoyancyCommand(source.underwater().buoyancy_command()) : 0;
     target.remoteMode = source.remote_mode();
     target.powerEnable = source.power_enable();
     if (source.has_remote_control()) {

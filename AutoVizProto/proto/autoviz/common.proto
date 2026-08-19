@@ -54,6 +54,28 @@ message Vector3D {
   optional double z = 3;
 }
 
+// 完整三维位姿和 twist，用于保留来源轨迹的全部几何/运动学采样。
+message Pose3D {
+  optional Point3D position = 1;
+  optional double quaternion_x = 2;
+  optional double quaternion_y = 3;
+  optional double quaternion_z = 4;
+  optional double quaternion_w = 5;
+}
+
+message Twist3D {
+  optional Vector3D linear = 1;
+  optional Vector3D angular = 2;
+}
+
+// WGS-84 位置及可选的水下垂向参考量。它可用于任意目标或定位诊断。
+message GeodeticPosition {
+  optional double longitude_deg = 1;
+  optional double latitude_deg = 2;
+  optional double depth_m = 3;
+  optional double height_above_bottom_m = 4;
+}
+
 message Polygon2D {
   repeated Point2D point = 1;
 }

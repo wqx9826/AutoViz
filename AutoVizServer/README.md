@@ -1,13 +1,13 @@
 # AutoVizServer
 
 AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取 robot_ws 的八个 topic，转换为
-来源无关的 AutoViz Protocol v2.1 完整快照，并通过 TCP 只读发送给 Qt Client。
+来源无关的 AutoViz Protocol v2.2 完整快照，并通过 TCP 只读发送给 Qt Client。
 
 ## 从 ROS 回调到 TCP 的固定数据流
 
 ```text
 ROS callback
-  -> RobotWsProtoConverter（纯字段转换、单位/方向归一化）
+  -> RobotWsProtoConverter（纯字段转换、单位归一化；监控角速度按源值透传）
   -> SnapshotStore（各数据种类最新值、频率、超时、dirty）
   -> 50 ms publish timer（最高 20 Hz 合并）
   -> VisualizationServer::publishSnapshot()
@@ -69,7 +69,7 @@ Client                                      Server
 | `/location` | VehicleState + UnderwaterState | odom_z/depth/离底高度保持独立；附带经纬度与 USBL 诊断 |
 | `/targets/final_objects` | ObstacleSet | 只读取当前真实 ID、分类、中心、尺寸、有效标志 |
 | `/chassis_command` | ControlCommand + UnderwaterCommand | 通用运动与水下命令分层 |
-| `/chassis_states` | ChassisState + UnderwaterChassisState + PlatformDiagnostics | 反馈角速度取反为左转正 |
+| `/chassis_states` | ChassisState + UnderwaterChassisState + PlatformDiagnostics + tail telemetry | 反馈角速度按源值透传 |
 | `/system_run_states` | ActionState + UnderwaterCommand | 目标角速度 deg/s 转 rad/s |
 | `/task_params` | TaskState + UnderwaterTaskState + RemoteControlState | 急停、解除紧急上浮和只读遥控/配电指令 |
 | `/local_path` | local Trajectory | pose、航向、速度、加速度、相对/绝对时间、goal ID、长度 |

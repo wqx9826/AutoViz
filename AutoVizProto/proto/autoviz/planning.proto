@@ -25,6 +25,9 @@ message TrajectoryPoint {
   optional double lateral_offset_m = 7;
   optional double lateral_speed_mps = 8;
   optional double lateral_acceleration_mps2 = 9;
+  optional Pose3D pose = 10;
+  optional Twist3D velocity_3d = 11;
+  optional Twist3D acceleration_3d = 12;
 }
 
 message Trajectory {

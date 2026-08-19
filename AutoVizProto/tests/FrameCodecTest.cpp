@@ -131,17 +131,22 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     auto* snapshot = expected[2].mutable_snapshot();
     snapshot->set_session_id("session-v2");
     snapshot->mutable_vehicle_state()->set_speed_mps(1.5);
+    snapshot->mutable_vehicle_state()->set_odom_heading_rad(0.7);
+    snapshot->mutable_vehicle_state()->set_start_time_s(12);
     snapshot->mutable_vehicle_state()->mutable_underwater()->set_depth_m(3.2);
     auto* underwater = snapshot->mutable_chassis_state()->mutable_underwater();
     underwater->set_water_tank_state(wire::WATER_TANK_STATE_FILLING);
     underwater->set_emergency_ascent_active(true);
+    snapshot->mutable_chassis_state()->add_tail_thruster_motor()->set_actual_speed_rpm(118.0);
     auto* platform = snapshot->mutable_chassis_state()->mutable_platform();
     platform->mutable_battery()->set_pack_voltage_v(312.5);
     platform->add_power_channel()->set_status(1);
     snapshot->mutable_control_command()->mutable_underwater()->set_emergency_ascent(true);
+    snapshot->mutable_control_command()->set_source_mode(11);
     snapshot->mutable_task_state()
         ->mutable_underwater()
         ->set_release_emergency_ascent(true);
+    snapshot->mutable_task_state()->set_task_start_requested(true);
     auto* topic = snapshot->mutable_runtime_state()->add_topic();
     topic->set_name("/location");
     topic->set_data_kind(wire::DATA_KIND_VEHICLE_STATE);
@@ -166,11 +171,17 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
               wire::CAPABILITY_UNDERWATER_SYSTEM);
     const auto& actual = decoded[2].snapshot();
     EXPECT_DOUBLE_EQ(actual.vehicle_state().underwater().depth_m(), 3.2);
+    EXPECT_DOUBLE_EQ(actual.vehicle_state().odom_heading_rad(), 0.7);
+    EXPECT_EQ(actual.vehicle_state().start_time_s(), 12);
     EXPECT_EQ(actual.chassis_state().underwater().water_tank_state(),
               wire::WATER_TANK_STATE_FILLING);
     EXPECT_DOUBLE_EQ(actual.chassis_state().platform().battery().pack_voltage_v(), 312.5);
+    ASSERT_EQ(actual.chassis_state().tail_thruster_motor_size(), 1);
+    EXPECT_DOUBLE_EQ(actual.chassis_state().tail_thruster_motor(0).actual_speed_rpm(), 118.0);
     EXPECT_TRUE(actual.control_command().underwater().emergency_ascent());
+    EXPECT_EQ(actual.control_command().source_mode(), 11);
     EXPECT_TRUE(actual.task_state().underwater().release_emergency_ascent());
+    EXPECT_TRUE(actual.task_state().task_start_requested());
     EXPECT_EQ(actual.runtime_state().topic(0).data_kind(), wire::DATA_KIND_VEHICLE_STATE);
     ASSERT_EQ(actual.control_state_event_size(), 1);
     EXPECT_EQ(actual.control_state_event(0).previous_mode(), 11);
@@ -181,7 +192,7 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
 TEST(ProtocolVersionTest, AcceptsOnlyV2MajorVersion)
 {
     EXPECT_EQ(wire::kProtocolMajor, 2U);
-    EXPECT_EQ(wire::kProtocolMinor, 1U);
+    EXPECT_EQ(wire::kProtocolMinor, 2U);
     EXPECT_TRUE(wire::isProtocolMajorCompatible(2U));
     EXPECT_FALSE(wire::isProtocolMajorCompatible(1U));
 }

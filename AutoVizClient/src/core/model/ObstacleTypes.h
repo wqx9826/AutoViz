@@ -38,6 +38,10 @@ struct Obstacle {
     Box2D boundingBox;
     Point2D anchorPoint;
     QVector<TrajectoryPoint> predictedTrajectory;
+    bool geodeticValid = false;
+    double longitude = 0.0, latitude = 0.0, depth = 0.0, heightAboveBottom = 0.0;
+    bool dimensionsValid = false;
+    bool headingValid = false;
 };
 
 using ObstacleList = QVector<Obstacle>;

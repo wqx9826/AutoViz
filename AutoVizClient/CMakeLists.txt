@@ -167,6 +167,10 @@ add_executable(AutoVizControlStatusUiTests
     src/core/model/ControlTypes.cpp
     src/core/datacenter/DataManager.cpp
     src/core/config/VehicleConfig.cpp
+    src/core/network/ProtocolModelConverter.cpp
+    src/core/playback/RosbagPlaybackTypes.cpp
+    src/core/playback/RobotWsCdrDecoder.cpp
+    src/core/playback/LocalRosbagPlaybackSource.cpp
     src/ui/status/BottomStatusPanel.cpp
     src/ui/status/ControlStatusSummary.h
     src/ui/theme/UiScaleManager.cpp
@@ -174,9 +178,9 @@ add_executable(AutoVizControlStatusUiTests
 target_include_directories(AutoVizControlStatusUiTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(AutoVizControlStatusUiTests PRIVATE AutoVizProto::AutoVizProto)
 if(WIN32)
-    target_link_libraries(AutoVizControlStatusUiTests PRIVATE Qt6::Core Qt6::Widgets)
+    target_link_libraries(AutoVizControlStatusUiTests PRIVATE Qt6::Core Qt6::Widgets Qt6::Sql)
 else()
-    target_link_libraries(AutoVizControlStatusUiTests PRIVATE Qt5::Core Qt5::Widgets)
+    target_link_libraries(AutoVizControlStatusUiTests PRIVATE Qt5::Core Qt5::Widgets Qt5::Sql)
 endif()
 
 # 打包规则独立于正常构建逻辑；仍由标准的 `cmake --install` 执行。

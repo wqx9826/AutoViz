@@ -32,6 +32,8 @@ message ControlCommand {
   optional UnderwaterCommand underwater = 11;
   reserved 12 to 14;
   optional Maneuver maneuver = 15 [default = MANEUVER_NONE];
+  // Adapter 来源的原始模式码，供诊断使用；通用 mode/maneuver 仍是业务展示依据。
+  optional sint32 source_mode = 16;
 }
 
 // 控制状态变更的会话内审计记录。它描述 Adapter 已归一化的语义，而非 ROS 字段路径。
@@ -108,4 +110,7 @@ message TaskState {
   optional sint32 power_enable = 7;
   optional UnderwaterTaskState underwater = 8;
   optional RemoteControlState remote_control = 9;
+  // 自主任务启动脉冲，不代表任务全程执行状态。
+  optional bool task_start_requested = 10;
+  optional bool action_enabled = 11;
 }

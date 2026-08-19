@@ -31,6 +31,15 @@ struct TrajectoryPoint {
     double height = 0.0;
     bool hasDepth = false;
     bool hasHeight = false;
+    double z = 0.0;
+    double quaternionX = 0.0, quaternionY = 0.0, quaternionZ = 0.0, quaternionW = 1.0;
+    Vector3D velocity3d;
+    Vector3D acceleration3d;
+    Vector3D angularVelocity3d;
+    Vector3D angularAcceleration3d;
+    bool hasPose = false;
+    bool hasVelocity3d = false;
+    bool hasAcceleration3d = false;
 };
 
 struct ReferencePoint {

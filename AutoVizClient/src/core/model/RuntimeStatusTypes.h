@@ -92,6 +92,13 @@ struct LocalizationStatus {
     double usblY = 0.0;
     bool hasUsblZ = false;
     double usblZ = 0.0;
+    qint64 startTimeS = 0;
+    double gaussX = 0.0, gaussY = 0.0, gaussZ = 0.0;
+    double originLongitude = 0.0, originLatitude = 0.0;
+    double originX = 0.0, originY = 0.0, originZ = 0.0;
+    double odomHeading = 0.0;
+    double omegaX = 0.0, omegaY = 0.0;
+    qint64 usblMessageWords[4] = {};
 };
 
 // ChassisStates carries a snapshot of the latest decoded CAN fields. These
@@ -181,6 +188,14 @@ struct ChassisRuntimeStatus {
     CrawlMotorRuntimeStatus rightCrawlMotor;
     BmsRuntimeStatus bms;
     QVector<int> powerSupplyStatuses;
+    struct TailMotor {
+        QString id;
+        double busCurrent = 0.0;
+        int controllerTemperature = 0;
+        double targetSpeedRpm = 0.0;
+        double actualSpeedRpm = 0.0;
+    };
+    QVector<TailMotor> tailThrusterMotors;
 };
 
 struct ControlCommandStatus {
@@ -203,6 +218,7 @@ struct ControlCommandStatus {
     int rightWaterActuatorSpeed = 0;
     int buoyancyAdjust = 0;
     bool isOpenSonarPower = false;
+    int sourceMode = 0;
 };
 
 struct PathRuntimeStatus {
@@ -248,6 +264,9 @@ struct TaskRuntimeStatus {
     int taskType = 0;
     int taskId = 0;
     bool taskEnable = false;
+    bool taskStartRequested = false;
+    bool actionEnabled = false;
+    int buoyancyAdjust = 0;
     bool emergencyStop = false;
     bool releaseEmergencyAscent = false;
     int remoteMode = 0;

@@ -170,6 +170,8 @@ void DataManager::initializeMockData()
     task.taskType = 2;
     task.taskId = 1;
     task.taskEnable = true;
+    task.taskStartRequested = true;
+    task.actionEnabled = true;
     task.emergencyStop = false;
     task.remoteMode = 0;
     task.powerEnable = 1;

@@ -1,14 +1,15 @@
 #include <QApplication>
-#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QLabel>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextStream>
-#include <QThread>
+#include <QTimer>
 
 #include "core/datacenter/DataManager.h"
+#include "core/playback/LocalRosbagPlaybackSource.h"
 #include "ui/status/BottomStatusPanel.h"
 
 namespace {
@@ -51,15 +52,26 @@ VisualizationSnapshot controlSnapshot(int mode,
     snapshot.controlCommandStatus.mode = mode;
     snapshot.controlCommandStatus.expectedGear = commandGear;
     snapshot.controlCommandStatus.isEnable = commandEnabled;
+    snapshot.controlCommandStatus.speed = 1.0;
+    snapshot.controlCommandStatus.angularVelocity = 0.1;
+    snapshot.controlCommandStatus.heading = 0.3;
 
     snapshot.chassisRuntimeStatus.valid = true;
     snapshot.chassisRuntimeStatus.header.receiveTimestamp = timestampMs;
     snapshot.chassisRuntimeStatus.header.sequence = sequence;
+    snapshot.chassisRuntimeStatus.currentSpeed = 2.0;
+    snapshot.chassisRuntimeStatus.currentAngularVelocity = 0.2;
     snapshot.chassisRuntimeStatus.gearStatus = feedbackGear;
     snapshot.chassisRuntimeStatus.leftCrawlMotor.valid = true;
     snapshot.chassisRuntimeStatus.rightCrawlMotor.valid = true;
     snapshot.chassisRuntimeStatus.leftCrawlMotor.outputEnabled = true;
     snapshot.chassisRuntimeStatus.rightCrawlMotor.outputEnabled = true;
+
+    snapshot.localizationStatus.valid = true;
+    snapshot.localizationStatus.timestampMs = timestampMs;
+    snapshot.localizationStatus.velocity = 0.5;
+    snapshot.localizationStatus.omegaZ = 0.4;
+    snapshot.localizationStatus.heading = 0.6;
 
     snapshot.topicStatuses = {
         topicStatus(autoviz::model::VisualizationChannel::ControlCommand, sequence, timestampMs),
@@ -150,8 +162,20 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
         error << "control status widgets are missing stable object names\n";
         return false;
     }
+    auto* crawlSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.crawl_speed"));
+    auto* sailingSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.sailing_speed"));
+    auto* crawlAngularLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.crawl_angular"));
+    auto* omegaZLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.omega_z"));
+    auto* commandSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.command.speed"));
+    auto* commandAngularLabel = panel.findChild<QLabel*>(QStringLiteral("overview.command.angular"));
     if (modeLabel->text() != QStringLiteral("爬行中心转向")
-        || !stateLabel->text().startsWith(QStringLiteral("爬行中心转向"))) {
+        || !stateLabel->text().startsWith(QStringLiteral("爬行中心转向"))
+        || crawlSpeedLabel == nullptr || sailingSpeedLabel == nullptr
+        || crawlAngularLabel == nullptr || omegaZLabel == nullptr
+        || commandSpeedLabel == nullptr || commandAngularLabel == nullptr
+        || crawlSpeedLabel->text() != QStringLiteral("2.00")
+        || sailingSpeedLabel->text() != QStringLiteral("0.50")
+        || commandSpeedLabel->text() != QStringLiteral("1.00 / 0.50")) {
         error << "initial mode=11 overview text is incorrect\n";
         return false;
     }
@@ -164,9 +188,9 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     panel.updateSnapshot(coalescedSnapshot);
     app.processEvents();
 
-    if (modeLabel->text() != QStringLiteral("无效（切换）")
-        || stateLabel->text() != QStringLiteral("无效（切换） / 未使能")) {
-        error << "coalesced 11->0->6 snapshot did not visibly replay mode=0\n";
+    if (modeLabel->text() != QStringLiteral("自主爬行")
+        || stateLabel->text() != QStringLiteral("自主爬行 / 已使能")) {
+        error << "coalesced 11->0->6 snapshot did not use the current command snapshot\n";
         return false;
     }
 
@@ -193,14 +217,6 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
         return false;
     }
 
-    QElapsedTimer transitionWait;
-    transitionWait.start();
-    while (transitionWait.elapsed() < 600) {
-        QThread::msleep(25);
-        panel.updateSnapshot(coalescedSnapshot);
-        app.processEvents();
-    }
-
     tabs->setCurrentIndex(0);
     app.processEvents();
     if (modeLabel->text() != QStringLiteral("自主爬行")
@@ -219,6 +235,95 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     return true;
 }
 
+bool runRealBagWidgetChecks(QApplication& app, const QString& bagPath, QTextStream& error)
+{
+    autoviz::datacenter::DataManager manager;
+    manager.activateInputSource(VisualizationInputSource::Ros2Bag);
+    autoviz::playback::LocalRosbagPlaybackSource source(&manager);
+    BottomStatusPanel panel;
+    panel.resize(1280, 720);
+    panel.show();
+
+    auto* modeLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.mode"));
+    auto* stateLabel = panel.findChild<QLabel*>(QStringLiteral("overview.command.state"));
+    if (modeLabel == nullptr || stateLabel == nullptr) {
+        error << "real-bag control labels are missing\n";
+        return false;
+    }
+
+    QEventLoop loop;
+    QTimer timeout;
+    QTimer refresh;
+    timeout.setSingleShot(true);
+    timeout.setInterval(120000);
+    refresh.setInterval(20);
+    bool failed = false;
+    bool seekRequested = false;
+    bool playing = false;
+    bool sawFinalCrawl = false;
+    qint64 latestPositionNs = 0;
+
+    QObject::connect(&timeout, &QTimer::timeout, &loop, [&] {
+        error << "real-bag UI test timed out\n";
+        failed = true;
+        loop.quit();
+    });
+    QObject::connect(&source,
+                     &autoviz::playback::LocalRosbagPlaybackSource::errorOccurred,
+                     &loop,
+                     [&](const QString& message) {
+                         error << "real-bag playback failed: " << message << '\n';
+                         failed = true;
+                         loop.quit();
+                     });
+    QObject::connect(&source,
+                     &autoviz::playback::LocalRosbagPlaybackSource::bagLoaded,
+                     &loop,
+                     [&](const autoviz::playback::RosbagInfo&) {
+                         seekRequested = true;
+                         source.seek(79000000000LL);
+                     });
+    QObject::connect(&source,
+                     &autoviz::playback::LocalRosbagPlaybackSource::positionChanged,
+                     &loop,
+                     [&](qint64 positionNs, qint64) {
+                         latestPositionNs = positionNs;
+                         if (seekRequested && !playing
+                             && qAbs(positionNs - 79000000000LL) < 1000000LL) {
+                             panel.updateSnapshot(manager.getSnapshot());
+                             source.setPlaybackRate(8.0);
+                             source.play();
+                             playing = true;
+                         }
+                     });
+    QObject::connect(&refresh, &QTimer::timeout, &loop, [&] {
+        panel.updateSnapshot(manager.getSnapshot());
+        app.processEvents();
+        if (latestPositionNs >= 82000000000LL
+            && modeLabel->text() == QStringLiteral("自主爬行")
+            && stateLabel->text() == QStringLiteral("自主爬行 / 已使能")) {
+            sawFinalCrawl = true;
+            source.pause();
+            loop.quit();
+        }
+    });
+
+    timeout.start();
+    refresh.start();
+    source.loadAndValidate(bagPath);
+    loop.exec();
+    refresh.stop();
+    timeout.stop();
+
+    if (failed || !sawFinalCrawl) {
+        error << "real bag did not visibly render the current mode=6 command; crawl=" << sawFinalCrawl
+              << ", mode='" << modeLabel->text() << "', state='"
+              << stateLabel->text() << "'\n";
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -231,6 +336,10 @@ int main(int argc, char** argv)
     if (!runInputOwnershipChecks(error) || !runControlWidgetChecks(app, error)) {
         return 1;
     }
-    QTextStream(stdout) << "control overview 11->0->6 and input ownership tests: OK\n";
+    if (app.arguments().size() > 1
+        && !runRealBagWidgetChecks(app, app.arguments().at(1), error)) {
+        return 1;
+    }
+    QTextStream(stdout) << "control source split, current-snapshot status, bag UI, and input ownership tests: OK\n";
     return 0;
 }

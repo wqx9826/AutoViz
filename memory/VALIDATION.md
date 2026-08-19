@@ -37,8 +37,8 @@
 - Windows 使用独立的 `AutoVizProto/scripts/bootstrap_proto.ps1`；Client 仅在
   `AutoVizClient/build` 构建，Server 仅在 `AutoVizServer` 中使用 colcon 构建。
 - feature 仓库根目录不创建 `build/`，不用于任何子工程的编译产物。
-- Client 在 Linux 已重新 CMake 配置和构建通过。控制曲线保留未使能控制命令，支持遥控/自主
-  切换和 rosbag 回放观察；`enabled` 只作为状态展示。
+- Client 在 Linux 已重新 CMake 配置和构建通过。控制曲线保留实际收到的控制命令，目标值来自
+  `/chassis_command`，反馈值来自 `/location`；`enabled` 只作为当前命令状态展示。
 - 运动总览固定为六张卡片的 3×2 排布，连接、capability 与数据到达只更新内容，不改变位置。
 - Client 图标由 Qt resource 内嵌；外置运行时资源仅包括 `configs/vehicle_params.json` 与主题
   QSS，构建后自动复制到可执行文件目录。
@@ -59,15 +59,17 @@ source stamp 缺失必须保持缺失，接收时间与 per-topic sequence 必�
 DB3 原始 CDR 共包含 1,592 条 `mode=0,is_enable=0`：多数中心转向退出区间持续 80～100 ms，
 另有 `04:49.162～05:15.582` 的 26.42 秒连续区间和末尾约 5.02 秒连续区间。8 倍速时短区间
 小于一次 50 ms UI 刷新，Server 20 Hz 完整快照也存在相同的合并窗口。控件级测试将包含
-`11 -> 0 -> 6` 两个事件、但当前值已经为 6 的单份快照直接交给 UI，断言控制卡先显示
-“无效（切换） / 未使能”，再按队列显示 6 并回到最新稳定值；该测试不依赖固定 bag seek 时间，
-同时覆盖远程和本地共用的展示逻辑。
+`11 -> 0 -> 6` 两个事件、但当前值已经为 6 的单份快照直接交给 UI，断言总览只显示当前
+mode=6，不通过 UI 队列重放短暂 mode=0；该测试不依赖固定 bag seek 时间，同时覆盖远程和本地
+共用的展示逻辑。
 `AutoVizPlaybackSourceSmoke` 会 seek 到 42 秒中心转向区间断言两条路径为空，再 seek 到 81 秒
 断言 mode=6 与边界后新路径恢复，再 seek 到 131 秒断言下一次真实 mode=11 仍能进入中心转向。
 从 79 秒开始的 1 倍速连续回放通过 `11 -> 0 -> 6` 后，当前快照为 mode=6，两个瞬时切换均保留
 在事件时间线，实测暂停确认延迟 0 ms；8 倍速同样验证完整 `6 -> 11 -> 0 -> 6` 事件及非零
-topic 序号。Server `robot_ws_converter_test` 为 17/17，通过 mode/gear 独立性、路径立即清除、
-中心转向期间抑制及退出后等待新路径；TCP 测试在允许 localhost listen 的环境为 7/7。
+topic 序号。运动总览不再为了短暂 mode=0 维护过渡队列，而是直接显示当前完整快照；
+`AutoVizControlStatusUiTests` 对 coalesced `11 -> 0 -> 6` 快照立即断言 mode=6。Server
+`robot_ws_converter_test` 为 17/17，通过 mode/gear 独立性、路径立即清除、中心转向期间抑制及
+退出后等待新路径；TCP 测试在允许 localhost listen 的环境为 7/7。
 
 Server 额外覆盖同一个 20 Hz 发布周期内连续收到 `11 -> 0 -> 6`：当前命令最终为 mode=6，
 三条命令事件仍按 per-topic sequence 1/2/3 完整保留。隐藏 Action status/feedback 的诊断刷新
@@ -81,9 +83,10 @@ Server 额外覆盖同一个 20 Hz 发布周期内连续收到 `11 -> 0 -> 6`：
 不会丢失已进入 ROS 回调的中间控制事件；慢 Client 的后续完整快照仍携带会话事件历史。
 
 `AutoVizControlStatusUiTests` 通过控件级回归：隐藏总览时依次写入 mode `11 -> 0 -> 6`，重新显示
-后“当前运动”和“控制指令”均为“自主爬行”，控制时序当前行与总览共同读取 mode=6、topic
-sequence=103。测试还确认激活 bag 后迟到的 Remote mode=11 snapshot/reset 均被拒绝，切回
-Remote 后迟到的 bag snapshot/reset 也被拒绝，当前活动来源的数据保持不变。普通总览值不再
+后“当前运动”和“控制指令”均直接读取最新的“自主爬行”快照，控制时序当前行与总览共同读取
+mode=6、topic sequence=103；并断言爬行/航行速度与指令 rev 的来源值彼此独立。测试还确认
+激活 bag 后迟到的 Remote mode=11 snapshot/reset 均被拒绝，切回 Remote 后迟到的 bag snapshot/reset
+也被拒绝，当前活动来源的数据保持不变。普通总览值不再
 每帧触发 QSS repolish，状态 badge 只在样式等级变化时重抛光。将状态面板压缩到 360 px 高度时，
 控制时序页的独立纵向滚动条存在有效范围并可滚动到底，完整事件表不会再被父布局裁切。
 
@@ -94,7 +97,30 @@ Remote 后迟到的 bag snapshot/reset 也被拒绝，当前活动来源的数�
 `rosbag2_2026_08_17-03_31_33` 已通过 Client 完整 CDR 扫描和本地回放 smoke：19656 条支持
 消息全部解码，`/chassis_command` 中 4267 条非零角速度在协议和两个 Client 控制模型中值
 一致。回归测试覆盖 Action 角速度为 0 时 cmd 仍取控制命令，以及 `ChassisStates` 反馈角速度
-由 robot_ws 左负右正归一化为协议左正右负。
+按 robot_ws 源值透传到协议和 Client，不做挡位或符号归一化。
+
+### 控制字段来源与双链路门禁（2026-08-18）
+
+| Client 展示字段 | 远程 Server/TCP | 本地 bag 回放 | UI 用途 |
+| --- | --- | --- | --- |
+| cmd 速度/航向/角速度/模式/档位/使能 | `/chassis_command` -> `ControlCommand` | CDR `/chassis_command` -> `ControlCommand` | “控制指令” cmd |
+| rev 速度/航向/omega_z | `/location` -> `VehicleState` | CDR `/location` -> `VehicleState` | “控制指令” rev、控制曲线反馈 |
+| 爬行速度/爬行角速度/档位反馈 | `/chassis_states` -> `ChassisState` | CDR `/chassis_states` -> `ChassisState` | “当前运动”、档位 rev |
+| 航行速度/角速度 omega_z/当前航向 | `/location` -> `VehicleState` | CDR `/location` -> `VehicleState` | “当前运动” |
+
+验证必须分别执行两条链路并比较同一输入值：
+
+1. 远程链路：ROS2 Adapter -> `SnapshotStore` -> TCP 完整快照 -> `ProtocolModelConverter` -> UI。
+2. 本地链路：SQLite/DB3 CDR -> `RobotWsCdrDecoder` -> `ProtocolModelConverter` -> UI。
+
+两条链路必须同时断言 cmd、rev、爬行/航行拆分值的数值、单位、时间戳和 optional 缺失清空；
+只验证协议探针或只验证单一来源均不满足发布门禁。
+
+本次实现验证结果：`AutoVizControlStatusUiTests` 通过当前快照状态与来源拆分断言，并以
+`rosbag2_2026_08_17-03_18_59` 完成真实 UI 回放；`AutoVizPlaybackSourceSmoke` 对同一 bag
+完成 12 通道、seek、8 倍速暂停和 EOF 验证；`AutoVizClientPlaybackTests` 对
+`rosbag2_2026_08_17-03_31_33` 解码 19,656 条支持消息。远程链路的
+`robot_ws_converter_test` 为 17/17，`tcp_server_test` 为 7/7。
 
 ### 数据源显示等价性（发布门禁）
 
@@ -166,7 +192,8 @@ CDR、截断和非法 bool。
 
 历史样例中 2026-08-06 前的 ChassisCommand 为含 `dive_speed` 的 72 字节布局，之后为不含该
 字段的 64 字节布局；当时两种布局都完成过全量解码。当前 robot_ws 已删除 `dive_speed`，Client
-回放解码器只接受现行 64 字节布局，旧 72 字节 bag 须迁移或重新录制后再回放。回归自检会构造
+回放解码器支持旧/新 ChassisStates 固定布局（277/341 字节，含封装头），旧布局缺少尾推字段时
+保持 optional 缺失，其他长度直接拒绝。回归自检会构造
 现行 64 字节 ChassisCommand CDR，验证尾部推进器、浮力和声纳字段不会错位。`AutoVizPlaybackSourceSmoke` 对
 `rosbag2_2026_08_12-03_00_17` 完成 metadata/SQLite/CDR 全量预检、seek、8× 和 EOF 状态验证。
 Client 最终构建通过，并以 Qt offscreen 启动无崩溃。Windows 的 qsqlite 部署与实际视觉观感

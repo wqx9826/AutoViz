@@ -5,7 +5,6 @@
 namespace autoviz::ui::status {
 
 struct ControlStatusSummary {
-    bool replayingTransition = false;
     bool hasCommand = false;
     int commandMode = 0;
     bool commandEnabled = false;
@@ -15,11 +14,13 @@ struct ControlStatusSummary {
     int commandGear = 0;
 
     bool hasChassisFeedback = false;
-    double feedbackSpeed = 0.0;
-    double feedbackAngularVelocity = 0.0;
     int feedbackGear = 0;
 
-    bool hasHeadingFeedback = false;
+    // The cmd/rev rows use localization for all motion feedback. Chassis
+    // feedback remains the source for the independent gear row.
+    bool hasLocalizationFeedback = false;
+    double feedbackSpeed = 0.0;
+    double feedbackAngularVelocity = 0.0;
     double feedbackHeading = 0.0;
 };
 
@@ -38,11 +39,11 @@ inline ControlStatusSummary makeControlStatusSummary(
     result.commandGear = command.expectedGear;
 
     result.hasChassisFeedback = chassis.valid;
-    result.feedbackSpeed = chassis.currentSpeed;
-    result.feedbackAngularVelocity = chassis.currentAngularVelocity;
     result.feedbackGear = chassis.gearStatus;
 
-    result.hasHeadingFeedback = localization.valid;
+    result.hasLocalizationFeedback = localization.valid;
+    result.feedbackSpeed = localization.velocity;
+    result.feedbackAngularVelocity = localization.omegaZ;
     result.feedbackHeading = localization.heading;
     return result;
 }

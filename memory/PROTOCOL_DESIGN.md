@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.1
+# AutoViz Protocol v2.2
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。

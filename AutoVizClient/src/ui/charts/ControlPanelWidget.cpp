@@ -168,16 +168,11 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
     if (m_paused) return;
 
     const auto& commandHeader = snapshot.controlCmd.header;
-    const auto& chassisHeader = snapshot.vehicleChassisInfo.header;
     const auto& locationHeader = snapshot.vehicleLocation.header;
     const bool commandUpdated = topicMessageChanged(commandHeader.sequence,
                                                     m_lastCommandSequence,
                                                     commandHeader.timestamp,
                                                     m_lastCommandTimestampMs);
-    const bool chassisUpdated = topicMessageChanged(chassisHeader.sequence,
-                                                    m_lastChassisSequence,
-                                                    chassisHeader.timestamp,
-                                                    m_lastChassisTimestampMs);
     const bool locationUpdated = topicMessageChanged(locationHeader.sequence,
                                                      m_lastLocationSequence,
                                                      locationHeader.timestamp,
@@ -191,14 +186,12 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
                                                  : std::min(firstTimestamp, timestampMs);
         };
         includeTimestamp(commandUpdated, commandHeader.timestamp);
-        includeTimestamp(chassisUpdated, chassisHeader.timestamp);
         includeTimestamp(locationUpdated, locationHeader.timestamp);
         m_firstSampleTimestampMs = firstTimestamp;
     }
 
     const auto pushTopicSample = [this](qint64 timestampMs,
                                         bool commandSample,
-                                        bool chassisSample,
                                         bool locationSample) {
         if (timestampMs <= 0 || m_firstSampleTimestampMs <= 0) return;
         auto sample = m_latestData;
@@ -210,21 +203,16 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
             sample.hasCmdSpeed = m_latestData.hasCmdSpeed;
             sample.hasCmdYaw = m_latestData.hasCmdYaw;
         }
-        if (chassisSample) {
-            sample.hasFeedbackSpeed = m_latestData.hasFeedbackSpeed;
-            sample.hasFeedbackYaw = m_latestData.yawMetric == YawMetric::AngularVelocity
-                                    && m_latestData.hasFeedbackYaw;
-        }
         if (locationSample) {
-            sample.hasFeedbackYaw = m_latestData.yawMetric == YawMetric::Heading
-                                    && m_latestData.hasFeedbackYaw;
+            sample.hasFeedbackSpeed = m_latestData.hasFeedbackSpeed;
+            sample.hasFeedbackYaw = m_latestData.hasFeedbackYaw;
             sample.hasLateralError = m_latestData.hasLateralError;
             sample.hasPathYawError = m_latestData.hasPathYawError;
         }
-        if ((commandSample || chassisSample) && m_latestData.hasSpeedError) {
+        if ((commandSample || locationSample) && m_latestData.hasSpeedError) {
             sample.hasSpeedError = true;
         }
-        if ((commandSample || chassisSample || locationSample)
+        if ((commandSample || locationSample)
             && m_latestData.hasYawError) {
             sample.hasYawError = true;
         }
@@ -232,17 +220,12 @@ void ControlPanelWidget::updateSnapshot(const autoviz::datacenter::Visualization
     };
 
     if (commandUpdated) {
-        pushTopicSample(commandHeader.timestamp, true, false, false);
+        pushTopicSample(commandHeader.timestamp, true, false);
         m_lastCommandSequence = commandHeader.sequence;
         m_lastCommandTimestampMs = commandHeader.timestamp;
     }
-    if (chassisUpdated) {
-        pushTopicSample(chassisHeader.timestamp, false, true, false);
-        m_lastChassisSequence = chassisHeader.sequence;
-        m_lastChassisTimestampMs = chassisHeader.timestamp;
-    }
     if (locationUpdated) {
-        pushTopicSample(locationHeader.timestamp, false, false, true);
+        pushTopicSample(locationHeader.timestamp, false, true);
         m_lastLocationSequence = locationHeader.sequence;
         m_lastLocationTimestampMs = locationHeader.timestamp;
     }
@@ -420,10 +403,8 @@ void ControlPanelWidget::clearHistory()
 {
     m_buffer.clear();
     m_lastCommandSequence = 0;
-    m_lastChassisSequence = 0;
     m_lastLocationSequence = 0;
     m_lastCommandTimestampMs = 0;
-    m_lastChassisTimestampMs = 0;
     m_lastLocationTimestampMs = 0;
     m_firstSampleTimestampMs = 0;
     m_speedPlot->clearFrozenRange();
@@ -468,14 +449,9 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
     const bool hasControlMode = hasCommand
                                 && command.mode != autoviz::model::ControlMode::Unknown;
     const bool hasLocation = status.hasVehicleLocationData;
-    const bool hasChassis = status.hasVehicleChassisData;
 
     data.sourceTimestampMs = maxTimestamp(command.header.timestamp,
-                                          snapshot.vehicleChassisInfo.header.timestamp);
-    if (command.mode == autoviz::model::ControlMode::Sailing) {
-        data.sourceTimestampMs = maxTimestamp(data.sourceTimestampMs,
-                                              snapshot.vehicleLocation.header.timestamp);
-    }
+                                          snapshot.vehicleLocation.header.timestamp);
     if (data.sourceTimestampMs == 0
         && status.inputSource == autoviz::datacenter::VisualizationInputSource::Mock) {
         data.sourceTimestampMs = timelineNowMs;
@@ -487,15 +463,10 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
                                                 : ControlDebugMode::Standby);
 
     if (status.inputSource == autoviz::datacenter::VisualizationInputSource::Mock) {
-        data.feedbackSource = QStringLiteral("仿真反馈");
-    } else if (command.mode == autoviz::model::ControlMode::Sailing) {
-        data.feedbackSource = hasChassis && hasLocation
-                                  ? QStringLiteral("底盘/定位反馈")
-                                  : (hasChassis ? QStringLiteral("定位反馈缺失")
-                                     : (hasLocation ? QStringLiteral("底盘反馈缺失")
-                                                    : QStringLiteral("底盘/定位反馈缺失")));
-    } else if (command.mode == autoviz::model::ControlMode::Crawl) {
-        data.feedbackSource = hasChassis ? QStringLiteral("底盘反馈") : QStringLiteral("底盘反馈缺失");
+        data.feedbackSource = QStringLiteral("仿真定位反馈");
+    } else if (command.mode == autoviz::model::ControlMode::Sailing
+               || command.mode == autoviz::model::ControlMode::Crawl) {
+        data.feedbackSource = hasLocation ? QStringLiteral("定位反馈") : QStringLiteral("定位反馈缺失");
     } else {
         data.feedbackSource = QStringLiteral("等待控制命令");
     }
@@ -506,8 +477,8 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
 
     double cmdYawRadians = 0.0;
     double feedbackYawRadians = 0.0;
-    data.hasFeedbackSpeed = fresh && hasChassis;
-    data.feedbackSpeed = snapshot.vehicleChassisInfo.currentSpeed;
+    data.hasFeedbackSpeed = fresh && hasLocation;
+    data.feedbackSpeed = snapshot.vehicleLocation.speed;
     if (command.mode == autoviz::model::ControlMode::Sailing) {
         data.yawMetric = YawMetric::Heading;
         data.hasCmdYaw = fresh && hasCommand;
@@ -521,8 +492,8 @@ ControlDebugData ControlPanelWidget::buildDebugData(const autoviz::datacenter::V
         data.hasCmdYaw = fresh && hasCommand;
         cmdYawRadians = command.desiredAngularVelocity;
         data.cmdYaw = qRadiansToDegrees(cmdYawRadians);
-        data.hasFeedbackYaw = fresh && hasChassis;
-        feedbackYawRadians = snapshot.vehicleChassisInfo.currentAngularVelocity;
+        data.hasFeedbackYaw = fresh && hasLocation;
+        feedbackYawRadians = snapshot.vehicleLocation.yawRate;
         data.feedbackYaw = qRadiansToDegrees(feedbackYawRadians);
     }
 

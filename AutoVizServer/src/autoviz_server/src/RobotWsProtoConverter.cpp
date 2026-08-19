@@ -6,6 +6,8 @@
 #include <string_view>
 
 #include <geometry_msgs/msg/quaternion.hpp>
+#include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 namespace autoviz_server {
 namespace wire = ::autoviz;
@@ -179,6 +181,42 @@ void addThruster(wire::UnderwaterChassisState* target,
     thruster->set_fault_code(faultCode);
 }
 
+void addTailMotor(wire::ChassisState* target,
+                  const char* id,
+                  double busCurrent,
+                  int controllerTemperature,
+                  double targetSpeed,
+                  double actualSpeed)
+{
+    auto* motor = target->add_tail_thruster_motor();
+    motor->set_id(id);
+    motor->set_bus_current_a(busCurrent);
+    motor->set_controller_temperature_c(controllerTemperature);
+    motor->set_target_speed_rpm(targetSpeed);
+    motor->set_actual_speed_rpm(actualSpeed);
+}
+
+void fillPose(wire::Pose3D* target, const geometry_msgs::msg::Pose& source)
+{
+    target->mutable_position()->set_x_m(source.position.x);
+    target->mutable_position()->set_y_m(source.position.y);
+    target->mutable_position()->set_z_m(source.position.z);
+    target->set_quaternion_x(source.orientation.x);
+    target->set_quaternion_y(source.orientation.y);
+    target->set_quaternion_z(source.orientation.z);
+    target->set_quaternion_w(source.orientation.w);
+}
+
+void fillTwist(wire::Twist3D* target, const geometry_msgs::msg::Twist& source)
+{
+    target->mutable_linear()->set_x(source.linear.x);
+    target->mutable_linear()->set_y(source.linear.y);
+    target->mutable_linear()->set_z(source.linear.z);
+    target->mutable_angular()->set_x(source.angular.x);
+    target->mutable_angular()->set_y(source.angular.y);
+    target->mutable_angular()->set_z(source.angular.z);
+}
+
 const char* finalTargetClassLabel(std::uint8_t value)
 {
     switch (value) {
@@ -247,6 +285,22 @@ wire::VehicleState RobotWsProtoConverter::vehicleState(
     }
     state.set_longitude_deg(message.longitude);
     state.set_latitude_deg(message.latitude);
+    state.set_start_time_s(message.start_time);
+    state.set_gauss_x_m(message.gauss_x);
+    state.set_gauss_y_m(message.gauss_y);
+    state.set_gauss_z_m(message.gauss_z);
+    state.set_origin_longitude_deg(message.origin_longitude);
+    state.set_origin_latitude_deg(message.origin_latitude);
+    state.set_origin_x_m(message.origin_x);
+    state.set_origin_y_m(message.origin_y);
+    state.set_origin_z_m(message.origin_z);
+    state.set_odom_heading_rad(message.odom_heading);
+    state.set_angular_velocity_x_radps(message.omega_x);
+    state.set_angular_velocity_y_radps(message.omega_y);
+    state.set_usbl_message_word_1(message.usbl_msg1);
+    state.set_usbl_message_word_2(message.usbl_msg2);
+    state.set_usbl_message_word_3(message.usbl_msg3);
+    state.set_usbl_message_word_4(message.usbl_msg4);
     return state;
 }
 
@@ -257,11 +311,8 @@ wire::ObstacleSet RobotWsProtoConverter::obstacles(
     const auto sourceTimeNs = rosStampNs(message.header.stamp, receiveTimeNs);
     fillHeader(result.mutable_header(), sourceTimeNs, receiveTimeNs,
                "robot_ws.final_targets", message.header.frame_id);
+    result.set_source_task_id(message.task_id);
     for (const auto& source : message.targets) {
-        // 保持 main 的显示语义：没有有效长宽的目标无法绘制 box，因此不加入集合。
-        if (!source.dimensions_valid || source.length <= 0.0 || source.width <= 0.0) {
-            continue;
-        }
         auto* target = result.add_obstacle();
         fillHeader(target->mutable_header(),
                    rosStampNs(source.header.stamp, sourceTimeNs),
@@ -276,12 +327,24 @@ wire::ObstacleSet RobotWsProtoConverter::obstacles(
         target->mutable_center()->set_x_m(source.real_center_point.x);
         target->mutable_center()->set_y_m(source.real_center_point.y);
         target->mutable_center()->set_z_m(source.real_center_point.z);
+        target->set_geodetic_valid(source.geodetic_valid);
+        target->set_dimensions_valid(source.dimensions_valid);
+        target->set_heading_valid(source.heading_valid);
+        if (source.geodetic_valid) {
+            auto* geodetic = target->mutable_geodetic_position();
+            geodetic->set_longitude_deg(source.real_center_point.longitude);
+            geodetic->set_latitude_deg(source.real_center_point.latitude);
+            geodetic->set_depth_m(source.real_center_point.depth);
+            geodetic->set_height_above_bottom_m(source.real_center_point.height);
+        }
         if (source.heading_valid) {
             target->set_heading_rad(source.heading);
         }
-        target->set_length_m(source.length);
-        target->set_width_m(source.width);
-        target->set_height_m(source.height);
+        if (source.dimensions_valid) {
+            target->set_length_m(source.length);
+            target->set_width_m(source.width);
+            target->set_height_m(source.height);
+        }
         target->set_is_static(true);
         target->set_is_virtual(false);
     }
@@ -303,6 +366,7 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
     command.set_maneuver((message.mode == 10 || message.mode == 11)
                              ? wire::ControlCommand::MANEUVER_YAW_IN_PLACE
                              : wire::ControlCommand::MANEUVER_NONE);
+    command.set_source_mode(message.mode);
     command.set_enabled(message.is_enable);
     command.set_target_speed_mps(message.speed);
     command.set_target_yaw_rate_radps(message.angular_velocity);
@@ -330,8 +394,7 @@ wire::ChassisState RobotWsProtoConverter::chassisState(
     fillHeader(chassis.mutable_header(), 0, receiveTimeNs,
                "robot_ws.chassis_states");
     chassis.set_speed_mps(message.current_speed);
-    // robot_ws 反馈左转为负；AutoViz 统一为逆时针/左转为正。
-    chassis.set_yaw_rate_radps(-message.current_angular_velocity);
+    chassis.set_yaw_rate_radps(message.current_angular_velocity);
     chassis.set_gear(message.gear_status);
 
     auto* underwater = chassis.mutable_underwater();
@@ -345,6 +408,14 @@ wire::ChassisState RobotWsProtoConverter::chassisState(
     addThruster(underwater, "left_vertical_thruster", message.left_vertical_actuator_status);
     addThruster(underwater, "right_vertical_thruster", message.right_vertical_actuator_status);
     addThruster(underwater, "back_vertical_thruster", message.back_vertical_actuator_status);
+    addTailMotor(&chassis, "left_tail_thruster", message.left_tail_motor_bus_current,
+                 message.left_tail_motor_controller_temperature,
+                 message.left_tail_motor_target_speed_rpm,
+                 message.left_tail_motor_actual_speed_rpm);
+    addTailMotor(&chassis, "right_tail_thruster", message.right_tail_motor_bus_current,
+                 message.right_tail_motor_controller_temperature,
+                 message.right_tail_motor_target_speed_rpm,
+                 message.right_tail_motor_actual_speed_rpm);
 
     auto* platform = chassis.mutable_platform();
     platform->set_crawl_heartbeat(message.crawl_heartbeat);
@@ -472,11 +543,15 @@ wire::TaskState RobotWsProtoConverter::taskState(
     state.set_task_type(message.task_type);
     state.set_task_id(message.task_id);
     state.set_enabled(message.task_enable);
+    state.set_task_start_requested(message.task_enable);
+    state.set_action_enabled(message.is_enable);
     state.set_emergency_stop(message.emergency_stop);
     state.set_remote_mode(message.remote_mode);
     state.set_power_enable(message.power_enable);
     state.mutable_underwater()->set_release_emergency_ascent(
         message.release_emergency_ascent);
+    state.mutable_underwater()->set_buoyancy_command(
+        buoyancyCommand(message.buoyancy_adjust));
     auto* remote = state.mutable_remote_control();
     remote->set_crawl_gear(message.crawl_gear);
     remote->set_crawl_speed_mps(message.crawl_speed);
@@ -524,6 +599,9 @@ wire::Trajectory RobotWsProtoConverter::localTrajectory(
         path->mutable_position()->set_y_m(source.pose.position.y);
         path->mutable_position()->set_z_m(source.pose.position.z);
         path->set_heading_rad(yawFromQuaternion(source.pose.orientation));
+        fillPose(point->mutable_pose(), source.pose);
+        fillTwist(point->mutable_velocity_3d(), source.velocity);
+        fillTwist(point->mutable_acceleration_3d(), source.acceleration);
         point->set_speed_mps(source.velocity.linear.x);
         point->set_acceleration_mps2(source.acceleration.linear.x);
         const double relative = static_cast<double>(source.time_from_start.sec)
@@ -553,6 +631,7 @@ wire::Trajectory RobotWsProtoConverter::globalTrajectory(
         path->mutable_position()->set_y_m(source.pose.position.y);
         path->mutable_position()->set_z_m(source.pose.position.z);
         path->set_heading_rad(yawFromQuaternion(source.pose.orientation));
+        fillPose(point->mutable_pose(), source.pose);
     }
     trajectory.set_total_length_m(polylineLength(trajectory));
     return trajectory;

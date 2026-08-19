@@ -72,4 +72,5 @@ message UnderwaterChassisState {
 message UnderwaterTaskState {
   // 当前采样值；true 只表示解除按钮处于高电平。
   optional bool release_emergency_ascent = 1;
+  optional BuoyancyCommand buoyancy_command = 2 [default = BUOYANCY_COMMAND_UNKNOWN];
 }
