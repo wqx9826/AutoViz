@@ -136,7 +136,7 @@ wire::VerticalControlMode verticalMode(quint8 navigationMode)
 { if(navigationMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(navigationMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return wire::VERTICAL_CONTROL_MODE_NONE; }
 
 wire::VerticalControlMode actionVerticalMode(quint8 owner, quint8 chassisMode, quint8 navigationMode)
-{ Q_UNUSED(navigationMode); if(owner==2&&chassisMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(owner==2&&chassisMode==2)return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD; return wire::VERTICAL_CONTROL_MODE_NONE; }
+{ Q_UNUSED(navigationMode); if(owner==2&&chassisMode==1)return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD; if(owner==2&&chassisMode==2)return wire::VERTICAL_CONTROL_MODE_LANDING; return wire::VERTICAL_CONTROL_MODE_NONE; }
 
 QString actionName(quint8 owner)
 { return owner==1?QStringLiteral("custom_msgs/action/Move"):owner==2?QStringLiteral("custom_msgs/action/DepthCommand"):QString{}; }
@@ -258,15 +258,22 @@ bool decodeLocation(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString
     return true;
 }
 
-bool decodeCommand(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
+enum class ChassisCommandCdrLayout { Invalid, LegacyWithDiveSpeed, Current };
+
+bool decodeCommand(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e,
+                   ChassisCommandCdrLayout layout)
 {
-    quint8 mode,gear,navi,buoy; bool enabled,emergency,useWater,sonar; double speed,rate,depth,height,heading; qint8 left,right;
+    quint8 mode,gear,navi,buoy; bool enabled,emergency,useWater,sonar; double speed,rate,depth,height,heading,diveSpeed=0; qint8 left,right;
     if(!r.u8(mode,e)||!r.boolean(enabled,e)||!r.boolean(emergency,e)||!r.f64(speed,e)||!r.f64(rate,e)||!r.u8(gear,e)||!r.boolean(useWater,e)||!r.u8(navi,e)||!r.f64(depth,e)||!r.f64(height,e)||!r.f64(heading,e))return false;
+    // The old bag layout placed the now-removed dive_speed between heading
+    // and actuator commands. It has no current protocol counterpart, but
+    // must be consumed to preserve the following command fields.
+    if(layout==ChassisCommandCdrLayout::LegacyWithDiveSpeed&&!r.f64(diveSpeed,e))return false;
     if(!r.i8(left,e)||!r.i8(right,e)||!r.u8(buoy,e)||!r.boolean(sonar,e))return false;
     auto*c=s->mutable_control_command(); fillHeader(c->mutable_header(),0,ts,"robot_ws.chassis_command");
-    const bool crawl=mode==6||mode==8||mode==11, sailing=(mode>=1&&mode<=5)||mode==7||mode==10;
+    const bool crawl=mode==6||mode==8||mode==11, sailing=(mode>=1&&mode<=5)||mode==7||mode==9||mode==10;
     c->set_mode(crawl?wire::ControlCommand::MODE_CRAWL:sailing?wire::ControlCommand::MODE_SAILING:wire::ControlCommand::MODE_UNKNOWN); c->set_maneuver((mode==10||mode==11)?wire::ControlCommand::MANEUVER_YAW_IN_PLACE:wire::ControlCommand::MANEUVER_NONE); c->set_source_mode(mode); c->set_enabled(enabled); c->set_target_speed_mps(speed); c->set_target_yaw_rate_radps(rate); c->set_target_heading_rad(heading); c->set_target_gear(gear);
-    auto*u=c->mutable_underwater();u->set_water_actuator_enabled(useWater);u->set_navigation_mode(navi);u->set_target_depth_m(depth);u->set_target_height_above_bottom_m(height);u->set_left_thruster_command(left);u->set_right_thruster_command(right);u->set_buoyancy_command(buoyancy(buoy));u->set_vertical_control_mode(verticalMode(navi));u->set_sonar_power_enabled(sonar);u->set_emergency_ascent(emergency); return true;
+    auto*u=c->mutable_underwater();u->set_water_actuator_enabled(useWater);u->set_navigation_mode(navi);u->set_target_depth_m(depth);u->set_target_height_above_bottom_m(height);u->set_left_thruster_command(left);u->set_right_thruster_command(right);u->set_buoyancy_command(buoyancy(buoy));u->set_vertical_control_mode(layout==ChassisCommandCdrLayout::Current&&mode==2?wire::VERTICAL_CONTROL_MODE_LANDING:verticalMode(navi));u->set_sonar_power_enabled(sonar);u->set_emergency_ascent(emergency); return true;
 }
 
 struct Motor { double speed=0,torque=0,bus=0,cmdSpeed=0,cmdTorque=0; qint16 temp=0,utemp=0,vtemp=0; bool ready=false,output=false,fault=false,cmdEnable=false,cmdSpeedMode=false,cmdReverse=false; quint8 faultCode=0; };
@@ -274,11 +281,22 @@ bool readMotor(CdrReader&r,Motor&m,QString*e){return r.f64(m.speed,e)&&r.f64(m.t
 bool readMotorCommand(CdrReader&r,Motor&m,QString*e){return r.boolean(m.cmdEnable,e)&&r.boolean(m.cmdSpeedMode,e)&&r.boolean(m.cmdReverse,e)&&r.f64(m.cmdSpeed,e)&&r.f64(m.cmdTorque,e);}
 void fillMotor(wire::CrawlMotorState*t,const Motor&m,quint8 actuator){t->set_valid(true);t->set_speed_rpm(m.speed);t->set_torque_or_q_axis_current(m.torque);t->set_temperature_c(m.temp);t->set_bus_voltage_v(m.bus);t->set_controller_ready(m.ready);t->set_output_enabled(m.output);t->set_controller_u_temperature_c(m.utemp);t->set_controller_v_temperature_c(m.vtemp);t->set_fault(m.fault);t->set_motor_fault_code(m.faultCode);t->set_actuator_fault_code(actuator);t->set_command_enable(m.cmdEnable);t->set_command_speed_mode(m.cmdSpeedMode);t->set_command_reverse(m.cmdReverse);t->set_command_speed_rpm(m.cmdSpeed);t->set_command_torque_or_q_axis_current(m.cmdTorque);}
 
-bool decodeChassis(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e,bool hasTailMotorTelemetry)
+enum class ChassisCdrLayout { Invalid, Legacy, LegacyWithTail, Current, CurrentWithTail };
+
+bool decodeChassis(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e,ChassisCdrLayout layout)
 {
+    const bool hasHeading = layout == ChassisCdrLayout::Current || layout == ChassisCdrLayout::CurrentWithTail;
+    const bool hasTailMotorTelemetry = layout == ChassisCdrLayout::LegacyWithTail || layout == ChassisCdrLayout::CurrentWithTail;
     quint8 thr[5],waterHb,tank, tankStatus,gear,leftAct,rightAct,crawlHb; bool tankRaw; double speed,rate;
+    double headingKp=0,headingTarget=0,headingActual=0,headingError=0,headingOutput=0;
     double leftTailBus=0,leftTailTarget=0,leftTailActual=0,rightTailBus=0,rightTailTarget=0,rightTailActual=0; qint16 leftTailTemp=0,rightTailTemp=0;
-    for(auto&v:thr)if(!r.u8(v,e))return false; if(!r.u8(waterHb,e))return false;
+    for(auto&v:thr)if(!r.u8(v,e))return false;
+    if(hasHeading&&!r.f64(headingKp,e))return false;
+    if(!r.u8(waterHb,e))return false;
+    if(hasHeading&&!r.f64(headingTarget,e))return false;
+    if(hasHeading&&!r.f64(headingActual,e))return false;
+    if(hasHeading&&!r.f64(headingError,e))return false;
+    if(hasHeading&&!r.f64(headingOutput,e))return false;
     if(hasTailMotorTelemetry&&!r.f64(leftTailBus,e))return false;
     if(hasTailMotorTelemetry&&!r.i16(leftTailTemp,e))return false;
     if(hasTailMotorTelemetry&&!r.f64(leftTailTarget,e))return false;
@@ -293,6 +311,7 @@ bool decodeChassis(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*
     if(!r.u8(bmsStatus,e)||!r.u8(bmsHb,e)||!r.u8(alarm,e)||!r.u8(current,e)||!r.f64(packV,e)||!r.f64(packI,e)||!r.u8(maxVi,e)||!r.f64(maxV,e)||!r.u8(minVi,e)||!r.f64(minV,e)||!r.u8(maxTi,e)||!r.i8(maxT,e)||!r.u8(minTi,e)||!r.i8(minT,e))return false;
     quint8 warnings[12],power[16],soc; for(auto&v:warnings)if(!r.u8(v,e))return false; bool dcdc; if(!r.boolean(dcdc,e))return false; for(auto&v:power)if(!r.u8(v,e))return false; double inputV; bool emergency; if(!r.u8(soc,e)||!r.f64(inputV,e)||!r.boolean(emergency,e))return false;
     auto*c=s->mutable_chassis_state();fillHeader(c->mutable_header(),0,ts,"robot_ws.chassis_states");c->set_speed_mps(speed);c->set_yaw_rate_radps(rate);c->set_gear(gear);
+    if(hasHeading){c->set_heading_kp(headingKp);c->set_heading_target_value(headingTarget);c->set_heading_actual_value(headingActual);c->set_heading_error(headingError);c->set_heading_output(headingOutput);}
     if(hasTailMotorTelemetry){auto*leftTail=c->add_tail_thruster_motor();leftTail->set_id("left_tail_thruster");leftTail->set_bus_current_a(leftTailBus);leftTail->set_controller_temperature_c(leftTailTemp);leftTail->set_target_speed_rpm(leftTailTarget);leftTail->set_actual_speed_rpm(leftTailActual);auto*rightTail=c->add_tail_thruster_motor();rightTail->set_id("right_tail_thruster");rightTail->set_bus_current_a(rightTailBus);rightTail->set_controller_temperature_c(rightTailTemp);rightTail->set_target_speed_rpm(rightTailTarget);rightTail->set_actual_speed_rpm(rightTailActual);}
     auto*u=c->mutable_underwater();u->set_water_tank_level(tank);u->set_water_tank_level_is_raw(tankRaw);u->set_water_tank_state(tankState(tankStatus));u->set_water_heartbeat(waterHb);u->set_emergency_ascent_active(emergency);const char*ids[]={"left_tail_thruster","right_tail_thruster","left_vertical_thruster","right_vertical_thruster","back_vertical_thruster"};for(int i=0;i<5;++i){auto*t=u->add_thruster();t->set_id(ids[i]);t->set_fault_code(thr[i]);}
     auto*p=c->mutable_platform();p->set_crawl_heartbeat(crawlHb);p->set_dcdc_enabled(dcdc);p->set_smart_power_input_voltage_v(inputV);fillMotor(p->mutable_left_crawl_motor(),left,leftAct);fillMotor(p->mutable_right_crawl_motor(),right,rightAct);
@@ -350,18 +369,25 @@ bool decodeObstacles(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QStrin
     for(quint32 i=0;i<count;++i){quint16 id;double point[8],length,width,height,heading;bool geo,dimensions,headingValid;quint8 cls;if(!readHeader(r,tsec,tns,tframe,e)||!r.u16(id,e)||!readCustomPoint(r,point,e)||!r.boolean(geo,e)||!r.f64(length,e)||!r.f64(width,e)||!r.f64(height,e)||!r.f64(heading,e)||!r.boolean(dimensions,e)||!r.boolean(headingValid,e)||!r.u8(cls,e))return false;auto*o=set->add_obstacle();fillHeader(o->mutable_header(),headerNs(tsec,tns,source),ts,"robot_ws.final_target",tframe);o->set_id(std::to_string(id));o->set_type(wire::Obstacle::TYPE_OTHER);o->set_source_class(cls);o->set_class_label(classLabel(cls));o->set_source("fusion");o->mutable_center()->set_x_m(point[4]);o->mutable_center()->set_y_m(point[5]);o->mutable_center()->set_z_m(point[6]);o->set_geodetic_valid(geo);o->set_dimensions_valid(dimensions);o->set_heading_valid(headingValid);if(geo){auto*g=o->mutable_geodetic_position();g->set_longitude_deg(point[0]);g->set_latitude_deg(point[1]);g->set_depth_m(point[2]);g->set_height_above_bottom_m(point[3]);}if(headingValid)o->set_heading_rad(heading);if(dimensions){o->set_length_m(length);o->set_width_m(width);o->set_height_m(height);}o->set_is_static(true);o->set_is_virtual(false);}return true;
 }
 
-enum class ChassisCdrLayout { Invalid, Legacy, Current };
-
 ChassisCdrLayout chassisCdrLayout(const QByteArray& payload)
 {
-    // All ChassisStates fields are fixed-size scalars. The legacy message ends
-    // at 277 bytes including encapsulation; the current message adds eight
-    // tail-motor fields and ends at 341 bytes. Up to seven zero bytes are legal
-    // final CDR padding and are accepted by CdrReader::finished().
+    // All ChassisStates fields are fixed-size scalars. Layout selection is
+    // strictly length based; no speculative parse/fallback is allowed.
     const int size = payload.size();
     if (size >= 277 && size <= 284) return ChassisCdrLayout::Legacy;
-    if (size >= 341 && size <= 348) return ChassisCdrLayout::Current;
+    if (size >= 341 && size <= 348) return ChassisCdrLayout::LegacyWithTail;
+    if (size >= 325 && size <= 332) return ChassisCdrLayout::Current;
+    if (size >= 389 && size <= 396) return ChassisCdrLayout::CurrentWithTail;
     return ChassisCdrLayout::Invalid;
+}
+
+ChassisCommandCdrLayout chassisCommandCdrLayout(const QByteArray& payload)
+{
+    // ChassisCommand is scalar-only. The legacy layout has the removed
+    // dive_speed float64 after heading; do not infer layouts by trial parse.
+    if (payload.size() == 64) return ChassisCommandCdrLayout::Current;
+    if (payload.size() == 72) return ChassisCommandCdrLayout::LegacyWithDiveSpeed;
+    return ChassisCommandCdrLayout::Invalid;
 }
 }
 
@@ -390,6 +416,13 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
         if (error) *error = QStringLiteral("ChassisStates CDR 长度不匹配旧布局或当前布局: %1 字节").arg(payload.size());
         return false;
     }
+    const ChassisCommandCdrLayout commandLayout = topic == "/chassis_command"
+                                                      ? chassisCommandCdrLayout(payload)
+                                                      : ChassisCommandCdrLayout::Current;
+    if (topic == "/chassis_command" && commandLayout == ChassisCommandCdrLayout::Invalid) {
+        if (error) *error = QStringLiteral("ChassisCommand CDR 长度不匹配旧布局或当前布局: %1 字节").arg(payload.size());
+        return false;
+    }
     const bool hadCommand=snapshot->has_control_command(); const auto oldCommand=hadCommand?snapshot->control_command():wire::ControlCommand{};
     const bool hadChassis=snapshot->has_chassis_state(); const auto oldChassis=hadChassis?snapshot->chassis_state():wire::ChassisState{};
     // rosbag 的一条 topic 消息与 Server 发送的同名 snapshot 字段语义相同：它是
@@ -403,13 +436,13 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
     else if(topic=="/local_path") snapshot->clear_local_trajectory();
     else if(topic=="/global_path") snapshot->clear_global_trajectory();
     bool ok=false;
-    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout==ChassisCdrLayout::Current);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
+    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error,commandLayout);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
     if(!ok||!r.finished(error))return false;
     auto append=[&snapshot](wire::ControlStateEvent&&e){snapshot->add_control_state_event()->Swap(&e);};
     if(topic=="/system_run_states"&&snapshot->has_action_state()){
         const auto&v=snapshot->action_state();if(!hadAction||oldAction!=v.chassis_mode()){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_ACTION_EXPECTATION);e.set_goal_id(v.goal_id());if(hadAction)e.set_previous_mode(oldAction);e.set_current_mode(v.chassis_mode());append(std::move(e));}
     }else if(topic=="/chassis_command"&&snapshot->has_control_command()){
-        const auto mode=[](const wire::ControlCommand&v){const bool y=v.maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;return v.mode()==wire::ControlCommand::MODE_CRAWL?(y?11:6):(v.mode()==wire::ControlCommand::MODE_SAILING?(y?10:0):0);};const auto&v=snapshot->control_command();if(!hadCommand||mode(oldCommand)!=mode(v)||oldCommand.target_gear()!=v.target_gear()||oldCommand.enabled()!=v.enabled()){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_CONTROL_COMMAND);if(snapshot->has_action_state())e.set_goal_id(snapshot->action_state().goal_id());if(hadCommand){e.set_previous_mode(mode(oldCommand));e.set_previous_gear(oldCommand.target_gear());e.set_previous_enabled(oldCommand.enabled());}e.set_current_mode(mode(v));e.set_current_gear(v.target_gear());e.set_current_enabled(v.enabled());append(std::move(e));}
+        const auto mode=[](const wire::ControlCommand&v){if(v.has_source_mode())return v.source_mode();const bool y=v.maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;return v.mode()==wire::ControlCommand::MODE_CRAWL?(y?11:6):(v.mode()==wire::ControlCommand::MODE_SAILING?(y?10:0):0);};const auto&v=snapshot->control_command();if(!hadCommand||mode(oldCommand)!=mode(v)||oldCommand.target_gear()!=v.target_gear()||oldCommand.enabled()!=v.enabled()){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_CONTROL_COMMAND);if(snapshot->has_action_state())e.set_goal_id(snapshot->action_state().goal_id());if(hadCommand){e.set_previous_mode(mode(oldCommand));e.set_previous_gear(oldCommand.target_gear());e.set_previous_enabled(oldCommand.enabled());}e.set_current_mode(mode(v));e.set_current_gear(v.target_gear());e.set_current_enabled(v.enabled());append(std::move(e));}
     }else if(topic=="/chassis_states"&&snapshot->has_chassis_state()){
         const auto output=[](const wire::ChassisState&v,bool*has){if(v.has_platform()&&v.platform().has_left_crawl_motor()&&v.platform().has_right_crawl_motor()){const bool left=v.platform().left_crawl_motor().output_enabled(),right=v.platform().right_crawl_motor().output_enabled();*has=left==right;return left;}*has=false;return false;};
         const auto&v=snapshot->chassis_state();bool hadOldOutput=false,hasOutput=false;const bool oldOutput=output(oldChassis,&hadOldOutput),currentOutput=output(v,&hasOutput);const bool gearChanged=!hadChassis||oldChassis.gear()!=v.gear();const bool outputChanged=hasOutput&&(!hadOldOutput||oldOutput!=currentOutput);if(gearChanged||outputChanged){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_CHASSIS_FEEDBACK);if(snapshot->has_action_state())e.set_goal_id(snapshot->action_state().goal_id());if(hadChassis)e.set_previous_gear(oldChassis.gear());if(hadOldOutput)e.set_previous_crawl_output_enabled(oldOutput);e.set_current_gear(v.gear());if(hasOutput)e.set_current_crawl_output_enabled(currentOutput);append(std::move(e));}

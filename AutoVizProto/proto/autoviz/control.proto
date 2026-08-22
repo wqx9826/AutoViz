@@ -32,7 +32,8 @@ message ControlCommand {
   optional UnderwaterCommand underwater = 11;
   reserved 12 to 14;
   optional Maneuver maneuver = 15 [default = MANEUVER_NONE];
-  // Adapter 来源的原始模式码，供诊断使用；通用 mode/maneuver 仍是业务展示依据。
+  // Adapter 来源的原始模式码。存在时是 robot_ws ChassisCommand.mode 的权威
+  // 展示值；缺失时 Client 使用通用 mode/maneuver/垂向语义回退。
   optional sint32 source_mode = 16;
 }
 

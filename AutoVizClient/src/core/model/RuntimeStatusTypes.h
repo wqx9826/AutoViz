@@ -157,7 +157,8 @@ enum class WaterTankState {
 enum class VerticalControlMode {
     None,
     DepthHold,
-    HeightHold
+    HeightHold,
+    Landing
 };
 
 struct ChassisRuntimeStatus {
@@ -166,6 +167,16 @@ struct ChassisRuntimeStatus {
     qint64 timestampMs = 0;
     double currentSpeed = 0.0;
     double currentAngularVelocity = 0.0;
+    bool hasHeadingKp = false;
+    bool hasHeadingTargetValue = false;
+    bool hasHeadingActualValue = false;
+    bool hasHeadingError = false;
+    bool hasHeadingOutput = false;
+    double headingKp = 0.0;
+    double headingTargetValue = 0.0;
+    double headingActualValue = 0.0;
+    double headingError = 0.0;
+    double headingOutput = 0.0;
     int gearStatus = 0;
     int waterTankLevelStatus = 0;
     bool waterTankLevelIsRaw = false;
@@ -218,6 +229,7 @@ struct ControlCommandStatus {
     int rightWaterActuatorSpeed = 0;
     int buoyancyAdjust = 0;
     bool isOpenSonarPower = false;
+    bool hasSourceMode = false;
     int sourceMode = 0;
 };
 
@@ -310,7 +322,7 @@ inline bool isCrawlChassisMode(int mode)
 
 inline bool isSailingChassisMode(int mode)
 {
-    return (mode >= 1 && mode <= 5) || mode == 7 || mode == 10;
+    return (mode >= 1 && mode <= 5) || mode == 7 || mode == 9 || mode == 10;
 }
 
 inline QString toDisplayString(RunVisualizationMode mode)

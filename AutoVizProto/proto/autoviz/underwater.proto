@@ -28,6 +28,9 @@ enum VerticalControlMode {
   VERTICAL_CONTROL_MODE_NONE = 0;
   VERTICAL_CONTROL_MODE_DEPTH_HOLD = 1;
   VERTICAL_CONTROL_MODE_HEIGHT_HOLD = 2;
+  // Current custom_msgs mode=2 means landing. HEIGHT_HOLD remains for old
+  // navi_mode/action data and is not reused.
+  VERTICAL_CONTROL_MODE_LANDING = 3;
 }
 
 message UnderwaterState {

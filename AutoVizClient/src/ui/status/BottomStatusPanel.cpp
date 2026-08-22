@@ -478,9 +478,16 @@ QString bmsSummaryText(const autoviz::model::ChassisRuntimeStatus& chassis)
             warningCount += code != 0 ? 1 : 0;
         }
     }
-    return QStringLiteral("自检 %1 / 告警 %2 / SOC %3%")
+    const QString alarmLevel = chassis.bms.valid
+                                   ? QString::number(chassis.bms.alarmLevel)
+                                   : QStringLiteral("无此版本数据");
+    const QString warningCountText = chassis.bms.valid
+                                         ? QString::number(warningCount)
+                                         : QStringLiteral("无此版本数据");
+    return QStringLiteral("自检 %1 / 告警等级 %2 / 告警项 %3 / SOC %4%")
         .arg(selfCheckStatus == 0 ? QStringLiteral("正常") : QStringLiteral("故障"))
-        .arg(warningCount)
+        .arg(alarmLevel)
+        .arg(warningCountText)
         .arg(soc);
 }
 
@@ -758,13 +765,13 @@ QString chassisModeText(bool valid, int mode)
     case 1:
         return QStringLiteral("自主航行浮潜-深度");
     case 2:
-        return QStringLiteral("自主航行浮潜-高度");
+        return QStringLiteral("着底");
     case 3:
         return QStringLiteral("自主航行-浮力调节");
     case 4:
         return QStringLiteral("自主航行-定深");
     case 5:
-        return QStringLiteral("自主航行-定高");
+        return QStringLiteral("预留");
     case 6:
         return QStringLiteral("自主爬行");
     case 7:
@@ -772,7 +779,7 @@ QString chassisModeText(bool valid, int mode)
     case 8:
         return QStringLiteral("遥控爬行");
     case 9:
-        return QStringLiteral("水推设备测试");
+        return QStringLiteral("水推设备测试/紧急上浮");
     case 10:
         return QStringLiteral("航行中心转向");
     case 11:
@@ -793,7 +800,7 @@ QString naviModeText(bool valid, int mode)
     case 1:
         return QStringLiteral("定深");
     case 2:
-        return QStringLiteral("定高");
+        return QStringLiteral("定高（旧版）");
     default:
         return QStringLiteral("未知(%1)").arg(mode);
     }
@@ -808,7 +815,9 @@ QString verticalControlModeText(bool valid, autoviz::model::VerticalControlMode 
     case autoviz::model::VerticalControlMode::DepthHold:
         return QStringLiteral("定深");
     case autoviz::model::VerticalControlMode::HeightHold:
-        return QStringLiteral("定高");
+        return QStringLiteral("定高（旧版）");
+    case autoviz::model::VerticalControlMode::Landing:
+        return QStringLiteral("着底");
     case autoviz::model::VerticalControlMode::None:
     default:
         return QStringLiteral("无");
@@ -1521,6 +1530,12 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("chassis.speed"), tr("当前前向速度")},
                        {QStringLiteral("chassis.angular"), tr("当前角速度 (°/s)")},
                        {QStringLiteral("chassis.gear"), tr("挡位状态")}}},
+                     {tr("航向控制器诊断"),
+                      {{QStringLiteral("chassis.heading_kp"), tr("Kp（协议缩放值）")},
+                       {QStringLiteral("chassis.heading_target"), tr("目标值（协议缩放值）")},
+                       {QStringLiteral("chassis.heading_actual"), tr("实际值（协议缩放值）")},
+                       {QStringLiteral("chassis.heading_error"), tr("误差（协议缩放值）")},
+                       {QStringLiteral("chassis.heading_output"), tr("输出（协议缩放值）")}}},
                      {tr("压载与电源"),
                       {{QStringLiteral("chassis.tank_level"), tr("水箱液位状态")},
                        {QStringLiteral("chassis.tank_state"), tr("压载水箱状态")},
@@ -1833,6 +1848,12 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("chassis.speed"), displayNumber(chassis.valid, chassis.currentSpeed));
     setDetailValue(QStringLiteral("chassis.angular"), displayAngularVelocityDegrees(chassis.valid, chassis.currentAngularVelocity));
     setDetailValue(QStringLiteral("chassis.gear"), displayInt(chassis.valid, chassis.gearStatus));
+    const QString headingDiagnosticMissing = QStringLiteral("无此版本数据");
+    setDetailValue(QStringLiteral("chassis.heading_kp"), chassis.valid && chassis.hasHeadingKp ? formatNumber(chassis.headingKp) : headingDiagnosticMissing);
+    setDetailValue(QStringLiteral("chassis.heading_target"), chassis.valid && chassis.hasHeadingTargetValue ? formatNumber(chassis.headingTargetValue) : headingDiagnosticMissing);
+    setDetailValue(QStringLiteral("chassis.heading_actual"), chassis.valid && chassis.hasHeadingActualValue ? formatNumber(chassis.headingActualValue) : headingDiagnosticMissing);
+    setDetailValue(QStringLiteral("chassis.heading_error"), chassis.valid && chassis.hasHeadingError ? formatNumber(chassis.headingError) : headingDiagnosticMissing);
+    setDetailValue(QStringLiteral("chassis.heading_output"), chassis.valid && chassis.hasHeadingOutput ? formatNumber(chassis.headingOutput) : headingDiagnosticMissing);
     setDetailValue(QStringLiteral("chassis.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
     setDetailValue(QStringLiteral("chassis.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
     setDetailValue(QStringLiteral("chassis.emergency_ascent"), displayBool(chassis.valid, chassis.emergencyAscentActive));
@@ -1882,7 +1903,10 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("control.state"), validText(control.valid));
     setDetailValue(QStringLiteral("control.time"), formatTime(control.timestampMs));
     setDetailValue(QStringLiteral("control.mode_enable"), control.valid ? QStringLiteral("%1 / %2").arg(chassisModeText(true, control.mode), displayBool(true, control.isEnable)) : QStringLiteral("--"));
-    setDetailValue(QStringLiteral("control.source_mode"), displayInt(control.valid, control.sourceMode));
+    setDetailValue(QStringLiteral("control.source_mode"),
+                   control.valid && control.hasSourceMode
+                       ? displayInt(true, control.sourceMode)
+                       : QStringLiteral("无此版本数据"));
     setDetailValue(QStringLiteral("control.navi_mode"), naviModeText(control.valid, control.naviMode));
     setDetailValue(QStringLiteral("control.expected_gear"), gearText(control.valid, control.expectedGear));
     setDetailValue(QStringLiteral("control.water_enabled"), displayBool(control.valid, control.isUseWaterActuator));

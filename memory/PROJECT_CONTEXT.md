@@ -15,7 +15,7 @@ Windows 开发基线统一为 Qt 6.10、Qt Kit 自带 MinGW 13.1 和同工具链
 静态库；Qt Creator/CLion 必须选择该编译器，禁止混入 MSYS2 UCRT64 的 protobuf/Abseil
 二进制。Linux Client 保持 Qt5，并使用 Linux 本机工具链重建自己的协议 SDK。
 
-协议为 2.2，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
+协议为 2.3，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
 Envelope，最大 16 MiB。传输仅有 ClientHello、ServerHello、VisualizationSnapshot、
 Heartbeat、ProtocolError。
 
@@ -29,9 +29,14 @@ Heartbeat、ProtocolError。
 SystemRunStates 目标角速度从 deg/s 转 rad/s；ChassisStates 与 Location 角速度按源值透传。
 `odom_z`、`depth`、`height_above_bottom` 保持三个独立字段。
 
+`ChassisCommand.mode` 的当前 0..11 定义由 Server 和本地 CDR 原值写入
+`ControlCommand.source_mode`；Client 有该字段时按原始模式显示，缺失时才使用协议通用语义
+回退，因此旧协议仍可解析但不会伪造当前模式码。
+
 动作类别按 `SystemRunStates.owner` 和 `chassis_mode` 共同判定：只有
 `owner=2` 的 `DepthCommand` 且 `chassis_mode=1/2` 是独立垂向动作；`owner=1` 的
-`Move` 即使在 `chassis_mode=4/5/10` 使用定深/定高依赖，也仍是水平航行机动，不能切换 T-Z。
+`Move` 即使在 `chassis_mode=4/5/10` 使用定深依赖或旧版定高依赖，也仍是水平航行机动，不能切换 T-Z；
+当前 `custom_msgs` 的 mode=2 是着底，旧版 navi_mode=2 仅作为兼容数据保留。
 
 `VehicleState` 还可选携带 WGS-84 经度/纬度（度）以及 USBL 解算位置（m）；这些值仅用于
 定位详情，不替代 odom 坐标或三种垂向量。`TaskState.remote_control` 承载来源无关的人工操纵、

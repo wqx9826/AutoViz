@@ -113,6 +113,8 @@ TEST(RobotWsProtoConverterTest, ConvertsCommonAndUnderwaterControlCommand)
     const auto actual = autoviz_server::RobotWsProtoConverter::controlCommand(
         source, kReceiveTimeNs);
     EXPECT_EQ(actual.mode(), autoviz::ControlCommand::MODE_CRAWL);
+    ASSERT_TRUE(actual.has_source_mode());
+    EXPECT_EQ(actual.source_mode(), 6);
     EXPECT_DOUBLE_EQ(actual.target_yaw_rate_radps(), 0.3);
     ASSERT_TRUE(actual.has_underwater());
     EXPECT_EQ(actual.underwater().navigation_mode(), 2);
@@ -155,6 +157,11 @@ TEST(RobotWsProtoConverterTest, PreservesChassisYawAndUsesTypedDiagnostics)
     source.current_speed = 1.2;
     source.current_angular_velocity = -0.75;
     source.gear_status = 2;
+    source.heading_kp = 1.1;
+    source.heading_target_value = 10.1;
+    source.heading_actual_value = 9.2;
+    source.heading_error = 0.9;
+    source.heading_output = 0.3;
     source.water_tank_level_status = 73;
     source.water_tank_status = source.WATER_TANK_FILLING;
     source.left_tail_actuator_status = 3;
@@ -177,6 +184,9 @@ TEST(RobotWsProtoConverterTest, PreservesChassisYawAndUsesTypedDiagnostics)
     const auto actual = autoviz_server::RobotWsProtoConverter::chassisState(
         source, kReceiveTimeNs);
     EXPECT_DOUBLE_EQ(actual.yaw_rate_radps(), -0.75);
+    EXPECT_DOUBLE_EQ(actual.heading_kp(), 1.1);
+    EXPECT_DOUBLE_EQ(actual.heading_target_value(), 10.1);
+    EXPECT_DOUBLE_EQ(actual.heading_output(), 0.3);
     EXPECT_EQ(actual.underwater().water_tank_level(), 73);
     EXPECT_EQ(actual.underwater().water_tank_state(),
               autoviz::WATER_TANK_STATE_FILLING);
@@ -192,6 +202,28 @@ TEST(RobotWsProtoConverterTest, PreservesChassisYawAndUsesTypedDiagnostics)
     EXPECT_EQ(actual.platform().battery().state_of_charge_percent(), 88);
     ASSERT_EQ(actual.platform().power_channel_size(), 16);
     EXPECT_EQ(actual.platform().power_channel(0).status(), 2);
+}
+
+TEST(RobotWsProtoConverterTest, MapsCurrentLandingMode)
+{
+    custom_msgs::msg::ChassisCommand source;
+    source.mode = 2;
+    const auto actual = autoviz_server::RobotWsProtoConverter::controlCommand(
+        source, kReceiveTimeNs);
+    ASSERT_TRUE(actual.has_underwater());
+    EXPECT_EQ(actual.underwater().vertical_control_mode(),
+              autoviz::VERTICAL_CONTROL_MODE_LANDING);
+}
+
+TEST(RobotWsProtoConverterTest, ClassifiesWaterThrusterEmergencyModeAsSailing)
+{
+    custom_msgs::msg::ChassisCommand source;
+    source.mode = 9;
+    const auto actual = autoviz_server::RobotWsProtoConverter::controlCommand(
+        source, kReceiveTimeNs);
+    EXPECT_EQ(actual.mode(), autoviz::ControlCommand::MODE_SAILING);
+    ASSERT_TRUE(actual.has_source_mode());
+    EXPECT_EQ(actual.source_mode(), 9);
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsActionDegreesPerSecondToRadiansPerSecond)
@@ -226,7 +258,7 @@ TEST(RobotWsProtoConverterTest, ConvertsActionDegreesPerSecondToRadiansPerSecond
     EXPECT_TRUE(actual.underwater().emergency_ascent());
 }
 
-TEST(RobotWsProtoConverterTest, InfersHeightHoldFromDepthActionWhenNaviModeIsUnset)
+TEST(RobotWsProtoConverterTest, InfersLandingFromDepthActionWhenNaviModeIsUnset)
 {
     custom_msgs::msg::SystemRunStates source;
     source.owner = 2;
@@ -240,7 +272,7 @@ TEST(RobotWsProtoConverterTest, InfersHeightHoldFromDepthActionWhenNaviModeIsUns
         source, kReceiveTimeNs);
     ASSERT_TRUE(actual.has_underwater());
     EXPECT_EQ(actual.underwater().vertical_control_mode(),
-              autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD);
+              autoviz::VERTICAL_CONTROL_MODE_LANDING);
     EXPECT_DOUBLE_EQ(actual.underwater().target_height_above_bottom_m(), 0.5);
     EXPECT_EQ(actual.underwater().buoyancy_command(), autoviz::BUOYANCY_COMMAND_FILL);
 }
@@ -422,7 +454,7 @@ TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)
         {"/chassis_states", "custom_msgs/msg/ChassisStates", autoviz::DATA_KIND_CHASSIS_STATE}});
     autoviz::ActionState action; action.set_goal_id("goal-6"); action.set_chassis_mode(6);
     store.updateActionState(action, kReceiveTimeNs);
-    autoviz::ControlCommand command; command.set_mode(autoviz::ControlCommand::MODE_CRAWL); command.set_enabled(false); command.set_target_gear(0);
+    autoviz::ControlCommand command; command.set_mode(autoviz::ControlCommand::MODE_CRAWL); command.set_source_mode(5); command.set_enabled(false); command.set_target_gear(0);
     store.updateControlCommand(command, kReceiveTimeNs + 1);
     command.set_enabled(true); command.set_target_gear(1);
     store.updateControlCommand(command, kReceiveTimeNs + 2);
@@ -430,6 +462,7 @@ TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)
     ASSERT_EQ(snapshot.control_command().header().sequence(), 2U);
     ASSERT_EQ(snapshot.control_state_event_size(), 3);
     EXPECT_EQ(snapshot.control_state_event(2).goal_id(), "goal-6");
+    EXPECT_EQ(snapshot.control_state_event(2).current_mode(), 5);
     EXPECT_TRUE(snapshot.control_state_event(2).current_enabled());
     EXPECT_EQ(snapshot.control_state_event(2).current_gear(), 1);
 

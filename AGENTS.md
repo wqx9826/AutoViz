@@ -85,7 +85,8 @@ robot_ws 当前输入：
 - heading 东向为 0，逆时针/左转为正。
 - 协议与内部计算角度为 rad、角速度为 rad/s；UI 显示为度和 `°/s`。
 - robot_ws `SystemRunStates.target_angular_velocity` 是 deg/s，Server 转 rad/s。
-- robot_ws `ChassisStates.current_angular_velocity` 是左负右正，Server 取反。
+- robot_ws `ChassisStates.current_angular_velocity` 按原始值透传；它是驾驶员视角的转向量，
+  不当作 ENU 偏航角速度进行符号转换。
 - `odom_z`、`depth`、`height_above_bottom` 不得混用。
 
 ## DataManager 与 UI 规则

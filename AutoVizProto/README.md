@@ -115,7 +115,7 @@ protobuf 传递依赖和不同构建类型都需要在 Client/Server 重复处�
 - UI 行为依赖的字段使用显式 typed 字段；DiagnosticMetric 只承载扩展诊断。
 - 不兼容语义、单位或坐标变化提升握手的 protocol major。
 
-当前版本为 2.0。Envelope 只包含 ClientHello、ServerHello、VisualizationSnapshot、
+当前版本为 2.3。Envelope 只包含 ClientHello、ServerHello、VisualizationSnapshot、
 Heartbeat 和 ProtocolError；v1 的订阅与增量 field number 已保留但不再使用。
 
 FrameCodec 的发送和接收 API 对称且显式返回错误：

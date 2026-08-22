@@ -14,6 +14,17 @@ void addIntMetric(google::protobuf::RepeatedPtrField<wire::DiagnosticMetric>* me
     metric->set_key(key);
     metric->set_int_value(value);
 }
+
+std::int32_t commandMode(const wire::ControlCommand& value)
+{
+    if (value.has_source_mode()) return value.source_mode();
+    const bool yawInPlace = value.maneuver() == wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
+    return value.mode() == wire::ControlCommand::MODE_CRAWL
+               ? (yawInPlace ? 11 : 6)
+               : (value.mode() == wire::ControlCommand::MODE_SAILING
+                      ? (yawInPlace ? 10 : 0)
+                      : 0);
+}
 }  // namespace
 
 SnapshotStore::SnapshotStore(std::vector<TopicSpec> topics)
@@ -244,10 +255,7 @@ void SnapshotStore::trackActionEvent(const wire::ActionState& value)
 
 void SnapshotStore::trackCommandEvent(const wire::ControlCommand& value)
 {
-    const bool yawInPlace = value.maneuver() == wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
-    const std::int32_t mode = value.mode() == wire::ControlCommand::MODE_CRAWL
-                                  ? (yawInPlace ? 11 : 6)
-                                  : (value.mode() == wire::ControlCommand::MODE_SAILING ? (yawInPlace ? 10 : 0) : 0);
+    const std::int32_t mode = commandMode(value);
     if (m_hasCommandSemantic && mode == m_commandMode && value.target_gear() == m_commandGear
         && value.enabled() == m_commandEnabled) return;
     wire::ControlStateEvent event;

@@ -15,7 +15,7 @@ AutoVizClient 还可在不启动 Server、ROS2、WSL 或虚拟机的情况下，
 `main` 是当前 C/S v2 主线。此前现场稳定的 ROS2/Qt 单体版本保留在
 `legacy/ros2-qt-monolith` 分支，供现场回溯与对照，不再作为后续开发基线。
 
-当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.2**：Server 最多 20 Hz 发送
+当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.3**：Server 最多 20 Hz 发送
 完整当前快照，不再使用订阅、ChannelUpdate 或 UPSERT/CLEAR。八条 robot_ws 输入均由
 Server Adapter 转换；Client 根据通用规划控制、垂向、水下和平台诊断 capability 组织 UI。
 

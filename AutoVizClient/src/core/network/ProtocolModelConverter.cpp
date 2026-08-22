@@ -91,6 +91,8 @@ model::VerticalControlMode convertVerticalControlMode(wire::VerticalControlMode 
         return model::VerticalControlMode::DepthHold;
     case wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD:
         return model::VerticalControlMode::HeightHold;
+    case wire::VERTICAL_CONTROL_MODE_LANDING:
+        return model::VerticalControlMode::Landing;
     case wire::VERTICAL_CONTROL_MODE_NONE:
     default:
         return model::VerticalControlMode::None;
@@ -254,6 +256,16 @@ model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& sourc
                                              : QDateTime::currentMSecsSinceEpoch();
     target.currentSpeed = source.speed_mps();
     target.currentAngularVelocity = source.yaw_rate_radps();
+    target.hasHeadingKp = source.has_heading_kp();
+    target.hasHeadingTargetValue = source.has_heading_target_value();
+    target.hasHeadingActualValue = source.has_heading_actual_value();
+    target.hasHeadingError = source.has_heading_error();
+    target.hasHeadingOutput = source.has_heading_output();
+    if (target.hasHeadingKp) target.headingKp = source.heading_kp();
+    if (target.hasHeadingTargetValue) target.headingTargetValue = source.heading_target_value();
+    if (target.hasHeadingActualValue) target.headingActualValue = source.heading_actual_value();
+    if (target.hasHeadingError) target.headingError = source.heading_error();
+    if (target.hasHeadingOutput) target.headingOutput = source.heading_output();
     target.gearStatus = source.gear();
     if (source.has_underwater()) {
         const auto& underwater = source.underwater();
@@ -521,15 +533,25 @@ model::ControlCommandStatus convertControlStatus(const wire::ControlCommand& sou
     const auto verticalMode = source.has_underwater()
                                   ? convertVerticalControlMode(source.underwater().vertical_control_mode())
                                   : model::VerticalControlMode::None;
-    target.mode = source.mode() == wire::ControlCommand::MODE_CRAWL
-                      ? (yawInPlace ? 11 : 6)
-                      : (source.mode() == wire::ControlCommand::MODE_SAILING
-                             ? (yawInPlace ? 10
-                                           : (verticalMode == model::VerticalControlMode::HeightHold ? 5
-                                              : (verticalMode == model::VerticalControlMode::DepthHold ? 4 : 0)))
-                             : 0);
+    // robot_ws supplies the original ChassisCommand.mode. Preserve it for
+    // display when present; older protocol snapshots fall back to the
+    // platform-neutral mode/maneuver/vertical semantics below.
+    target.hasSourceMode = source.has_source_mode();
+    if (target.hasSourceMode) {
+        target.sourceMode = source.source_mode();
+        target.mode = target.sourceMode;
+    } else {
+        target.mode = source.mode() == wire::ControlCommand::MODE_CRAWL
+                          ? (yawInPlace ? 11 : 6)
+                          : (source.mode() == wire::ControlCommand::MODE_SAILING
+                                 ? (yawInPlace ? 10
+                                               : (verticalMode == model::VerticalControlMode::Landing ? 2
+                                                  : (verticalMode == model::VerticalControlMode::HeightHold ? 5
+                                                     : (verticalMode == model::VerticalControlMode::DepthHold ? 4 : 0))))
+                                 : 0);
+    }
     target.isEnable = source.enabled();
-    target.sourceMode = source.source_mode();
+    if (!target.hasSourceMode) target.sourceMode = 0;
     target.speed = source.target_speed_mps();
     target.angularVelocity = source.target_yaw_rate_radps();
     target.expectedGear = source.target_gear();

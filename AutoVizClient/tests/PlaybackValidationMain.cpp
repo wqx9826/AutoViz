@@ -97,12 +97,43 @@ bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
     }
     const auto& command = snapshot.control_command();
     if (command.mode() != ::autoviz::ControlCommand::MODE_SAILING
+        || !command.has_source_mode() || command.source_mode() != 4
         || command.target_gear() != 1
         || std::abs(command.underwater().target_depth_m() - 7.5) > 1.0e-12
         || command.underwater().left_thruster_command() != -12
         || command.underwater().right_thruster_command() != 34
         || !command.underwater().sonar_power_enabled()) {
         error << "current ChassisCommand CDR values self-test failed\n";
+        return false;
+    }
+    const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    if (!modelSnapshot.controlCommandStatus.hasSourceMode
+        || modelSnapshot.controlCommandStatus.mode != 4) {
+        error << "current ChassisCommand source mode was not preserved in the model\n";
+        return false;
+    }
+
+    QByteArray legacyPayload = payload.left(60);
+    appendCdrFloat64(&legacyPayload, 0.35);  // removed legacy dive_speed
+    legacyPayload.append(payload.mid(60));
+    ::autoviz::VisualizationSnapshot legacySnapshot;
+    if (legacyPayload.size() != 72
+        || !autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_command", "custom_msgs/msg/ChassisCommand", legacyPayload, 1,
+            &legacySnapshot, &detail)
+        || legacySnapshot.control_command().underwater().left_thruster_command() != -12
+        || legacySnapshot.control_command().underwater().right_thruster_command() != 34
+        || legacySnapshot.control_command().underwater().buoyancy_command()
+               != ::autoviz::BUOYANCY_COMMAND_FILL
+        || !legacySnapshot.control_command().underwater().sonar_power_enabled()) {
+        error << "legacy ChassisCommand dive_speed layout self-test failed: " << detail << '\n';
+        return false;
+    }
+    legacyPayload.append('\1');
+    if (autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_command", "custom_msgs/msg/ChassisCommand", legacyPayload, 1,
+            &legacySnapshot, &detail)) {
+        error << "invalid ChassisCommand CDR length was accepted\n";
         return false;
     }
     return true;
@@ -207,6 +238,83 @@ bool runLegacyChassisPassThroughChecks(QTextStream& error)
     if (!ok) {
         error << "legacy ChassisStates was not passed through unchanged\n";
     }
+    return ok;
+}
+
+bool runCurrentChassisDiagnosticsChecks(QTextStream& error)
+{
+    QByteArray payload(4, '\0');
+    payload[1] = char(1);  // CDR_LE
+    for (int index = 0; index < 5; ++index) appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 1.1);  // heading_kp
+    appendCdrByte(&payload, 2);       // water heartbeat
+    appendCdrFloat64(&payload, 10.1); // heading target
+    appendCdrFloat64(&payload, 9.2);  // heading actual
+    appendCdrFloat64(&payload, 0.9);  // heading error
+    appendCdrFloat64(&payload, 0.3);  // heading output
+    appendCdrFloat64(&payload, 4.5);  // left tail bus current
+    appendCdrInt16(&payload, 31);
+    appendCdrFloat64(&payload, 1200.0);
+    appendCdrFloat64(&payload, 1180.0);
+    appendCdrFloat64(&payload, 4.6);  // right tail bus current
+    appendCdrInt16(&payload, 32);
+    appendCdrFloat64(&payload, 1210.0);
+    appendCdrFloat64(&payload, 1190.0);
+    appendCdrByte(&payload, 0);  // tank level
+    appendCdrByte(&payload, 0);  // tank level is raw
+    appendCdrByte(&payload, 0);  // tank state
+    appendCdrByte(&payload, 1);  // gear
+    appendCdrFloat64(&payload, 0.7);
+    appendCdrFloat64(&payload, -0.4); // source value, no sign rewrite
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 3);
+    appendZeroMotorState(&payload);
+    appendZeroMotorState(&payload);
+    appendZeroMotorCommand(&payload);
+    appendZeroMotorCommand(&payload);
+    for (int index = 0; index < 4; ++index) appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 24.0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrFloat64(&payload, 0.0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 0);
+    for (int index = 0; index < 12; ++index) appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 1);
+    for (int index = 0; index < 16; ++index) appendCdrByte(&payload, 0);
+    appendCdrByte(&payload, 80);
+    appendCdrFloat64(&payload, 24.0);
+    appendCdrByte(&payload, 0);
+
+    ::autoviz::VisualizationSnapshot snapshot;
+    QString detail;
+    if (payload.size() != 389 || !autoviz::playback::RobotWsCdrDecoder::decode(
+            "/chassis_states", "custom_msgs/msg/ChassisStates", payload, 1,
+            &snapshot, &detail)) {
+        error << "current ChassisStates CDR self-test failed: " << detail << '\n';
+        return false;
+    }
+    const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    const auto& chassis = snapshot.chassis_state();
+    ::autoviz::VisualizationSnapshot partialDiagnostics;
+    partialDiagnostics.mutable_chassis_state()->set_heading_kp(2.0);
+    const auto partialModel = autoviz::network::ProtocolModelConverter::toModelSnapshot(partialDiagnostics);
+    const bool ok = chassis.has_heading_kp()
+                    && std::abs(chassis.heading_target_value() - 10.1) < 1.0e-12
+                    && std::abs(chassis.yaw_rate_radps() + 0.4) < 1.0e-12
+                    && chassis.tail_thruster_motor_size() == 2
+                    && std::abs(modelSnapshot.chassisRuntimeStatus.headingOutput - 0.3) < 1.0e-12
+                    && partialModel.chassisRuntimeStatus.hasHeadingKp
+                    && !partialModel.chassisRuntimeStatus.hasHeadingTargetValue
+                    && !partialModel.chassisRuntimeStatus.hasHeadingActualValue
+                    && !partialModel.chassisRuntimeStatus.hasHeadingError
+                    && !partialModel.chassisRuntimeStatus.hasHeadingOutput;
+    if (!ok) error << "current ChassisStates fields were not aligned\n";
     return ok;
 }
 
@@ -316,7 +424,8 @@ bool runVerticalControlConversionChecks(QTextStream& error)
 {
     for (const auto [verticalMode, expectedChassisMode] : {
              std::pair{::autoviz::VERTICAL_CONTROL_MODE_DEPTH_HOLD, 4},
-             std::pair{::autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD, 5}}) {
+             std::pair{::autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD, 5},
+             std::pair{::autoviz::VERTICAL_CONTROL_MODE_LANDING, 2}}) {
         ::autoviz::VisualizationSnapshot wireSnapshot;
         auto* command = wireSnapshot.mutable_control_command();
         command->set_mode(::autoviz::ControlCommand::MODE_SAILING);
@@ -325,6 +434,18 @@ bool runVerticalControlConversionChecks(QTextStream& error)
         if (modelSnapshot.controlCommandStatus.mode != expectedChassisMode) {
             error << "vertical conversion expected mode " << expectedChassisMode << ", got "
                   << modelSnapshot.controlCommandStatus.mode << '\n';
+            return false;
+        }
+    }
+    for (int sourceMode = 0; sourceMode <= 11; ++sourceMode) {
+        ::autoviz::VisualizationSnapshot wireSnapshot;
+        auto* command = wireSnapshot.mutable_control_command();
+        command->set_mode(::autoviz::ControlCommand::MODE_UNKNOWN);
+        command->set_source_mode(sourceMode);
+        const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(wireSnapshot);
+        if (!modelSnapshot.controlCommandStatus.hasSourceMode
+            || modelSnapshot.controlCommandStatus.mode != sourceMode) {
+            error << "source mode " << sourceMode << " was not preserved\n";
             return false;
         }
     }
@@ -345,7 +466,7 @@ bool runActionClassificationChecks(QTextStream& error)
         {1, 5, 2, ::autoviz::VERTICAL_CONTROL_MODE_NONE, autoviz::model::RunVisualizationMode::HorizontalMotion},
         {1, 10, 1, ::autoviz::VERTICAL_CONTROL_MODE_NONE, autoviz::model::RunVisualizationMode::HorizontalMotion},
         {2, 1, 0, ::autoviz::VERTICAL_CONTROL_MODE_DEPTH_HOLD, autoviz::model::RunVisualizationMode::VerticalMotion},
-        {2, 2, 0, ::autoviz::VERTICAL_CONTROL_MODE_HEIGHT_HOLD, autoviz::model::RunVisualizationMode::VerticalMotion},
+        {2, 2, 0, ::autoviz::VERTICAL_CONTROL_MODE_LANDING, autoviz::model::RunVisualizationMode::VerticalMotion},
     };
     for (const auto& item : cases) {
         ::autoviz::VisualizationSnapshot wireSnapshot;
@@ -498,6 +619,9 @@ int main(int argc, char** argv)
         return 1;
     }
     if (!runLegacyChassisPassThroughChecks(error)) {
+        return 1;
+    }
+    if (!runCurrentChassisDiagnosticsChecks(error)) {
         return 1;
     }
     if (!runControlStatusSummaryChecks(error)) {

@@ -191,10 +191,10 @@ offscreen 验收证明真实 Client 的构建、启动、握手、快照转换�
 CDR、截断和非法 bool。
 
 历史样例中 2026-08-06 前的 ChassisCommand 为含 `dive_speed` 的 72 字节布局，之后为不含该
-字段的 64 字节布局；当时两种布局都完成过全量解码。当前 robot_ws 已删除 `dive_speed`，Client
-回放解码器支持旧/新 ChassisStates 固定布局（277/341 字节，含封装头），旧布局缺少尾推字段时
-保持 optional 缺失，其他长度直接拒绝。回归自检会构造
-现行 64 字节 ChassisCommand CDR，验证尾部推进器、浮力和声纳字段不会错位。`AutoVizPlaybackSourceSmoke` 对
+字段的 64 字节布局；decoder 以固定长度区分两种布局并读取旧字段以保持后续字段对齐，其他长度
+直接拒绝。当前 robot_ws 已删除 `dive_speed`，因此它不映射为协议/UI 字段。Client 回放解码器还支持
+四种 ChassisStates 固定布局（277/341/325/389 字节，含封装头，分别对应旧无尾推、旧含尾推、当前无尾推、当前含航向诊断和尾推），旧布局缺失字段保持 optional 缺失。回归自检同时构造
+64/72 字节 ChassisCommand CDR，验证执行器、浮力和声纳字段不会错位。`AutoVizPlaybackSourceSmoke` 对
 `rosbag2_2026_08_12-03_00_17` 完成 metadata/SQLite/CDR 全量预检、seek、8× 和 EOF 状态验证。
 Client 最终构建通过，并以 Qt offscreen 启动无崩溃。Windows 的 qsqlite 部署与实际视觉观感
 仍需在 Windows 图形环境人工验收。

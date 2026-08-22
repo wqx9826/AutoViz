@@ -63,6 +63,8 @@ wire::VerticalControlMode verticalControlMode(std::uint8_t navigationMode)
     if (navigationMode == 1) {
         return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD;
     }
+    // navi_mode=2 was used by older custom_msgs revisions. Keep decoding it
+    // as the legacy height-hold value for old bags and old publishers.
     if (navigationMode == 2) {
         return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD;
     }
@@ -81,7 +83,7 @@ wire::VerticalControlMode actionVerticalControlMode(std::uint8_t owner,
             return wire::VERTICAL_CONTROL_MODE_DEPTH_HOLD;
         }
         if (chassisMode == 2) {
-            return wire::VERTICAL_CONTROL_MODE_HEIGHT_HOLD;
+            return wire::VERTICAL_CONTROL_MODE_LANDING;
         }
     }
     // Move action 的 navi_mode 只描述水平航行的定深/定高依赖，不能把它切换成 T-Z 主视图。
@@ -359,7 +361,7 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
                "robot_ws.chassis_command");
     const bool crawl = message.mode == 6 || message.mode == 8 || message.mode == 11;
     const bool sailing = (message.mode >= 1 && message.mode <= 5)
-                          || message.mode == 7 || message.mode == 10;
+                          || message.mode == 7 || message.mode == 9 || message.mode == 10;
     command.set_mode(crawl ? wire::ControlCommand::MODE_CRAWL
                            : (sailing ? wire::ControlCommand::MODE_SAILING
                                       : wire::ControlCommand::MODE_UNKNOWN));
@@ -381,7 +383,8 @@ wire::ControlCommand RobotWsProtoConverter::controlCommand(
     underwater->set_right_thruster_command(message.right_water_actuator_speed);
     underwater->set_buoyancy_command(buoyancyCommand(message.buoyancy_adjust));
     underwater->set_vertical_control_mode(
-        verticalControlMode(message.navi_mode));
+        message.mode == 2 ? wire::VERTICAL_CONTROL_MODE_LANDING
+                          : verticalControlMode(message.navi_mode));
     underwater->set_sonar_power_enabled(message.is_open_sonar_power);
     underwater->set_emergency_ascent(message.emergency_ascent);
     return command;
@@ -396,6 +399,11 @@ wire::ChassisState RobotWsProtoConverter::chassisState(
     chassis.set_speed_mps(message.current_speed);
     chassis.set_yaw_rate_radps(message.current_angular_velocity);
     chassis.set_gear(message.gear_status);
+    chassis.set_heading_kp(message.heading_kp);
+    chassis.set_heading_target_value(message.heading_target_value);
+    chassis.set_heading_actual_value(message.heading_actual_value);
+    chassis.set_heading_error(message.heading_error);
+    chassis.set_heading_output(message.heading_output);
 
     auto* underwater = chassis.mutable_underwater();
     underwater->set_water_tank_level(message.water_tank_level_status);

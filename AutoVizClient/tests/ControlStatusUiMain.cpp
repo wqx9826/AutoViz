@@ -149,7 +149,14 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     panel.show();
 
     autoviz::model::ControlStateEventList events;
-    panel.updateSnapshot(controlSnapshot(11, 4, 4, 101, events));
+    auto initialSnapshot = controlSnapshot(11, 4, 4, 101, events);
+    initialSnapshot.chassisRuntimeStatus.bms.valid = true;
+    initialSnapshot.chassisRuntimeStatus.bms.alarmLevel = 3;
+    initialSnapshot.chassisRuntimeStatus.bms.warningCodes = {0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0};
+    initialSnapshot.chassisRuntimeStatus.bms.selfCheckStatus = 0;
+    initialSnapshot.chassisRuntimeStatus.bms.soc = 58;
+    initialSnapshot.chassisRuntimeStatus.highVoltageBmsSocStatus = 58;
+    panel.updateSnapshot(initialSnapshot);
 
     auto* tabs = panel.findChild<QTabWidget*>(QStringLiteral("bottomStatusTabs"));
     auto* detailTabs = panel.findChild<QTabWidget*>(QStringLiteral("bottomStatusDetailTabs"));
@@ -168,17 +175,29 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     auto* omegaZLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.omega_z"));
     auto* commandSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.command.speed"));
     auto* commandAngularLabel = panel.findChild<QLabel*>(QStringLiteral("overview.command.angular"));
+    auto* bmsLabel = panel.findChild<QLabel*>(QStringLiteral("overview.hardware.bms"));
     if (modeLabel->text() != QStringLiteral("爬行中心转向")
         || !stateLabel->text().startsWith(QStringLiteral("爬行中心转向"))
         || crawlSpeedLabel == nullptr || sailingSpeedLabel == nullptr
         || crawlAngularLabel == nullptr || omegaZLabel == nullptr
         || commandSpeedLabel == nullptr || commandAngularLabel == nullptr
+        || bmsLabel == nullptr
         || crawlSpeedLabel->text() != QStringLiteral("2.00")
         || sailingSpeedLabel->text() != QStringLiteral("0.50")
-        || commandSpeedLabel->text() != QStringLiteral("1.00 / 0.50")) {
+        || commandSpeedLabel->text() != QStringLiteral("1.00 / 0.50")
+        || bmsLabel->text() != QStringLiteral("自检 正常 / 告警等级 3 / 告警项 1 / SOC 58%")) {
         error << "initial mode=11 overview text is incorrect\n";
         return false;
     }
+
+    auto missingBmsSnapshot = initialSnapshot;
+    missingBmsSnapshot.chassisRuntimeStatus.bms.valid = false;
+    panel.updateSnapshot(missingBmsSnapshot);
+    if (bmsLabel->text() != QStringLiteral("自检 正常 / 告警等级 无此版本数据 / 告警项 无此版本数据 / SOC 58%")) {
+        error << "missing BMS data was displayed as zero alarm values\n";
+        return false;
+    }
+    panel.updateSnapshot(initialSnapshot);
 
     tabs->setCurrentIndex(1);
     detailTabs->setCurrentIndex(detailTabs->count() - 1);

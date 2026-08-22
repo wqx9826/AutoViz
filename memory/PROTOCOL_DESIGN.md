@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.2
+# AutoViz Protocol v2.3
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
@@ -93,20 +93,23 @@ Client                         Server
 `ControlCommand.maneuver` 使用 field 15（12..14 已保留），当前取值为 `NONE` 或
 `YAW_IN_PLACE`。它与 `ControlCommand.mode` 正交：前者表达原地/中心转向，后者表达
 `CRAWL` 或 `SAILING` 平台类型；UI 据此显示“爬行中心转向”或“航行中心转向”。robot_ws
-Adapter 只将 `ChassisCommand.mode` 的 10/11 映射为该语义；`expected_gear=4` 只表达期望
-中心转向档位，不能反向改变命令模式。
+Adapter 只将 `ChassisCommand.mode` 的 10/11 映射为该语义；`mode=9` 水推设备测试/紧急上浮
+归入 `SAILING` 平台。`expected_gear=4` 只表达期望中心转向档位，不能反向改变命令模式。
+`ControlCommand.source_mode` 存在时保存当前 robot_ws `ChassisCommand.mode` 原值，并作为
+Client 的模式展示依据；老协议没有该 optional 字段时，Client 才按 `mode/maneuver` 和垂向
+语义回退推导 2/4/5/6/10/11 等显示模式。
 
 `UnderwaterCommand.vertical_control_mode` 使用 field 10，取值为 `NONE`、`DEPTH_HOLD`、
-`HEIGHT_HOLD`。它是唯一决定垂向目标量和 UI 趋势轴的协议语义；`BuoyancyCommand`
-只表达定深/定高动作附带的水箱指令，不单独构成一种动作。`navigation_mode` 保留为 Adapter
-诊断信息，业务显示不得再依赖其数值。对于 robot_ws 的 `SystemRunStates`，Adapter 优先以
-`owner=2`（DepthCommand）和 `chassis_mode=1/2` 判定定深/定高；实机该 action 可将
-`navi_mode` 发布为 0。
+兼容旧数据的 `HEIGHT_HOLD` 和当前 custom_msgs 的 `LANDING`。它是唯一决定垂向目标量和 UI
+趋势轴的协议语义；`BuoyancyCommand` 只表达定深/着底动作附带的水箱指令，不单独构成一种动作。
+`navigation_mode` 保留为 Adapter 诊断信息，业务显示不得再依赖其数值。对于 robot_ws 的
+`SystemRunStates`，Adapter 优先以 `owner=2`（DepthCommand）和 `chassis_mode=1/2` 判定定深/着底；
+实机该 action 可将 `navi_mode` 发布为 0。
 
 不要混淆两类 `robot_ws` 模式：`SystemRunStates.owner=2 + chassis_mode=1/2` 是独立的
-`DepthCommand`（浮潜定深/定高）Action；而 `/chassis_command.mode=4/5` 是普通自主航行过程中的
-定深/定高保持，`navi_mode=1/2` 仅给出该航行依赖。后者不能触发 T-Z Action 视图，也不能被标为
-独立浮潜 Action。
+`DepthCommand`（定深/着底）Action；而 `/chassis_command.mode=4` 是普通自主航行过程中的定深保持，
+当前 `mode=5` 预留，`navi_mode=1` 仅给出定深依赖。旧版 `navi_mode=2` 仍按 `HEIGHT_HOLD` 解码，
+但不能覆盖当前 mode=2 的着底语义。Move 不能触发 T-Z Action 视图，也不能被标为独立垂向 Action。
 
 `/system_run_states` 是可回放的 action 聚合状态，包含 owner、goal UUID、生命周期、垂向目标
 及伴随水箱指令。DepthCommand/Move 的 ROS2 action status、feedback 是隐藏 topic；`ros2 bag
@@ -132,6 +135,9 @@ robot_ws 输出。不要在读取 `goal_uuid` 时尝试把非 canonical 字符�
 - `ChassisCommand`、`ChassisStates`、`SystemRunStates` 当前没有 ROS Header。其 `Header` 只填
   `server_receive_time_ns`（本地回放为 rosbag 记录时间）和 per-topic `sequence`，不伪造
   `source_time_ns`；因此发布端时间及源到 Server 延迟在 UI 中明确为不可用。
+- 本地 CDR 对 `ChassisCommand` 按固定长度识别：当前布局为 64 字节，旧布局为 72 字节，后者在
+  `heading` 后含已删除的 `dive_speed`。解码器读取该旧字段以保持后续执行器、浮力和声纳字段对齐，
+  但不伪造无当前协议对应字段的展示值；其他长度直接拒绝。
 - 经度/纬度为 WGS-84 度；USBL 本地位置为 m，且只作定位诊断。
 - 角度 rad、角速度 rad/s；heading 东向 0、逆时针/左转正。
 - UI 显示层才转成度和 °/s。

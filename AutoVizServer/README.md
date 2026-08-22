@@ -1,7 +1,7 @@
 # AutoVizServer
 
 AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取 robot_ws 的八个 topic，转换为
-来源无关的 AutoViz Protocol v2.2 完整快照，并通过 TCP 只读发送给 Qt Client。
+来源无关的 AutoViz Protocol v2.3 完整快照，并通过 TCP 只读发送给 Qt Client。
 
 ## 从 ROS 回调到 TCP 的固定数据流
 

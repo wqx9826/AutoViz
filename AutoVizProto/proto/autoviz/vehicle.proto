@@ -118,6 +118,13 @@ message ChassisState {
   optional UnderwaterChassisState underwater = 10;
   reserved 11 to 13;
   repeated TailThrusterMotorState tail_thruster_motor = 14;
+  // robot_ws ChassisStates heading controller diagnostics. Values are the
+  // CAN-scaled protocol values; custom_msgs does not declare an angle unit.
+  optional double heading_kp = 15;
+  optional double heading_target_value = 16;
+  optional double heading_actual_value = 17;
+  optional double heading_error = 18;
+  optional double heading_output = 19;
 }
 
 message VehicleParameters {

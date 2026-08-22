@@ -192,7 +192,7 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
 TEST(ProtocolVersionTest, AcceptsOnlyV2MajorVersion)
 {
     EXPECT_EQ(wire::kProtocolMajor, 2U);
-    EXPECT_EQ(wire::kProtocolMinor, 2U);
+    EXPECT_EQ(wire::kProtocolMinor, 3U);
     EXPECT_TRUE(wire::isProtocolMajorCompatible(2U));
     EXPECT_FALSE(wire::isProtocolMajorCompatible(1U));
 }
