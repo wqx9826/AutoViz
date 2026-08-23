@@ -1555,7 +1555,8 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("chassis.motor_controller"), tr("控制器就绪/输出")},
                        {QStringLiteral("chassis.motor_command"), tr("指令回采")}}},
                      {tr("尾推驱动器"),
-                      {{QStringLiteral("chassis.tail_motor"), tr("母线电流/温度/目标/实际 rpm")}}},
+                      {{QStringLiteral("chassis.left_tail_motor"), tr("左尾推（A / °C / 目标 / 实际 rpm）")},
+                       {QStringLiteral("chassis.right_tail_motor"), tr("右尾推（A / °C / 目标 / 实际 rpm）")}}},
                      {tr("执行器与故障"),
                      {{QStringLiteral("chassis.heartbeat"), tr("水面/爬行心跳")},
                        {QStringLiteral("chassis.tail_actuator"), tr("尾部执行器 L/R")},
@@ -1891,13 +1892,26 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("chassis.right_motor"), motorFeedbackText(chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_controller"), motorControllerText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_command"), motorCommandText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
-    QString tailMotorText = QStringLiteral("无此版本数据");
-    if (chassis.valid && !chassis.tailThrusterMotors.isEmpty()) {
-        QStringList values;
-        for (const auto& motor : chassis.tailThrusterMotors) values << QStringLiteral("%1: %2A / %3°C / %4 / %5").arg(motor.id).arg(formatNumber(motor.busCurrent)).arg(motor.controllerTemperature).arg(formatNumber(motor.targetSpeedRpm)).arg(formatNumber(motor.actualSpeedRpm));
-        tailMotorText = values.join(QStringLiteral("; "));
-    }
-    setDetailValue(QStringLiteral("chassis.tail_motor"), tailMotorText);
+    const auto tailMotorText = [&chassis](const QString& id) {
+        if (!chassis.valid) {
+            return QStringLiteral("--");
+        }
+        const auto motor = std::find_if(chassis.tailThrusterMotors.cbegin(),
+                                        chassis.tailThrusterMotors.cend(),
+                                        [&id](const auto& item) { return item.id == id; });
+        if (motor == chassis.tailThrusterMotors.cend()) {
+            return QStringLiteral("无此版本数据");
+        }
+        return QStringLiteral("%1 A / %2 °C / %3 / %4")
+            .arg(formatNumber(motor->busCurrent),
+                 QString::number(motor->controllerTemperature),
+                 formatNumber(motor->targetSpeedRpm),
+                 formatNumber(motor->actualSpeedRpm));
+    };
+    setDetailValue(QStringLiteral("chassis.left_tail_motor"),
+                   tailMotorText(QStringLiteral("left_tail_thruster")));
+    setDetailValue(QStringLiteral("chassis.right_tail_motor"),
+                   tailMotorText(QStringLiteral("right_tail_thruster")));
 
     const auto& control = snapshot.controlCommandStatus;
     setDetailValue(QStringLiteral("control.state"), validText(control.valid));
