@@ -2,8 +2,9 @@
 # ROS 2 Humble 的 setup.bash 会读取可选的未定义环境变量，不能启用 nounset (-u)。
 set -eo pipefail
 
-WORKSPACE_DIR="/home/nvidia/AutoVizServer"
-ROBOT_WS_DIR="/home/nvidia/robot_ws"
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+WORKSPACE_DIR="${AUTOVIZ_SERVER_HOME:-$(cd -- "${script_dir}/.." && pwd)}"
+ROBOT_WS_DIR="${AUTOVIZ_ROBOT_WS_DIR:-/home/nvidia/robot_ws}"
 
 cd "${WORKSPACE_DIR}"
 source /opt/ros/humble/setup.bash

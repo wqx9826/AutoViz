@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "autoviz/ProtocolVersion.h"
 #include "autoviz_server/RobotWsProtoConverter.h"
 
 namespace autoviz_server {
@@ -111,7 +112,9 @@ bool AutoVizServerNode::start()
     const auto interval = std::chrono::milliseconds(1000 / m_publishRateHz);
     m_publishTimer = create_wall_timer(interval, std::bind(&AutoVizServerNode::publishSnapshot, this));
     RCLCPP_INFO(get_logger(),
-                "AutoViz Server v2 listening on %s:%u, publish=%d Hz",
+                "AutoViz Server %s, Protocol %s listening on %s:%u, publish=%d Hz",
+                m_serverIdentity.serverVersion.c_str(),
+                wire::kProtocolVersion,
                 m_serverConfig.bindAddress.c_str(),
                 static_cast<unsigned>(m_server.boundPort()),
                 m_publishRateHz);

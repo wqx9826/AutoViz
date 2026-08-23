@@ -3,6 +3,25 @@
 日期：2026-08-13。所有写入仅发生在 `AutoViz-feature`；robot_ws、Tcptest、main 和 rosbag
 仅作读取/运行输入。
 
+## 2026-08-23 AutoVizProto 源码级依赖验证
+
+- `feature/client-server` 先 fast-forward 到 `origin/main` 的 `a347248`，再开始重构。
+- AutoVizProto 已提取到私有仓库 `wqx9826/AutoVizProto`，tag `v2.3.0`、commit
+  `0cd5af49dc170bd8b30c8059d9a1060ff5c9fda0`；根目录、Client 和 Server 三个 submodule
+  均锁定该提交。
+- 重构前后全部 `.proto`、FrameCodec 逐字节一致；include-imports descriptor 的 SHA-256
+  均为 `c5691db23b06872b8ba53fc38e9d728f11088c075ea67fb260d2ad937b032c6a`。
+- Protocol 独立配置、编译成功，GTest 全部通过。版本由 `VERSION=2.3.0` 生成公开头，握手
+  schema 和 major-only 兼容规则未改变。
+- Client 离线源码包不含 Git 元数据，在全新 `/tmp` 目录直接 CMake 构建成功；UI 测试通过，
+  样例 bag 扫描 473,627 条消息通过，8x 暂停、seek 和 EOF 验证通过。
+- Server 离线源码包只被 colcon 识别为 `autoviz_server` 一个包，Release 构建成功；TCP 7/7、
+  converter/store 19/19，共 28 项测试通过。
+- Server x86_64 运行包生成成功，记录 Protocol version/commit 和 `ldd` 清单；无 unresolved
+  依赖，不含 schema、头文件、CMakeLists、protoc 或 AutoVizProto SDK。目标机仍依赖
+  ROS2 Humble 与 robot_ws/custom_msgs runtime。
+- Windows Client 已改为源码直编 Protocol，但本轮环境没有 Windows/MinGW，仍需实机验收。
+
 ## 2026-08-14 Linux Client 发布包验证
 
 - 清除了从旧 worktree 复制而来的 Client/Server CMake 缓存，按当前工作树重新配置 Client
@@ -31,11 +50,10 @@
 
 ## 当前提交前状态
 
-- Linux 使用 `AutoVizProto/scripts/bootstrap_proto.sh` 引导协议 SDK：从脚本位置解析仓库，
-  固定在 `AutoVizProto/build` 构建，并将 SDK 安装到 Client 和 Server 各自的 `third_party`。
-  协议测试需按需从该构建目录单独执行。
-- Windows 使用独立的 `AutoVizProto/scripts/bootstrap_proto.ps1`；Client 仅在
-  `AutoVizClient/build` 构建，Server 仅在 `AutoVizServer` 中使用 colcon 构建。
+- Client/Server 通过各自 `third_party/AutoVizProto` 的源码 submodule 直接构建协议；不再
+  bootstrap、install 或 `find_package(AutoVizProto)`。
+- Protocol 独立测试位于 `AutoVizProto/build`；Client 仅在 `AutoVizClient/build` 构建，
+  Server 仅在 `AutoVizServer` 中使用 colcon 构建。
 - feature 仓库根目录不创建 `build/`，不用于任何子工程的编译产物。
 - Client 在 Linux 已重新 CMake 配置和构建通过。控制曲线保留实际收到的控制命令，目标值来自
   `/chassis_command`，反馈值来自 `/location`；`enabled` 只作为当前命令状态展示。

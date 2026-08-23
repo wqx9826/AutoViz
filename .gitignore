@@ -5,6 +5,7 @@ log/
 runtime/
 .idea/
 AutoVizClient/package/
+AutoVizServer/package/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -44,8 +45,11 @@ compile_commands.json
 
 /offline-packages/
 
-# Local third-party SDKs (keep only usage documentation)
+# Local third-party SDKs (keep documentation and the Protocol source submodule)
 AutoVizClient/third_party/*
 !AutoVizClient/third_party/README.md
+!AutoVizClient/third_party/AutoVizProto
 AutoVizServer/third_party/*
 !AutoVizServer/third_party/README.md
+!AutoVizServer/third_party/COLCON_IGNORE
+!AutoVizServer/third_party/AutoVizProto

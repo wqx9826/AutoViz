@@ -1,29 +1,15 @@
 # AutoVizClient third_party
 
-此目录保存 Client 本机使用的第三方 SDK，不提交二进制文件。
-
-约定布局：
-
 ```text
 third_party/
-  AutoVizProto/
-    include/
-    lib/
-  protobuf/       # 可选：protobuf 的本地安装前缀
-    include/
-    lib/
-  Qt5/            # 可选：Qt kit 根目录或指向它的目录链接
-    include/
-    lib/
+  AutoVizProto/  # 私有 AutoVizProto 仓库的源码 submodule，必须提交 gitlink
+  protobuf/      # 可选本机 protobuf SDK，不提交
+  Qt6/Qt5/       # 可选本机 Qt Kit 或目录链接，不提交
 ```
 
-Client CMake 会自动把以上目录加入搜索路径，不需要设置
-`AutoVizProto_DIR`、`Protobuf_DIR`、`Qt5_DIR` 或环境变量。
+`AutoVizProto` 必须用 `git submodule update --init --recursive` 初始化。Client CMake 直接
+`add_subdirectory()` 编译其中的 `.proto` 和 FrameCodec，不接受预编译 AutoVizProto SDK，
+也不使用 `AutoVizProto_DIR`。
 
-AutoVizProto 不能复制 Linux 产物到 Windows；必须使用与 Client 相同的 Windows
-编译器和架构构建，或解压对应平台的预编译 SDK。
-
-Linux 使用仓库根目录的 `./AutoVizProto/scripts/bootstrap_proto.sh` 生成此 SDK；
-Windows 使用 `.\AutoVizProto\scripts\bootstrap_proto.ps1`。两个脚本都只在
-`AutoVizProto/build` 构建 Proto。Client 本身只在 `AutoVizClient/build` 构建，
-不在 feature 根目录创建 `build/`。
+官方 protobuf/Qt 仍必须与 Client 编译器和架构 ABI 匹配。非标准 Protocol 源码位置可通过
+`AUTOVIZ_PROTO_SOURCE_DIR` 显式覆盖；本机依赖根目录使用 `AUTOVIZ_THIRD_PARTY_DIR`。

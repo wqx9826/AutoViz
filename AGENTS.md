@@ -24,9 +24,10 @@ ROS2/custom_msgs
 
 ## 主要目录
 
-- `AutoVizProto/`：唯一协议工程；只依赖 C++17、protobuf，提供
+- `AutoVizProto/`：独立私有协议仓库的根 submodule；只依赖 C++17、protobuf，提供
   `AutoVizProto::AutoVizProto`。
-- `AutoVizProto/proto/autoviz/*.proto`：唯一 schema，禁止在 Client/Server 中复制。
+- `AutoVizClient/third_party/AutoVizProto` 与 `AutoVizServer/third_party/AutoVizProto`：
+  同一私有仓库、同一 commit 的源码 checkout，不得在消费工程中派生修改 schema。
 - `AutoVizClient/`：可独立复制和构建的纯 Qt Client。
 - `AutoVizClient/src/core/network/`：TCP 连接和协议到内部模型转换。
 - `AutoVizClient/src/core/model/`：UI 唯一业务数据契约。
@@ -37,10 +38,12 @@ ROS2/custom_msgs
 
 ## 依赖边界
 
-- Client 和 Server 必须用 `find_package(AutoVizProto CONFIG REQUIRED)` 消费各自
-  `third_party/AutoVizProto` 下的 SDK，不得引用 `../AutoVizProto` 之类源码路径。
-- 两个消费工程的 CMake 必须默认搜索自身 `third_party`，不得要求设置系统环境变量；
-  非标准位置只通过 `AUTOVIZ_THIRD_PARTY_DIR` 显式覆盖。
+- Client 和 Server 必须用 `add_subdirectory()` 消费各自 `third_party/AutoVizProto` 下的
+  完整源码，不得 `find_package(AutoVizProto)`、引用兄弟工程或恢复预编译 SDK 流程。
+- 三个 Protocol submodule 必须锁定同一 commit，并通过
+  `scripts/verify_protocol_submodules.sh` 校验。
+- 两个消费工程默认从自身 `third_party` 取 Protocol；非标准源码位置只通过
+  `AUTOVIZ_PROTO_SOURCE_DIR` 覆盖。`AUTOVIZ_THIRD_PARTY_DIR` 继续用于 protobuf/Qt 等依赖。
 - AutoVizProto 不得依赖 Qt、ROS、Boost 或 custom_msgs。
 - Client 只依赖 C++17、Qt5 Widgets/Network、protobuf/AutoVizProto；禁止 include/link
   ROS、custom_msgs，也禁止理解 ROS topic 名。
@@ -104,22 +107,22 @@ robot_ws 当前输入：
 
 ## 构建与验证
 
-先构建安装 AutoVizProto，再分别构建 Client 和 Server：
+初始化并校验 submodule 后，Client/Server 各自直接编译 Protocol：
 
 ```bash
-./AutoVizProto/scripts/bootstrap_proto.sh
+git submodule update --init --recursive
+./scripts/verify_protocol_submodules.sh
 
 cmake -S AutoVizClient -B AutoVizClient/build
 cmake --build AutoVizClient/build -j4
 ```
 
-Linux 下 Proto 必须使用上述脚本，并只在 `AutoVizProto/build` 构建；Windows
-使用 `AutoVizProto/scripts/bootstrap_proto.ps1`。Client 只在 `AutoVizClient/build` 构建。
-禁止在 feature 项目根目录创建 `build/` 或编译任何子工程。
+Protocol 独立测试可在 `AutoVizProto/build` 构建；正常 Client/Server 构建禁止提前 install
+Protocol。Client 只在 `AutoVizClient/build` 构建，禁止在 feature 根目录创建 `build/`。
 
 Server 须在 `AutoVizServer` 目录 source ROS2 和 robot_ws 后使用 `colcon build`；默认从
-`AutoVizServer/third_party/AutoVizProto` 查找协议 SDK。Client 不使用 CTest；协议
-GTest 归 AutoVizProto。
+`AutoVizServer/third_party/AutoVizProto` 编译协议源码。`third_party/COLCON_IGNORE` 防止
+colcon 把 Protocol 误当成第二个 workspace 包；协议 GTest 归 AutoVizProto。
 
 协议或网络变更至少验证：拆包/粘包、超长帧、握手、全量快照、字段缺失清空、断线重连
 和 session 变化。ROS 映射变更需要编译 Server。

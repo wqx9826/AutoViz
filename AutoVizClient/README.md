@@ -47,6 +47,7 @@ AutoVizClient/
   scripts/
     AutoViz.sh          # 启动 package/AutoViz-Linux/ 内的发布程序
     package_linux.sh    # 生成 package/AutoViz-Linux/
+    package_source.sh   # 生成含完整 Protocol 源码的离线源码包
     package_windows.ps1 # 增量构建并生成 Windows 发布包
 ```
 
@@ -56,14 +57,15 @@ AutoVizClient/
 
 ## Linux：首次编译
 
-### 1. 准备协议 SDK
+### 1. 初始化 Protocol 源码
 
 ```bash
-./AutoVizProto/scripts/bootstrap_proto.sh
+git submodule update --init --recursive
+./scripts/verify_protocol_submodules.sh
 ```
 
-该命令在 `AutoVizProto/build/` 构建协议库，并安装 Linux SDK 到
-`AutoVizClient/third_party/AutoVizProto/`。只需在协议源码、编译器或 protobuf 变更后重做。
+`AutoVizClient/third_party/AutoVizProto` 是锁定到 `v2.3.0` 的源码 submodule。Client
+CMake 会在自己的 build 目录中运行 protoc 并编译 Protocol，不需要提前构建或安装 SDK。
 
 ### 2. 配置并编译 Client
 
@@ -122,6 +124,23 @@ AutoVizClient/package/AutoViz-Linux/
 protobuf 3.12）。它包含 Qt/protobuf 与所需插件，但不包含 glibc、显示服务器、显卡驱动、
 X11/Wayland 基础库；目标机必须提供这些系统组件。
 
+## 离线源码包
+
+从开发仓库生成可独立复制的源码包：
+
+```bash
+./AutoVizClient/scripts/package_source.sh
+```
+
+输出位于 `AutoVizClient/package/source/`。包内的
+`third_party/AutoVizProto` 是完整源码而不是 gitlink，并带 `SOURCE_MANIFEST.txt` 记录
+Protocol 版本和 commit。目标机无需 Git 或网络，解压后直接执行：
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
 ## Linux：可选验证
 
 真实 bag 可验证 SQLite 插件与原生回放链路：
@@ -139,7 +158,8 @@ Qt/protobuf 开发环境的 Linux 目标机进行真实桌面显示和真实 Ser
 Windows 固定使用 Qt6。Qt 路径和编译器完全由 Qt Creator Kit、CLion Toolchain 或命令行
 CMake 参数提供；Client 的 `CMakeLists.txt` 不选择编译器，也不写死或探测 Qt/MSYS2/IDE
 安装路径。切换 Kit 后必须清除该 Kit 原有的 CMake 构建目录/缓存，并为新 Kit 提供 ABI
-匹配的 protobuf 与 AutoVizProto SDK。不要将 Linux 的 `build/`、`package/` 或 `.so/.a`
+匹配的 protobuf SDK。AutoVizProto 是随 Client 编译的源码，不再有独立 ABI SDK。不要将
+Linux 的 `build/`、`package/` 或 `.so/.a`
 文件带到 Windows。
 
 ### 方案 1（当前基线）：Qt Creator Qt 6.10 / MinGW 13.1
@@ -167,15 +187,12 @@ Path 前端依次为独立 CMake、Qt Ninja、Qt MinGW 13.1、protobuf bin
 ```
 
 独立安装的 CMake 可以作为 Windows 默认 CMake；编译器则固定使用 Qt Kit 自带的
-MinGW 13.1。不要以另一套独立 MinGW 替换它，除非 Qt、protobuf 和 AutoVizProto 也全部
-用那一套编译器重新构建。
+MinGW 13.1。不要以另一套独立 MinGW 替换它，除非 Qt、protobuf 和 Client 全部用那一套
+编译器重新构建。
 
-修改用户环境变量后必须完全退出并重启 Qt Creator、CLion 和终端。协议或工具链变更后，
-在仓库根目录重新生成一次协议 SDK；正常修改 Client 不需要重复该步骤：
-
-```powershell
-.\AutoVizProto\scripts\bootstrap_proto.ps1
-```
+修改用户环境变量后必须完全退出并重启 Qt Creator、CLion 和终端。首次构建前确认
+`AutoVizClient\third_party\AutoVizProto\VERSION` 存在；配置 Client 时会自动生成并编译
+protobuf C++ 源码。
 
 在新打开的 PowerShell 中，以下是 Windows 的基础编译方式；它直接使用
 `AutoVizClient\build` 根目录，已验证可用：
@@ -239,9 +256,9 @@ cmake --install AutoVizClient\build --prefix $PackageRoot
 ### 备选方案：原 MSYS2 UCRT64 手动流程（保留）
 
 下面保留原有 MSYS2 流程，适用于整套依赖均由 UCRT64 构建的独立 ABI 环境。它不能与上面
-Qt MinGW 13.1 编译的 protobuf、AutoVizProto 或 Client 构建目录混用。
+Qt MinGW 13.1 编译的 protobuf 或 Client 构建目录混用。
 
-#### 1. 安装依赖并准备协议 SDK
+#### 1. 安装官方依赖
 
 在 PowerShell 中执行：
 
@@ -250,9 +267,7 @@ C:\msys64\usr\bin\bash.exe -lc 'pacman -S --needed mingw-w64-ucrt-x86_64-qt6-bas
 
 $UcrtRoot = 'C:\msys64\ucrt64'
 $env:PATH = "$UcrtRoot\bin;$env:PATH"
-.\AutoVizProto\scripts\bootstrap_proto.ps1 `
-  -CxxCompiler "$UcrtRoot\bin\g++.exe" `
-  -CMakePrefixPath $UcrtRoot
+$env:CMAKE_PREFIX_PATH = $UcrtRoot
 ```
 
 #### 2. 用 MinGW Makefiles 配置并多线程编译 Release Client

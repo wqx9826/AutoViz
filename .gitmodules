@@ -1,0 +1,9 @@
+[submodule "AutoVizProto"]
+	path = AutoVizProto
+	url = ../AutoVizProto.git
+[submodule "AutoVizClient/third_party/AutoVizProto"]
+	path = AutoVizClient/third_party/AutoVizProto
+	url = ../AutoVizProto.git
+[submodule "AutoVizServer/third_party/AutoVizProto"]
+	path = AutoVizServer/third_party/AutoVizProto
+	url = ../AutoVizProto.git

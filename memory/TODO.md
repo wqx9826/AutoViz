@@ -2,6 +2,8 @@
 
 ## v2 本机实现
 
+- [x] AutoVizProto 提取为私有源码仓库，Client/Server 通过同 commit submodule 直接构建；
+  完成离线源码包和 Server Release 运行包验证。
 - [x] Protocol 2.0 完整快照、对称 FrameCodec、capability 和 typed 水下/平台结构。
 - [x] 删除 SubscribeRequest、ChannelUpdate、UPSERT/CLEAR。
 - [x] 完成 robot_ws 八条消息转换、SnapshotStore 和 20 Hz 发布。

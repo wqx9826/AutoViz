@@ -5,19 +5,21 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/nvidia/AutoVizServer
-User=nvidia
-Group=nvidia
-Environment=HOME=/home/nvidia
-Environment=USER=nvidia
-Environment=LOGNAME=nvidia
-Environment=ROS_LOG_DIR=/home/nvidia/.ros/log
+WorkingDirectory=@AUTOVIZ_SERVER_HOME@
+User=@AUTOVIZ_SERVER_USER@
+Group=@AUTOVIZ_SERVER_GROUP@
+Environment=HOME=/home/@AUTOVIZ_SERVER_USER@
+Environment=USER=@AUTOVIZ_SERVER_USER@
+Environment=LOGNAME=@AUTOVIZ_SERVER_USER@
+Environment=ROS_LOG_DIR=/home/@AUTOVIZ_SERVER_USER@/.ros/log
+Environment=AUTOVIZ_SERVER_HOME=@AUTOVIZ_SERVER_HOME@
+Environment=AUTOVIZ_ROBOT_WS_DIR=/home/@AUTOVIZ_SERVER_USER@/robot_ws
 
 # 必须由 systemd 显式设置
 Environment="ROS_DOMAIN_ID=0"
 Environment="ROS_LOCALHOST_ONLY=0"
 
-ExecStart=/home/nvidia/AutoVizServer/shell/start_autoviz_server.sh
+ExecStart=@AUTOVIZ_SERVER_HOME@/shell/start_autoviz_server.sh
 Restart=on-failure
 RestartSec=3
 KillSignal=SIGINT

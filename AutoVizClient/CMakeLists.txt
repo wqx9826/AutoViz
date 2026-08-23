@@ -12,15 +12,40 @@ set(CMAKE_AUTORCC ON)
 
 set(AUTOVIZ_THIRD_PARTY_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party"
-    CACHE PATH "AutoVizClient third-party SDK directory"
+    CACHE PATH "AutoVizClient third-party dependency directory"
 )
 
-list(PREPEND CMAKE_PREFIX_PATH
+set(AUTOVIZ_PROTO_SOURCE_DIR
     "${AUTOVIZ_THIRD_PARTY_DIR}/AutoVizProto"
+    CACHE PATH "AutoVizProto source directory"
+)
+if(NOT EXISTS "${AUTOVIZ_PROTO_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "AutoVizProto source is missing at ${AUTOVIZ_PROTO_SOURCE_DIR}. "
+        "Initialize submodules with: git submodule update --init --recursive")
+endif()
+
+list(PREPEND CMAKE_PREFIX_PATH
     "${AUTOVIZ_THIRD_PARTY_DIR}/protobuf"
 )
 
-find_package(AutoVizProto CONFIG REQUIRED)
+# Client 的全局 Qt AUTOGEN 设置不应传递给纯 C++ Protocol target。
+set(_AUTOVIZ_CLIENT_AUTOMOC "${CMAKE_AUTOMOC}")
+set(_AUTOVIZ_CLIENT_AUTOUIC "${CMAKE_AUTOUIC}")
+set(_AUTOVIZ_CLIENT_AUTORCC "${CMAKE_AUTORCC}")
+set(CMAKE_AUTOMOC OFF)
+set(CMAKE_AUTOUIC OFF)
+set(CMAKE_AUTORCC OFF)
+add_subdirectory(
+    "${AUTOVIZ_PROTO_SOURCE_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/autoviz_proto"
+)
+set(CMAKE_AUTOMOC "${_AUTOVIZ_CLIENT_AUTOMOC}")
+set(CMAKE_AUTOUIC "${_AUTOVIZ_CLIENT_AUTOUIC}")
+set(CMAKE_AUTORCC "${_AUTOVIZ_CLIENT_AUTORCC}")
+unset(_AUTOVIZ_CLIENT_AUTOMOC)
+unset(_AUTOVIZ_CLIENT_AUTOUIC)
+unset(_AUTOVIZ_CLIENT_AUTORCC)
 if(WIN32)
     find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Sql)
 else()

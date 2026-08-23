@@ -208,6 +208,12 @@ void RemoteVisualizationSource::handleEnvelope(const wire::Envelope& envelope)
         const QString source = hello.has_source()
                                    ? QString::fromStdString(hello.source().description())
                                    : QStringLiteral("未知 Adapter");
+        Logger::instance().info(
+            QStringLiteral("协议握手成功：Client Protocol %1，Server Protocol %2.%3，Server %4")
+                .arg(QString::fromLatin1(wire::kProtocolVersion))
+                .arg(hello.protocol_major())
+                .arg(hello.protocol_minor())
+                .arg(QString::fromStdString(hello.server_version())));
         emit serverIdentityChanged(source);
         setState(tr("已连接 %1:%2（%3）").arg(m_host).arg(m_port).arg(source), true);
         return;
