@@ -90,12 +90,9 @@ robot_ws launch。
 
 ## 构建和测试
 
-确认源码 submodule 已初始化，再构建 Server：
+从仓库根目录的 `AutoVizProto/` 直接构建协议，再构建 Server：
 
 ```bash
-git submodule update --init --recursive
-./scripts/verify_protocol_submodules.sh
-
 source /opt/ros/humble/setup.bash
 source /home/wqx/LZBK/robot_ws/install/setup.bash
 cd AutoVizServer
@@ -106,7 +103,7 @@ colcon test
 Server 是 ROS2 workspace，只使用 `colcon build` 构建，不对
 `src/autoviz_server` 单独执行 CMake。从 `AutoVizServer` 目录运行后，colcon 会把
 `build/`、`install/` 和 `log/` 都保留在 Server 工程内，不污染 feature 根目录。
-`third_party/COLCON_IGNORE` 防止 colcon 把 AutoVizProto 误识别为独立 ROS 包；
+`third_party/COLCON_IGNORE` 防止本地依赖被 colcon 误识别为独立 ROS 包；
 `autoviz_server` 的 CMake 会直接运行 protoc 并编译 Protocol target。
 
 `robot_ws_converter_test` 覆盖八类消息、控制事件和快照超时；`tcp_server_test` 覆盖动态端口、
@@ -124,12 +121,12 @@ ros2 launch autoviz_server autoviz_server.launch.py
 ## 离线源码包
 
 ```bash
-./AutoVizServer/shell/package_source.sh
+./scripts/package_source.sh
 ```
 
-输出包展开了 `third_party/AutoVizProto` 的实际源码，并用 `SOURCE_MANIFEST.txt` 记录版本和
-commit。离线目标机不需要 Git 或网络，但仍需 GCC/CMake/protoc、ROS2 Humble 和
-robot_ws/custom_msgs 开发环境；source 环境后直接在包内执行 `colcon build`。
+统一源码包包含 Client、Server、根目录 `AutoVizProto/`，并用 `SOURCE_MANIFEST.txt` 记录版本和
+根仓库 revision。离线目标机不需要 Git 或网络，但仍需 GCC/CMake/protoc、ROS2 Humble 和
+robot_ws/custom_msgs 开发环境；source 环境后在 `AutoVizServer/` 内执行 `colcon build`。
 
 ## 正式运行包
 

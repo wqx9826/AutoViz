@@ -47,7 +47,6 @@ AutoVizClient/
   scripts/
     AutoViz.sh          # 启动 package/AutoViz-Linux/ 内的发布程序
     package_linux.sh    # 生成 package/AutoViz-Linux/
-    package_source.sh   # 生成含完整 Protocol 源码的离线源码包
     package_windows.ps1 # 增量构建并生成 Windows 发布包
 ```
 
@@ -57,15 +56,10 @@ AutoVizClient/
 
 ## Linux：首次编译
 
-### 1. 初始化 Protocol 源码
+### 1. Protocol 源码
 
-```bash
-git submodule update --init --recursive
-./scripts/verify_protocol_submodules.sh
-```
-
-`AutoVizClient/third_party/AutoVizProto` 是锁定到 `v2.3.0` 的源码 submodule。Client
-CMake 会在自己的 build 目录中运行 protoc 并编译 Protocol，不需要提前构建或安装 SDK。
+Protocol 位于仓库根目录 `AutoVizProto/`。Client CMake 会在自己的 build 目录中运行 protoc
+并编译 Protocol，不需要提前构建或安装 SDK。
 
 ### 2. 配置并编译 Client
 
@@ -126,19 +120,19 @@ X11/Wayland 基础库；目标机必须提供这些系统组件。
 
 ## 离线源码包
 
-从开发仓库生成可独立复制的源码包：
+从开发仓库生成统一源码包：
 
 ```bash
-./AutoVizClient/scripts/package_source.sh
+./scripts/package_source.sh
 ```
 
-输出位于 `AutoVizClient/package/source/`。包内的
-`third_party/AutoVizProto` 是完整源码而不是 gitlink，并带 `SOURCE_MANIFEST.txt` 记录
-Protocol 版本和 commit。目标机无需 Git 或网络，解压后直接执行：
+输出位于 `package/source/`。包内包含 Client、Server、根目录 `AutoVizProto/`，并带
+`SOURCE_MANIFEST.txt` 记录 Protocol 版本和根仓库 revision。目标机无需 Git 或网络，解压后从
+包根目录执行：
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+cmake -S AutoVizClient -B AutoVizClient/build -DCMAKE_BUILD_TYPE=Release
+cmake --build AutoVizClient/build --parallel
 ```
 
 ## Linux：可选验证

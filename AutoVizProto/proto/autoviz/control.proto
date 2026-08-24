@@ -1,0 +1,117 @@
+syntax = "proto2";
+
+package autoviz;
+
+import "autoviz/common.proto";
+import "autoviz/underwater.proto";
+
+message ControlCommand {
+  enum Mode {
+    MODE_UNKNOWN = 0;
+    MODE_CRAWL = 1;
+    MODE_SAILING = 2;
+  }
+
+  // 与推进平台正交的通用动作语义。YAW_IN_PLACE 表示车辆原地/中心转向；
+  // 具体显示为航行或爬行中心转向由 mode 决定，不暴露 robot_ws 的 mode 数值。
+  enum Maneuver {
+    MANEUVER_NONE = 0;
+    MANEUVER_YAW_IN_PLACE = 1;
+  }
+
+  optional Header header = 1;
+  optional Mode mode = 2 [default = MODE_UNKNOWN];
+  optional bool enabled = 3;
+  optional double target_speed_mps = 4;
+  optional double target_yaw_rate_radps = 5;
+  optional double target_heading_rad = 6;
+  optional sint32 target_gear = 7;
+  optional double target_throttle_percent = 8;
+  optional double target_brake_percent = 9;
+  optional bool hand_brake = 10;
+  optional UnderwaterCommand underwater = 11;
+  reserved 12 to 14;
+  optional Maneuver maneuver = 15 [default = MANEUVER_NONE];
+  // Adapter 来源的原始模式码。存在时是 robot_ws ChassisCommand.mode 的权威
+  // 展示值；缺失时 Client 使用通用 mode/maneuver/垂向语义回退。
+  optional sint32 source_mode = 16;
+}
+
+// 控制状态变更的会话内审计记录。它描述 Adapter 已归一化的语义，而非 ROS 字段路径。
+message ControlStateEvent {
+  enum Source {
+    SOURCE_UNKNOWN = 0;
+    SOURCE_ACTION_EXPECTATION = 1;
+    SOURCE_CONTROL_COMMAND = 2;
+    SOURCE_CHASSIS_FEEDBACK = 3;
+  }
+
+  optional Header header = 1;
+  optional Source source = 2 [default = SOURCE_UNKNOWN];
+  optional string goal_id = 3;
+  optional sint32 previous_mode = 4;
+  optional sint32 current_mode = 5;
+  optional sint32 previous_gear = 6;
+  optional sint32 current_gear = 7;
+  optional bool previous_enabled = 8;
+  optional bool current_enabled = 9;
+  // 履带左右输出同时有效且为 true 才为 enabled；不一致时由 Adapter 省略本字段。
+  optional bool previous_crawl_output_enabled = 10;
+  optional bool current_crawl_output_enabled = 11;
+}
+
+message ActionState {
+  optional Header header = 1;
+  optional sint32 owner = 2;
+  optional sint32 state = 3;
+  optional string goal_id = 4;
+  optional sint32 chassis_mode = 5;
+  optional bool enabled = 6;
+  optional sint32 navigation_mode = 7;
+  optional double target_speed_mps = 8;
+  optional double target_heading_rad = 9;
+  optional double target_yaw_rate_radps = 10;
+  optional UnderwaterCommand underwater = 11;
+  reserved 12;
+  // 来自公开聚合状态的运行说明；主界面状态以本字段和上述聚合字段为准。
+  optional string message = 13;
+  // Adapter 归一化后的原生 action 名称，例如 custom_msgs/action/DepthCommand。
+  optional string action_name = 14;
+  // 可选原生 action 诊断。隐藏 ROS topic 缺失时字段不存在，不能影响主状态。
+  optional sint32 native_status = 15;
+  optional double feedback_progress = 16;
+  optional uint64 native_status_time_ns = 17;
+  optional uint64 feedback_time_ns = 18;
+  // 当前 action 之外，保留本会话最近一次终态 action；不保存无限历史。
+  optional ActionState recent_terminal = 19;
+}
+
+message RemoteControlState {
+  optional sint32 crawl_gear = 1;
+  optional double crawl_speed_mps = 2;
+  optional double crawl_angular_velocity_radps = 3;
+  optional sint32 forward_percent = 4;
+  optional sint32 turn_percent = 5;
+  optional sint32 dive_percent = 6;
+  optional sint32 left_tail_actuator_speed = 7;
+  optional sint32 right_tail_actuator_speed = 8;
+  optional sint32 left_vertical_actuator_speed = 9;
+  optional sint32 right_vertical_actuator_speed = 10;
+  optional sint32 back_vertical_actuator_speed = 11;
+  repeated bool power_supply_enabled = 12;
+}
+
+message TaskState {
+  optional Header header = 1;
+  optional sint32 task_type = 2;
+  optional sint32 task_id = 3;
+  optional bool enabled = 4;
+  optional bool emergency_stop = 5;
+  optional sint32 remote_mode = 6;
+  optional sint32 power_enable = 7;
+  optional UnderwaterTaskState underwater = 8;
+  optional RemoteControlState remote_control = 9;
+  // 自主任务启动脉冲，不代表任务全程执行状态。
+  optional bool task_start_requested = 10;
+  optional bool action_enabled = 11;
+}

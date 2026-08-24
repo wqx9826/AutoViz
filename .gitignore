@@ -44,12 +44,11 @@ compile_commands.json
 .DS_Store
 
 /offline-packages/
+/package/
 
-# Local third-party SDKs (keep documentation and the Protocol source submodule)
+# Local third-party SDKs
 AutoVizClient/third_party/*
 !AutoVizClient/third_party/README.md
-!AutoVizClient/third_party/AutoVizProto
 AutoVizServer/third_party/*
 !AutoVizServer/third_party/README.md
 !AutoVizServer/third_party/COLCON_IGNORE
-!AutoVizServer/third_party/AutoVizProto

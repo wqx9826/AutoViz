@@ -15,14 +15,9 @@ set(AUTOVIZ_THIRD_PARTY_DIR
     CACHE PATH "AutoVizClient third-party dependency directory"
 )
 
-set(AUTOVIZ_PROTO_SOURCE_DIR
-    "${AUTOVIZ_THIRD_PARTY_DIR}/AutoVizProto"
-    CACHE PATH "AutoVizProto source directory"
-)
-if(NOT EXISTS "${AUTOVIZ_PROTO_SOURCE_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR
-        "AutoVizProto source is missing at ${AUTOVIZ_PROTO_SOURCE_DIR}. "
-        "Initialize submodules with: git submodule update --init --recursive")
+set(_autoviz_protocol_dir "${CMAKE_CURRENT_SOURCE_DIR}/../AutoVizProto")
+if(NOT EXISTS "${_autoviz_protocol_dir}/CMakeLists.txt")
+    message(FATAL_ERROR "AutoVizProto source is missing at ${_autoviz_protocol_dir}")
 endif()
 
 list(PREPEND CMAKE_PREFIX_PATH
@@ -37,7 +32,7 @@ set(CMAKE_AUTOMOC OFF)
 set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
 add_subdirectory(
-    "${AUTOVIZ_PROTO_SOURCE_DIR}"
+    "${_autoviz_protocol_dir}"
     "${CMAKE_CURRENT_BINARY_DIR}/autoviz_proto"
 )
 set(CMAKE_AUTOMOC "${_AUTOVIZ_CLIENT_AUTOMOC}")

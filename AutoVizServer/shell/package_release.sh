@@ -3,11 +3,12 @@ set -eo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 server_dir=$(cd -- "${script_dir}/.." && pwd)
-protocol_dir="${server_dir}/third_party/AutoVizProto"
+repo_dir=$(cd -- "${server_dir}/.." && pwd)
+protocol_dir="${repo_dir}/AutoVizProto"
 output_dir="${1:-${server_dir}/package/runtime}"
 
 if [[ ! -f "${protocol_dir}/VERSION" ]]; then
-    echo "ERROR: AutoVizProto source is missing. Run git submodule update --init --recursive." >&2
+    echo "ERROR: AutoVizProto source is missing: ${protocol_dir}" >&2
     exit 1
 fi
 if ! command -v colcon >/dev/null 2>&1; then
@@ -16,13 +17,7 @@ if ! command -v colcon >/dev/null 2>&1; then
 fi
 
 protocol_version=$(tr -d '[:space:]' < "${protocol_dir}/VERSION")
-if git -C "${protocol_dir}" rev-parse --git-dir >/dev/null 2>&1; then
-    protocol_commit=$(git -C "${protocol_dir}" rev-parse HEAD)
-elif [[ -f "${server_dir}/SOURCE_MANIFEST.txt" ]]; then
-    protocol_commit=$(sed -n 's/^Protocol-Commit: //p' "${server_dir}/SOURCE_MANIFEST.txt")
-else
-    protocol_commit="unknown"
-fi
+protocol_commit=$(git -C "${repo_dir}" rev-parse HEAD)
 architecture=$(uname -m)
 package_name="AutoVizServer-linux-${architecture}-protocol-${protocol_version}"
 stage_dir="${server_dir}/package/.stage/${package_name}"
@@ -31,8 +26,7 @@ archive_path="${output_dir}/${package_name}.tar.gz"
 cd "${server_dir}"
 colcon build --cmake-args \
     -DCMAKE_BUILD_TYPE=Release \
-    -DAUTOVIZ_THIRD_PARTY_DIR="${server_dir}/third_party" \
-    -DAUTOVIZ_PROTO_SOURCE_DIR="${protocol_dir}"
+    -DAUTOVIZ_THIRD_PARTY_DIR="${server_dir}/third_party"
 
 server_binary="${server_dir}/install/autoviz_server/lib/autoviz_server/autoviz_server_node"
 if [[ ! -x "${server_binary}" ]]; then

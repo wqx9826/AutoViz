@@ -83,9 +83,8 @@ Client 图标保存在 `AutoVizClient/assets/autoviz_icon.png`，是透明 RGBA 
 ## 构建边界
 
 - feature 仓库根目录不创建 `build/`，不在根目录汇总编译子工程。
-- AutoVizProto 根目录、Client 和 Server 的三个 submodule 必须锁定同一 commit；用
-  `scripts/verify_protocol_submodules.sh` 校验。
-- Client/Server 直接 `add_subdirectory()` 自己的 Protocol 源码，不执行 bootstrap/install，
+- AutoVizProto 位于仓库根目录，是 Client/Server 共用的唯一协议源码。
+- Client/Server 直接 `add_subdirectory()` 根目录 Protocol 源码，不执行 bootstrap/install，
   不使用 `find_package(AutoVizProto)`。
 - AutoVizClient 构建目录固定为 `AutoVizClient/build`。
 - AutoVizServer 在 `AutoVizServer` 目录使用 `colcon build`，产物位于 Server 自己的

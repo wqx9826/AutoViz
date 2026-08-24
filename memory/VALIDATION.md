@@ -7,7 +7,7 @@
 
 - `feature/client-server` 先 fast-forward 到 `origin/main` 的 `a347248`，再开始重构。
 - AutoVizProto 已提取到私有仓库 `wqx9826/AutoVizProto`，tag `v2.3.0`、commit
-  `0cd5af49dc170bd8b30c8059d9a1060ff5c9fda0`；根目录、Client 和 Server 三个 submodule
+  `0cd5af49dc170bd8b30c8059d9a1060ff5c9fda0`；迁移后协议源码作为根目录普通文件
   均锁定该提交。
 - 重构前后全部 `.proto`、FrameCodec 逐字节一致；include-imports descriptor 的 SHA-256
   均为 `c5691db23b06872b8ba53fc38e9d728f11088c075ea67fb260d2ad937b032c6a`。
@@ -50,7 +50,7 @@
 
 ## 当前提交前状态
 
-- Client/Server 通过各自 `third_party/AutoVizProto` 的源码 submodule 直接构建协议；不再
+- Client/Server 通过根目录 `AutoVizProto` 源码直接构建协议；不再
   bootstrap、install 或 `find_package(AutoVizProto)`。
 - Protocol 独立测试位于 `AutoVizProto/build`；Client 仅在 `AutoVizClient/build` 构建，
   Server 仅在 `AutoVizServer` 中使用 colcon 构建。

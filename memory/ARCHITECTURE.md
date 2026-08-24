@@ -19,9 +19,8 @@ ROS2/custom_msgs
 - `AutoVizServer`：来源 Adapter、单位归一化、缓存/超时和网络服务。
 - `AutoVizClient`：纯 Qt；网络消息只在 converter 入口转成内部模型。
 
-AutoVizProto 是独立私有源码仓库。根目录、Client 和 Server 的三个 submodule 锁定同一
-commit；Client/Server 只通过各自 `third_party/AutoVizProto` 的源码 target 构建，不引用
-兄弟目录，不安装或查找预编译协议 SDK。离线源码包会展开 submodule 内容。
+AutoVizProto 是根仓库内唯一的协议源码目录。Client/Server 都从根目录
+`AutoVizProto/` 的源码 target 构建，不安装或查找预编译协议 SDK。统一离线源码包包含三者。
 
 ## Server 数据流
 

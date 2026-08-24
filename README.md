@@ -3,7 +3,7 @@
 AutoViz 当前主线包含三个工程：
 
 ```text
-AutoVizProto   唯一协议源码仓库和源码级 CMake target
+AutoVizProto   唯一协议源码目录和源码级 CMake target
 AutoVizServer  ROS2 -> protobuf/TCP
 AutoVizClient  protobuf/TCP -> Qt UI
 ```
@@ -17,25 +17,16 @@ AutoVizClient 也可在不启动 Server、ROS2、WSL 或虚拟机的情况下，
 
 ## Protocol 源码布局
 
-私有仓库 `wqx9826/AutoVizProto` 是 schema、版本和 FrameCodec 的唯一维护源。
-本仓库用三个 submodule gitlink 锁定同一个 tag/commit：
+根目录 `AutoVizProto/` 是 schema、版本和 FrameCodec 的唯一维护源，与 Client、Server
+在同一个 Git 仓库中提交：
 
 ```text
-AutoVizProto/                              # 独立开发与协议测试
-AutoVizClient/third_party/AutoVizProto/   # Client 独立构建
-AutoVizServer/third_party/AutoVizProto/   # Server 独立构建
+AutoVizProto/   # 协议源码与独立测试
+AutoVizClient/  # Qt Client
+AutoVizServer/  # ROS2 Server
 ```
 
-克隆开发仓库时初始化 submodule：
-
-```bash
-git clone --recursive <AutoViz URL>
-# 已有 checkout：
-git submodule update --init --recursive
-./scripts/verify_protocol_submodules.sh
-```
-
-三个路径当前均锁定 `v2.3.0`。Client/Server 直接通过 `add_subdirectory()` 编译 Protocol，
+普通克隆即可开发。Client/Server 直接通过 `add_subdirectory()` 编译根目录 Protocol，
 各自构建目录自动运行 `protoc`；不再构建、安装或查找预编译 AutoVizProto SDK。
 Google protobuf 本身仍是官方构建/运行依赖。
 
@@ -71,7 +62,7 @@ colcon test
 ```
 
 Server 是 ament workspace，不对 `src/autoviz_server` 单独执行 CMake。colcon 只发现
-`autoviz_server`；`third_party/AutoVizProto` 由该包的 CMake 作为子目录编译。
+`autoviz_server`；该包的 CMake 从仓库根目录的 `AutoVizProto` 作为子目录编译。
 
 Windows Client 不再运行 Protocol bootstrap 脚本。Qt6 由 IDE Kit/命令行环境提供，
 protobuf SDK 放在 `AutoVizClient/third_party/protobuf` 或通过 `CMAKE_PREFIX_PATH` 指定：
@@ -86,15 +77,14 @@ Qt、protobuf 和编译器 ABI 必须匹配；不能把 Linux 静态库或 MSYS2
 
 ## 离线源码与发布
 
-开发机生成包含完整 Protocol 源码、但不含 Git 元数据的离线源码包：
+开发机生成包含 Client、Server 与完整 Protocol 源码、但不含 Git 元数据的统一离线源码包：
 
 ```bash
-./AutoVizClient/scripts/package_source.sh
-./AutoVizServer/shell/package_source.sh
+./scripts/package_source.sh
 ```
 
-Client 源码包解压后直接 `cmake -S . -B build`；Server 源码包在 source ROS2/robot_ws 后
-直接 `colcon build`。两种构建都不需要 Git 或网络。
+源码包解压后，Client 从 `AutoVizClient/` 配置构建；Server 在 source ROS2/robot_ws 后从
+`AutoVizServer/` 直接 `colcon build`。两种构建都不需要 Git 或网络。
 
 Client 运行发布包沿用：
 

@@ -1,0 +1,17 @@
+#pragma once
+
+#include <cstdint>
+
+namespace autoviz {
+
+inline constexpr std::uint32_t kProtocolMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr std::uint32_t kProtocolMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr std::uint32_t kProtocolPatch = @PROJECT_VERSION_PATCH@;
+inline constexpr char kProtocolVersion[] = "@PROJECT_VERSION@";
+
+inline constexpr bool isProtocolMajorCompatible(std::uint32_t peerMajor)
+{
+    return peerMajor == kProtocolMajor;
+}
+
+}  // namespace autoviz

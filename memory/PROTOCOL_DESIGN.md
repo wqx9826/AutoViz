@@ -3,10 +3,9 @@
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
 
-AutoVizProto 由独立私有仓库维护，`VERSION=2.3.0` 生成公开版本头。AutoViz 根目录、Client
-和 Server 的 submodule 锁定同一 commit；消费工程直接从源码运行 protoc 和编译
-`AutoVizProto::AutoVizProto`，不再发布或安装二进制 SDK。此构建组织变化不改变 descriptor、
-field number、FrameCodec 或 TCP wire format。
+AutoVizProto 由根仓库内的 `AutoVizProto/` 维护，`VERSION=2.3.0` 生成公开版本头。消费工程
+直接从同一源码运行 protoc 和编译 `AutoVizProto::AutoVizProto`，不再发布或安装二进制 SDK。
+此构建组织变化不改变 descriptor、field number、FrameCodec 或 TCP wire format。
 
 ## FrameCodec
 
