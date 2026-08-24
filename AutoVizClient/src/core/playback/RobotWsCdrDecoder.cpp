@@ -40,7 +40,10 @@ public:
     bool i32(qint32& v, QString* e) { return scalar(v, 4, e); }
     bool u64(quint64& v, QString* e) { return scalar(v, 8, e); }
     bool i64(qint64& v, QString* e) { return scalar(v, 8, e); }
+    bool f32(float& v, QString* e) { if (!scalar(v,4,e)) return false; return std::isfinite(v) || fail(QStringLiteral("浮点字段不是有限值"),e); }
     bool f64(double& v, QString* e) { if (!scalar(v,8,e)) return false; return std::isfinite(v) || fail(QStringLiteral("浮点字段不是有限值"),e); }
+    bool f32Raw(float& v, QString* e) { return scalar(v, 4, e); }
+    bool f64Raw(double& v, QString* e) { return scalar(v, 8, e); }
 
     bool string(QString& value, QString* error)
     {
@@ -348,6 +351,55 @@ bool decodeTask(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
     for(int index=0;index<16;++index){if(!r.boolean(ps,e))return false;remoteControl->add_power_supply_enabled(ps);}return true;
 }
 
+bool readCustomPoint(CdrReader& r, double values[8], QString* e);
+
+bool decodeRangeMotion(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* s, QString* e)
+{
+    qint32 sec; quint32 ns, taskId, commandSequence; QString frame, reason; quint8 motion; float speedLimit;
+    if (!readHeader(r, sec, ns, frame, e) || !r.u32(taskId, e) || !r.u32(commandSequence, e)
+        || !r.u8(motion, e) || !r.f32Raw(speedLimit, e) || !r.string(reason, e)) {
+        return false;
+    }
+    auto* target = s->mutable_perception_state()->mutable_range_motion_directive();
+    fillHeader(target->mutable_header(), headerNs(sec, ns, ts), ts,
+               "robot_ws.range_motion_request", frame);
+    target->set_task_id(taskId);
+    target->set_command_sequence(commandSequence);
+    target->set_motion(static_cast<wire::RangeMotionDirective::Motion>(motion));
+    target->set_speed_limit_mps(speedLimit);
+    target->set_reason(reason.toStdString());
+    return true;
+}
+
+bool decodeInspectionGoal(CdrReader& r, quint64 ts, wire::VisualizationSnapshot* s, QString* e)
+{
+    qint32 sec; quint32 ns, taskId, goalId; quint16 targetId; QString frame;
+    double target[8], observation[8], heading; bool hold; quint8 mode; float speedLimit;
+    if (!readHeader(r, sec, ns, frame, e) || !r.u32(taskId, e) || !r.u32(goalId, e)
+        || !r.u16(targetId, e) || !readCustomPoint(r, target, e)
+        || !readCustomPoint(r, observation, e) || !r.f64Raw(heading, e)
+        || !r.boolean(hold, e) || !r.u8(mode, e) || !r.f32Raw(speedLimit, e)) {
+        return false;
+    }
+    auto* result = s->mutable_perception_state()->mutable_inspection_goal();
+    fillHeader(result->mutable_header(), headerNs(sec, ns, ts), ts,
+               "robot_ws.inspection_request_goal", frame);
+    result->set_task_id(taskId);
+    result->set_goal_id(goalId);
+    result->set_target_id(targetId);
+    result->mutable_target_position()->set_x_m(target[4]);
+    result->mutable_target_position()->set_y_m(target[5]);
+    result->mutable_target_position()->set_z_m(target[6]);
+    result->mutable_observation_position()->set_x_m(observation[4]);
+    result->mutable_observation_position()->set_y_m(observation[5]);
+    result->mutable_observation_position()->set_z_m(observation[6]);
+    result->set_target_heading_rad(heading);
+    result->set_hold_on_arrival(hold);
+    result->set_mode(static_cast<wire::InspectionGoal::Mode>(mode));
+    result->set_speed_limit_mps(speedLimit);
+    return true;
+}
+
 bool decodeLocalPath(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
 {
     qint32 sec;quint32 ns,count,dns;QString frame,goal;if(!readHeader(r,sec,ns,frame,e)||!r.string(goal,e)||!r.sequenceSize(count,e))return false;const quint64 source=headerNs(sec,ns,ts);auto*t=s->mutable_local_trajectory();fillHeader(t->mutable_header(),source,ts,"robot_ws.local_path",frame);t->set_kind(wire::Trajectory::KIND_LOCAL);t->set_goal_id(goal.toStdString());
@@ -361,12 +413,13 @@ bool decodeGlobalPath(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QStri
     for(quint32 i=0;i<count;++i){double px,py,pz,qx,qy,qz,qw;if(!readHeader(r,psec,pns,pframe,e)||!readPose(r,px,py,pz,qx,qy,qz,qw,e))return false;auto*point=t->add_point();auto*p=point->mutable_path_point();p->mutable_position()->set_x_m(px);p->mutable_position()->set_y_m(py);p->mutable_position()->set_z_m(pz);p->set_heading_rad(yaw(qx,qy,qz,qw));auto*pose=point->mutable_pose();pose->mutable_position()->set_x_m(px);pose->mutable_position()->set_y_m(py);pose->mutable_position()->set_z_m(pz);pose->set_quaternion_x(qx);pose->set_quaternion_y(qy);pose->set_quaternion_z(qz);pose->set_quaternion_w(qw);}t->set_total_length_m(trajectoryLength(*t));return true;
 }
 
-bool readCustomPoint(CdrReader&r,double values[8],QString*e){for(int i=0;i<8;++i)if(!r.f64(values[i],e))return false;return true;}
+bool readCustomPoint(CdrReader&r,double values[8],QString*e){for(int i=0;i<8;++i)if(!r.f64Raw(values[i],e))return false;return true;}
 const char* classLabel(quint8 c){return c==1?"mine":c==2?"net":c==3?"obstacle":c==4?"other":"unknown";}
 bool decodeObstacles(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
 {
     qint32 sec,tsec;quint32 ns,task,count,tns;QString frame,tframe;if(!readHeader(r,sec,ns,frame,e)||!r.u32(task,e)||!r.sequenceSize(count,e))return false;const quint64 source=headerNs(sec,ns,ts);auto*set=s->mutable_obstacles();fillHeader(set->mutable_header(),source,ts,"robot_ws.final_targets",frame);set->set_source_task_id(task);
-    for(quint32 i=0;i<count;++i){quint16 id;double point[8],length,width,height,heading;bool geo,dimensions,headingValid;quint8 cls;if(!readHeader(r,tsec,tns,tframe,e)||!r.u16(id,e)||!readCustomPoint(r,point,e)||!r.boolean(geo,e)||!r.f64(length,e)||!r.f64(width,e)||!r.f64(height,e)||!r.f64(heading,e)||!r.boolean(dimensions,e)||!r.boolean(headingValid,e)||!r.u8(cls,e))return false;auto*o=set->add_obstacle();fillHeader(o->mutable_header(),headerNs(tsec,tns,source),ts,"robot_ws.final_target",tframe);o->set_id(std::to_string(id));o->set_type(wire::Obstacle::TYPE_OTHER);o->set_source_class(cls);o->set_class_label(classLabel(cls));o->set_source("fusion");o->mutable_center()->set_x_m(point[4]);o->mutable_center()->set_y_m(point[5]);o->mutable_center()->set_z_m(point[6]);o->set_geodetic_valid(geo);o->set_dimensions_valid(dimensions);o->set_heading_valid(headingValid);if(geo){auto*g=o->mutable_geodetic_position();g->set_longitude_deg(point[0]);g->set_latitude_deg(point[1]);g->set_depth_m(point[2]);g->set_height_above_bottom_m(point[3]);}if(headingValid)o->set_heading_rad(heading);if(dimensions){o->set_length_m(length);o->set_width_m(width);o->set_height_m(height);}o->set_is_static(true);o->set_is_virtual(false);}return true;
+    bool invalidCenter=false;quint16 invalidCenterId=0;
+    for(quint32 i=0;i<count;++i){quint16 id;double point[8],length,width,height,heading;bool geo,dimensions,headingValid;quint8 cls;if(!readHeader(r,tsec,tns,tframe,e)||!r.u16(id,e)||!readCustomPoint(r,point,e)||!r.boolean(geo,e)||!r.f64Raw(length,e)||!r.f64Raw(width,e)||!r.f64Raw(height,e)||!r.f64Raw(heading,e)||!r.boolean(dimensions,e)||!r.boolean(headingValid,e)||!r.u8(cls,e))return false;if(!std::isfinite(point[4])||!std::isfinite(point[5])){if(!invalidCenter)invalidCenterId=id;invalidCenter=true;continue;}const bool dimensionsUsable=dimensions&&std::isfinite(length)&&std::isfinite(width)&&length>0.0&&width>0.0;const bool headingUsable=dimensionsUsable&&headingValid&&std::isfinite(heading);const bool geodeticUsable=geo&&std::isfinite(point[0])&&std::isfinite(point[1])&&std::isfinite(point[2])&&std::isfinite(point[3]);auto*o=set->add_obstacle();fillHeader(o->mutable_header(),headerNs(tsec,tns,source),ts,"robot_ws.final_target",tframe);o->set_id(std::to_string(id));o->set_type(wire::Obstacle::TYPE_OTHER);o->set_source_class(cls);o->set_class_label(classLabel(cls));o->set_source("fusion");o->mutable_center()->set_x_m(point[4]);o->mutable_center()->set_y_m(point[5]);o->mutable_center()->set_z_m(point[6]);o->set_geodetic_valid(geodeticUsable);o->set_dimensions_valid(dimensionsUsable);o->set_heading_valid(headingUsable);if(geodeticUsable){auto*g=o->mutable_geodetic_position();g->set_longitude_deg(point[0]);g->set_latitude_deg(point[1]);g->set_depth_m(point[2]);g->set_height_above_bottom_m(point[3]);}if(headingUsable)o->set_heading_rad(heading);if(dimensionsUsable){o->set_length_m(length);o->set_width_m(width);o->set_height_m(height);}o->set_is_static(true);o->set_is_virtual(false);}if(invalidCenter){set->clear_obstacle();set->set_rejection_reason("obstacle set rejected: non-finite planar center (target_id="+std::to_string(invalidCenterId)+")");}return true;
 }
 
 ChassisCdrLayout chassisCdrLayout(const QByteArray& payload)
@@ -393,11 +446,11 @@ ChassisCommandCdrLayout chassisCommandCdrLayout(const QByteArray& payload)
 
 QString RobotWsCdrDecoder::expectedType(const QString& topic)
 {
-    static const QMap<QString,QString> m={{"/location","custom_msgs/msg/Location"},{"/targets/final_objects","custom_msgs/msg/FinalTargetArray"},{"/chassis_command","custom_msgs/msg/ChassisCommand"},{"/chassis_states","custom_msgs/msg/ChassisStates"},{"/system_run_states","custom_msgs/msg/SystemRunStates"},{"/task_params","custom_msgs/msg/TaskParams"},{"/local_path","custom_msgs/msg/TrajectoryMsg"},{"/global_path","nav_msgs/msg/Path"},{"/depth_command_action/_action/status","action_msgs/msg/GoalStatusArray"},{"/move_action/_action/status","action_msgs/msg/GoalStatusArray"},{"/depth_command_action/_action/feedback","custom_msgs/action/DepthCommand_FeedbackMessage"},{"/move_action/_action/feedback","custom_msgs/action/Move_FeedbackMessage"}};return m.value(topic);
+    static const QMap<QString,QString> m={{"/location","custom_msgs/msg/Location"},{"/targets/final_objects","custom_msgs/msg/FinalTargetArray"},{"/detection/range_motion_request","custom_msgs/msg/RangeMotionRequest"},{"/detection/inspection_request_goal","custom_msgs/msg/InspectionRequestGoal"},{"/chassis_command","custom_msgs/msg/ChassisCommand"},{"/chassis_states","custom_msgs/msg/ChassisStates"},{"/system_run_states","custom_msgs/msg/SystemRunStates"},{"/task_params","custom_msgs/msg/TaskParams"},{"/local_path","custom_msgs/msg/TrajectoryMsg"},{"/global_path","nav_msgs/msg/Path"},{"/depth_command_action/_action/status","action_msgs/msg/GoalStatusArray"},{"/move_action/_action/status","action_msgs/msg/GoalStatusArray"},{"/depth_command_action/_action/feedback","custom_msgs/action/DepthCommand_FeedbackMessage"},{"/move_action/_action/feedback","custom_msgs/action/Move_FeedbackMessage"}};return m.value(topic);
 }
 bool RobotWsCdrDecoder::isSupported(const QString&t,const QString&type){return !expectedType(t).isEmpty()&&expectedType(t)==type;}
-QStringList RobotWsCdrDecoder::supportedTopics(){return {"/location","/targets/final_objects","/chassis_command","/chassis_states","/system_run_states","/task_params","/local_path","/global_path","/depth_command_action/_action/status","/move_action/_action/status","/depth_command_action/_action/feedback","/move_action/_action/feedback"};}
-wire::DataKind RobotWsCdrDecoder::dataKind(const QString&t){if(t=="/location")return wire::DATA_KIND_VEHICLE_STATE;if(t=="/targets/final_objects")return wire::DATA_KIND_OBSTACLES;if(t=="/chassis_command")return wire::DATA_KIND_CONTROL_COMMAND;if(t=="/chassis_states")return wire::DATA_KIND_CHASSIS_STATE;if(t=="/system_run_states"||t.contains("/_action/"))return wire::DATA_KIND_ACTION_STATE;if(t=="/task_params")return wire::DATA_KIND_TASK_STATE;if(t=="/local_path")return wire::DATA_KIND_LOCAL_TRAJECTORY;if(t=="/global_path")return wire::DATA_KIND_GLOBAL_TRAJECTORY;return wire::DATA_KIND_UNKNOWN;}
+QStringList RobotWsCdrDecoder::supportedTopics(){return {"/location","/targets/final_objects","/detection/range_motion_request","/detection/inspection_request_goal","/chassis_command","/chassis_states","/system_run_states","/task_params","/local_path","/global_path","/depth_command_action/_action/status","/move_action/_action/status","/depth_command_action/_action/feedback","/move_action/_action/feedback"};}
+wire::DataKind RobotWsCdrDecoder::dataKind(const QString&t){if(t=="/location")return wire::DATA_KIND_VEHICLE_STATE;if(t=="/targets/final_objects")return wire::DATA_KIND_OBSTACLES;if(t=="/detection/range_motion_request")return wire::DATA_KIND_RANGE_MOTION_DIRECTIVE;if(t=="/detection/inspection_request_goal")return wire::DATA_KIND_INSPECTION_GOAL;if(t=="/chassis_command")return wire::DATA_KIND_CONTROL_COMMAND;if(t=="/chassis_states")return wire::DATA_KIND_CHASSIS_STATE;if(t=="/system_run_states"||t.contains("/_action/"))return wire::DATA_KIND_ACTION_STATE;if(t=="/task_params")return wire::DATA_KIND_TASK_STATE;if(t=="/local_path")return wire::DATA_KIND_LOCAL_TRAJECTORY;if(t=="/global_path")return wire::DATA_KIND_GLOBAL_TRAJECTORY;return wire::DATA_KIND_UNKNOWN;}
 
 bool RobotWsCdrDecoder::sameGoalUuid(const QString& a, const QString& b)
 {
@@ -430,13 +483,20 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
     // 字段；不先清理就会在本地回放中把旧点/旧状态反复累加。
     if(topic=="/location") snapshot->clear_vehicle_state();
     else if(topic=="/targets/final_objects") snapshot->clear_obstacles();
+    else if(topic=="/detection/range_motion_request" && snapshot->has_perception_state()) {
+        snapshot->mutable_perception_state()->clear_range_motion_directive();
+        if (!snapshot->perception_state().has_inspection_goal()) snapshot->clear_perception_state();
+    } else if(topic=="/detection/inspection_request_goal" && snapshot->has_perception_state()) {
+        snapshot->mutable_perception_state()->clear_inspection_goal();
+        if (!snapshot->perception_state().has_range_motion_directive()) snapshot->clear_perception_state();
+    }
     else if(topic=="/chassis_command") snapshot->clear_control_command();
     else if(topic=="/chassis_states") snapshot->clear_chassis_state();
     else if(topic=="/task_params") snapshot->clear_task_state();
     else if(topic=="/local_path") snapshot->clear_local_trajectory();
     else if(topic=="/global_path") snapshot->clear_global_trajectory();
     bool ok=false;
-    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error,commandLayout);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
+    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/detection/range_motion_request")ok=decodeRangeMotion(r,ts,snapshot,error);else if(topic=="/detection/inspection_request_goal")ok=decodeInspectionGoal(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error,commandLayout);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
     if(!ok||!r.finished(error))return false;
     auto append=[&snapshot](wire::ControlStateEvent&&e){snapshot->add_control_state_event()->Swap(&e);};
     if(topic=="/system_run_states"&&snapshot->has_action_state()){

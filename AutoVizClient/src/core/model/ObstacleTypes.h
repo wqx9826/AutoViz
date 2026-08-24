@@ -17,6 +17,7 @@ enum class ObstacleType {
 
 enum class ObstacleShapeType {
     Point,
+    Circle,
     Polygon,
     Box
 };
@@ -34,6 +35,7 @@ struct Obstacle {
     TrajectoryPoint position;
     double length = 0.0;
     double width = 0.0;
+    double height = 0.0;
     Polygon2D polygon;
     Box2D boundingBox;
     Point2D anchorPoint;

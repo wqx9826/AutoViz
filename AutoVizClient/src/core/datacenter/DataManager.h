@@ -45,6 +45,10 @@ struct VisualizationSnapshot {
     model::Trajectory historyTrail;
     model::ReferenceLine referenceLine;
     model::ObstacleList obstacles;
+    QString obstacleRejectionReason;
+    model::FinalTargetSetRuntimeStatus finalTargetSetRuntimeStatus;
+    model::RangeMotionRuntimeStatus rangeMotionRuntimeStatus;
+    model::InspectionGoalRuntimeStatus inspectionGoalRuntimeStatus;
     model::ControlCmd controlCmd;
     model::TopicStatusList topicStatuses;
     model::ControlStateEventList controlStateEvents;

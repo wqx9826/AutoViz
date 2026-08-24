@@ -1,7 +1,7 @@
 # AutoVizServer
 
-AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取 robot_ws 的八个 topic，转换为
-来源无关的 AutoViz Protocol v2.3 完整快照，并通过 TCP 只读发送给 Qt Client。
+AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取八条基础 robot_ws topic 和两条可选
+感知请求 topic，转换为来源无关的 AutoViz Protocol v2.5 完整快照，并通过 TCP 只读发送给 Qt Client。
 
 ## 从 ROS 回调到 TCP 的固定数据流
 
@@ -72,6 +72,8 @@ Client                                      Server
 | `/chassis_states` | ChassisState + UnderwaterChassisState + PlatformDiagnostics + tail telemetry | 反馈角速度按源值透传 |
 | `/system_run_states` | ActionState + UnderwaterCommand | 目标角速度 deg/s 转 rad/s |
 | `/task_params` | TaskState + UnderwaterTaskState + RemoteControlState | 急停、解除紧急上浮和只读遥控/配电指令 |
+| `/detection/range_motion_request` | PerceptionState.RangeMotionDirective | 感知测距运动建议；限速为 m/s |
+| `/detection/inspection_request_goal` | PerceptionState.InspectionGoal | 感知观察目标；点坐标 m、航向 ENU rad |
 | `/local_path` | local Trajectory | pose、航向、速度、加速度、相对/绝对时间、goal ID、长度 |
 | `/global_path` | global Trajectory | pose、四元数航向、长度 |
 
@@ -85,8 +87,8 @@ robot_ws 当前没有对应输入，不伪造 topic。
 ## 配置
 
 `config/robot_ws.yaml` 提供 bind/port、`max_clients`、`publish_rate_hz`（默认 20）、
-`topic_timeout_ms`（默认 5000）、八个 topic 和车辆长宽/轴距。Server 独立 launch，不修改
-robot_ws launch。
+`topic_timeout_ms`（默认 5000）、十个 topic 和车辆长宽/轴距。两条感知请求分别独立超时：
+测距请求过期不会移除观察目标，反之亦然。Server 独立 launch，不修改 robot_ws launch。
 
 ## 构建和测试
 
@@ -106,7 +108,7 @@ Server 是 ROS2 workspace，只使用 `colcon build` 构建，不对
 `src/autoviz_server` 单独执行 CMake。从 `AutoVizServer` 目录运行后，colcon 会把
 `build/`、`install/` 和 `log/` 都保留在 Server 工程内，不污染 feature 根目录。
 
-`robot_ws_converter_test` 覆盖八类消息、控制事件和快照超时；`tcp_server_test` 覆盖动态端口、
+`robot_ws_converter_test` 覆盖八条基础消息、两类感知请求、控制事件和独立快照超时；`tcp_server_test` 覆盖动态端口、
 握手隔离、含控制事件的完整快照、多 Client/上限、版本拒绝、心跳、超时、重启 session 与
 慢 Client 合并。真实 bag 链路可用 `./build/autoviz_server/autoviz_protocol_probe HOST PORT SECONDS
 --require-command-transition` 断言 TCP 事件历史包含 `11 -> 0` 和 `0 -> 6`。

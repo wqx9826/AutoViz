@@ -36,6 +36,7 @@ private:
     void setupDetailsTab();
     void setupTopicTab();
     void setupStateTabs();
+    void setupPerceptionTab();
     void setupControlTimelineTab();
     QGroupBox* createOverviewGroup(QWidget* parent, const QString& title, const QVector<QPair<QString, QString>>& fields);
     QWidget* createDetailTab(const QString& title, const QVector<QPair<QString, QVector<QPair<QString, QString>>>>& groups, int columns = 2);
@@ -62,5 +63,6 @@ private:
     QTableWidget* m_topicTable = nullptr;
     QTableWidget* m_controlAssociationTable = nullptr;
     QTableWidget* m_controlEventTable = nullptr;
+    QTableWidget* m_finalTargetTable = nullptr;
     QLabel* m_topicSummaryLabel = nullptr;
 };

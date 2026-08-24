@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include <QDateTime>
+#include <QRegularExpression>
 
 namespace autoviz::network {
 
@@ -17,6 +18,19 @@ qint64 timestampMs(const wire::Header& header)
     const auto ns = header.has_source_time_ns() ? header.source_time_ns()
                                                 : header.server_receive_time_ns();
     return ns > 0 ? static_cast<qint64>(ns / 1000000ULL) : 0;
+}
+
+QString obstacleRejectionDisplayText(const std::string& reason)
+{
+    const QString source = QString::fromStdString(reason);
+    static const QRegularExpression invalidCenter(
+        QStringLiteral("^obstacle set rejected: non-finite planar center \\(target_id=(\\d+)\\)$"));
+    const auto match = invalidCenter.match(source);
+    if (match.hasMatch()) {
+        return QStringLiteral("目标集已拒绝：目标 ID %1 的平面中心 X/Y 不是有限数值。")
+            .arg(match.captured(1));
+    }
+    return QStringLiteral("目标集已拒绝：%1").arg(source);
 }
 
 model::Header convertHeader(const wire::Header& source)
@@ -55,6 +69,10 @@ model::VisualizationChannel convertDataKind(wire::DataKind kind)
         return model::VisualizationChannel::RuntimeState;
     case wire::DATA_KIND_VEHICLE_PARAMETERS:
         return model::VisualizationChannel::VehicleParameters;
+    case wire::DATA_KIND_RANGE_MOTION_DIRECTIVE:
+        return model::VisualizationChannel::RangeMotionDirective;
+    case wire::DATA_KIND_INSPECTION_GOAL:
+        return model::VisualizationChannel::InspectionGoal;
     case wire::DATA_KIND_UNKNOWN:
     default:
         return model::VisualizationChannel::Unknown;
@@ -458,15 +476,22 @@ model::ObstacleList convertObstacles(const wire::ObstacleSet& source)
         if (item.has_center()) {
             obstacle.position.position.x = item.center().x_m();
             obstacle.position.position.y = item.center().y_m();
+            obstacle.position.z = item.center().z_m();
         }
         obstacle.position.theta = item.has_heading_rad() ? item.heading_rad() : 0.0;
         obstacle.length = item.length_m();
         obstacle.width = item.width_m();
+        obstacle.height = item.height_m();
         obstacle.dimensionsValid = item.dimensions_valid();
         obstacle.headingValid = item.heading_valid();
         obstacle.geodeticValid = item.geodetic_valid();
         if (item.has_geodetic_position()) { obstacle.longitude = item.geodetic_position().longitude_deg(); obstacle.latitude = item.geodetic_position().latitude_deg(); obstacle.depth = item.geodetic_position().depth_m(); obstacle.heightAboveBottom = item.geodetic_position().height_above_bottom_m(); }
-        if (!obstacle.dimensionsValid) obstacle.shape = model::ObstacleShapeType::Point;
+        if (!obstacle.dimensionsValid) {
+            obstacle.shape = model::ObstacleShapeType::Point;
+        } else if (!obstacle.headingValid) {
+            // Unknown orientation must not be presented as an east-facing box.
+            obstacle.shape = model::ObstacleShapeType::Circle;
+        }
         obstacle.boundingBox.center = obstacle.position.position;
         obstacle.boundingBox.heading = item.heading_rad();
         obstacle.boundingBox.length = item.length_m();
@@ -614,36 +639,124 @@ model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
     target.valid = true;
     target.timestampMs = source.has_header() ? timestampMs(source.header())
                                              : QDateTime::currentMSecsSinceEpoch();
+    target.hasTaskType = source.has_task_type();
     target.taskType = source.task_type();
+    target.hasTaskId = source.has_task_id();
     target.taskId = source.task_id();
+    target.hasTaskEnable = source.has_enabled();
     target.taskEnable = source.enabled();
-    target.taskStartRequested = source.has_task_start_requested() ? source.task_start_requested() : source.enabled();
+    target.hasTaskStartRequested = source.has_task_start_requested();
+    target.taskStartRequested = source.task_start_requested();
+    target.hasActionEnabled = source.has_action_enabled();
     target.actionEnabled = source.action_enabled();
+    target.hasEmergencyStop = source.has_emergency_stop();
     target.emergencyStop = source.emergency_stop();
-    target.releaseEmergencyAscent = source.has_underwater()
-                                        && source.underwater().release_emergency_ascent();
-    target.buoyancyAdjust = source.has_underwater()
-                                ? convertBuoyancyCommand(source.underwater().buoyancy_command()) : 0;
+    target.hasRemoteMode = source.has_remote_mode();
     target.remoteMode = source.remote_mode();
+    target.hasPowerEnable = source.has_power_enable();
     target.powerEnable = source.power_enable();
+    if (source.has_underwater()) {
+        target.hasReleaseEmergencyAscent = source.underwater().has_release_emergency_ascent();
+        target.releaseEmergencyAscent = source.underwater().release_emergency_ascent();
+        target.hasBuoyancyAdjust = source.underwater().has_buoyancy_command();
+        target.buoyancyAdjust = convertBuoyancyCommand(source.underwater().buoyancy_command());
+    }
     if (source.has_remote_control()) {
         target.hasRemoteControl = true;
         const auto& remote = source.remote_control();
+        target.hasCrawlGear = remote.has_crawl_gear();
         target.crawlGear = remote.crawl_gear();
+        target.hasCrawlSpeed = remote.has_crawl_speed_mps();
         target.crawlSpeed = remote.crawl_speed_mps();
+        target.hasCrawlAngularVelocity = remote.has_crawl_angular_velocity_radps();
         target.crawlAngularVelocity = remote.crawl_angular_velocity_radps();
+        target.hasForwardPercent = remote.has_forward_percent();
         target.forwardPercent = remote.forward_percent();
+        target.hasTurnPercent = remote.has_turn_percent();
         target.turnPercent = remote.turn_percent();
+        target.hasDivePercent = remote.has_dive_percent();
         target.divePercent = remote.dive_percent();
+        target.hasLeftTailActuatorSpeed = remote.has_left_tail_actuator_speed();
         target.leftTailActuatorSpeed = remote.left_tail_actuator_speed();
+        target.hasRightTailActuatorSpeed = remote.has_right_tail_actuator_speed();
         target.rightTailActuatorSpeed = remote.right_tail_actuator_speed();
+        target.hasLeftVerticalActuatorSpeed = remote.has_left_vertical_actuator_speed();
         target.leftVerticalActuatorSpeed = remote.left_vertical_actuator_speed();
+        target.hasRightVerticalActuatorSpeed = remote.has_right_vertical_actuator_speed();
         target.rightVerticalActuatorSpeed = remote.right_vertical_actuator_speed();
+        target.hasBackVerticalActuatorSpeed = remote.has_back_vertical_actuator_speed();
         target.backVerticalActuatorSpeed = remote.back_vertical_actuator_speed();
         for (const bool enabled : remote.power_supply_enabled()) {
             target.powerSupplyCommands.push_back(enabled ? 1 : 0);
         }
     }
+    return target;
+}
+
+model::RangeMotionRuntimeStatus convertRangeMotion(const wire::RangeMotionDirective& source)
+{
+    model::RangeMotionRuntimeStatus target;
+    target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
+    target.timestampMs = source.has_header() ? timestampMs(source.header())
+                                             : QDateTime::currentMSecsSinceEpoch();
+    target.hasTaskId = source.has_task_id();
+    target.taskId = static_cast<int>(source.task_id());
+    target.hasCommandSequence = source.has_command_sequence();
+    target.commandSequence = source.command_sequence();
+    target.hasMotion = source.has_motion();
+    target.motion = static_cast<int>(source.motion());
+    target.hasSpeedLimit = source.has_speed_limit_mps();
+    target.speedLimitMps = source.speed_limit_mps();
+    target.hasReason = source.has_reason();
+    target.reason = QString::fromStdString(source.reason());
+    return target;
+}
+
+model::InspectionGoalRuntimeStatus convertInspectionGoal(const wire::InspectionGoal& source)
+{
+    model::InspectionGoalRuntimeStatus target;
+    target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
+    target.timestampMs = source.has_header() ? timestampMs(source.header())
+                                             : QDateTime::currentMSecsSinceEpoch();
+    target.hasTaskId = source.has_task_id();
+    target.taskId = static_cast<int>(source.task_id());
+    target.hasGoalId = source.has_goal_id();
+    target.goalId = source.goal_id();
+    target.hasTargetId = source.has_target_id();
+    target.targetId = source.target_id();
+    target.hasTargetPosition = source.has_target_position();
+    if (target.hasTargetPosition) {
+        target.targetPosition = {source.target_position().x_m(), source.target_position().y_m(), source.target_position().z_m()};
+    }
+    target.hasObservationPosition = source.has_observation_position();
+    if (target.hasObservationPosition) {
+        target.observationPosition = {source.observation_position().x_m(), source.observation_position().y_m(), source.observation_position().z_m()};
+    }
+    target.hasHeading = source.has_target_heading_rad();
+    target.headingRad = source.target_heading_rad();
+    target.hasHoldOnArrival = source.has_hold_on_arrival();
+    target.holdOnArrival = source.hold_on_arrival();
+    target.hasMode = source.has_mode();
+    target.mode = static_cast<int>(source.mode());
+    target.hasSpeedLimit = source.has_speed_limit_mps();
+    target.speedLimitMps = source.speed_limit_mps();
+    return target;
+}
+
+model::FinalTargetSetRuntimeStatus convertFinalTargetSet(const wire::ObstacleSet& source,
+                                                          const QString& rejectionReason)
+{
+    model::FinalTargetSetRuntimeStatus target;
+    target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
+    target.timestampMs = source.has_header() ? timestampMs(source.header())
+                                             : QDateTime::currentMSecsSinceEpoch();
+    target.hasTaskId = source.has_source_task_id();
+    target.taskId = static_cast<int>(source.source_task_id());
+    target.targetCount = source.obstacle_size();
+    target.rejectionReason = rejectionReason;
     return target;
 }
 
@@ -772,6 +885,12 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     }
     if (source.has_obstacles()) {
         target.obstacles = convertObstacles(source.obstacles());
+        if (source.obstacles().has_rejection_reason()) {
+            target.obstacleRejectionReason = obstacleRejectionDisplayText(
+                source.obstacles().rejection_reason());
+        }
+        target.finalTargetSetRuntimeStatus = convertFinalTargetSet(
+            source.obstacles(), target.obstacleRejectionReason);
         target.runtimeStatus.hasObstacleData = !target.obstacles.isEmpty();
     }
     if (source.has_action_state()) {
@@ -782,6 +901,15 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     }
     if (source.has_task_state()) {
         target.taskRuntimeStatus = convertTask(source.task_state());
+    }
+    if (source.has_perception_state()) {
+        const auto& perception = source.perception_state();
+        if (perception.has_range_motion_directive()) {
+            target.rangeMotionRuntimeStatus = convertRangeMotion(perception.range_motion_directive());
+        }
+        if (perception.has_inspection_goal()) {
+            target.inspectionGoalRuntimeStatus = convertInspectionGoal(perception.inspection_goal());
+        }
     }
     if (source.has_runtime_state()) {
         target.topicStatuses = convertTopics(source.runtime_state());

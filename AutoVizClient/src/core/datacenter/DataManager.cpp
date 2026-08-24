@@ -260,6 +260,10 @@ bool DataManager::resetVisualizationData(VisualizationInputSource inputSource)
     m_snapshot.historyTrail = model::Trajectory{};
     m_snapshot.referenceLine = model::ReferenceLine{};
     m_snapshot.obstacles = model::ObstacleList{};
+    m_snapshot.obstacleRejectionReason.clear();
+    m_snapshot.finalTargetSetRuntimeStatus = model::FinalTargetSetRuntimeStatus{};
+    m_snapshot.rangeMotionRuntimeStatus = model::RangeMotionRuntimeStatus{};
+    m_snapshot.inspectionGoalRuntimeStatus = model::InspectionGoalRuntimeStatus{};
     m_snapshot.controlCmd = model::ControlCmd{};
     m_snapshot.topicStatuses = model::TopicStatusList{};
     m_snapshot.controlStateEvents = model::ControlStateEventList{};

@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.3
+# AutoViz Protocol v2.5
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
@@ -40,6 +40,7 @@ field 3（旧 SubscribeRequest）和 5（旧 ChannelUpdate）已 `reserved`，�
 VehicleState=10、ChassisState=11、ControlCommand=12、global/local trajectory=13/14、
 ReferenceLine=15、ObstacleSet=16、ActionState=17、TaskState=18、RuntimeState=19、
 VehicleParameters=20。
+`PerceptionState=22` 是 2.5 新增的 optional 字段；21 已用于 control state event。
 
 ## 完整快照语义
 
@@ -65,7 +66,7 @@ Client                         Server
 
 - `common.proto`：Header、几何、Capability、DataKind、扩展诊断。
 - `planning.proto`：轨迹、路径点、参考线。
-- `perception.proto`：来源无关障碍物。
+- `perception.proto`：来源无关障碍物、测距运动建议和观察目标。
 - `vehicle.proto`：通用车辆状态、typed 平台诊断，并引用水下可选扩展。
 - `control.proto`：通用控制/Action/Task，并引用水下可选扩展。
 - `underwater.proto`：深度、离底高度、水箱、垂推、浮力、声纳、紧急上浮。
@@ -74,6 +75,17 @@ Client                         Server
 
 `DataKind` 只稳定标识来源健康状态，不承担订阅。UI 可能显示 topic/type，但不得用其字符串
 做业务判断。履带、BMS、DCDC、配电使用 typed 结构；`DiagnosticMetric` 仅保留扩展诊断。
+
+`ObstacleSet.rejection_reason` 是整帧障碍物被 Adapter 或本地回放校验拒绝时的来源无关说明；
+字段存在时该 set 的 `obstacle` 必须为空。字段缺失且列表为空表示合法的无目标帧。
+
+`PerceptionState.range_motion_directive` 与 `PerceptionState.inspection_goal` 分别对应来源无关的
+测距运动建议和观察目标，二者不能互相覆盖或在超时时一并清除。前者包含消息自己的任务 ID、
+命令序号、动作、m/s 限速和原因；后者包含消息自己的任务/目标 ID、目标点/观察点（m）、ENU
+rad 航向、到点保持、模式和 m/s 限速。Client 不得以当前 `TaskState.task_id` 过滤这些消息。
+其来源健康状态使用 `DATA_KIND_RANGE_MOTION_DIRECTIVE=12` 和
+`DATA_KIND_INSPECTION_GOAL=13`。旧 2.x 快照不含 `perception_state` 时，Client 必须展示为
+“该 Server 无此信息”，而不是“等待数据”。
 
 `VehicleState.longitude_deg`/`latitude_deg` 使用 WGS-84 度，`UnderwaterState.usbl_x_m`、
 `usbl_y_m`、`usbl_z_m` 使用 Adapter 声明的本地定位坐标和 m 单位；它们是并列定位诊断，
@@ -89,6 +101,8 @@ Client                         Server
 例如经纬度、USBL 与 `TaskState.remote_control` 必须在 Server 连接和本地回放中显示一致。
 改变 schema、Server Adapter、CDR decoder、Converter、内部模型或 UI 时，必须同步更新另一条
 链路及等价测试；“bag 可显示而远程不可显示”或反向情况均为协议实现缺陷，不可发布。
+`TaskState` 的详细 optional 字段也必须保留 protobuf presence；旧 Server 只发送早期 TaskState
+时，Client 只能逐字段显示“该 Server 无此信息”，不能显示 `0`、`false` 或“否”。
 
 `ControlCommand.maneuver` 使用 field 15（12..14 已保留），当前取值为 `NONE` 或
 `YAW_IN_PLACE`。它与 `ControlCommand.mode` 正交：前者表达原地/中心转向，后者表达

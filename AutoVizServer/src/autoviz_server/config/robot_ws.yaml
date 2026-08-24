@@ -11,6 +11,8 @@ autoviz_server:
     topics:
       location: "/location"
       obstacles: "/targets/final_objects"
+      range_motion_request: "/detection/range_motion_request"
+      inspection_request_goal: "/detection/inspection_request_goal"
       control_command: "/chassis_command"
       chassis_state: "/chassis_states"
       action_state: "/system_run_states"

@@ -37,17 +37,19 @@ int main(int argc, char** argv)
 {
     if (argc < 4) {
         std::cerr << "usage: autoviz_protocol_probe HOST PORT SECONDS "
-                     "[--require-obstacles] [--require-command-transition]\n";
+                     "[--require-obstacles] [--require-task] [--require-command-transition]\n";
         return 2;
     }
     const std::string host = argv[1];
     const auto port = static_cast<std::uint16_t>(std::stoul(argv[2]));
     const auto duration = std::chrono::seconds(std::stoi(argv[3]));
     bool requireObstacles = false;
+    bool requireTask = false;
     bool requireCommandTransition = false;
     for (int index = 4; index < argc; ++index) {
         const std::string option = argv[index];
         requireObstacles |= option == "--require-obstacles";
+        requireTask |= option == "--require-task";
         requireCommandTransition |= option == "--require-command-transition";
     }
 
@@ -188,7 +190,7 @@ int main(int argc, char** argv)
 
     const bool sevenBagFields = vehicle && chassis && control && globalPath
                                 && localPath && action && task;
-    const bool expectedFields = requireObstacles ? obstacles : sevenBagFields;
+    const bool expectedFields = requireObstacles ? obstacles : (requireTask ? task : sevenBagFields);
     const bool expectedTransitions = !requireCommandTransition
                                      || (sawCommandExit && sawCommandCrawl);
     return gotHello && commonCapability && verticalCapability

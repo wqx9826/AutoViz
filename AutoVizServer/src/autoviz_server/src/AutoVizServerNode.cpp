@@ -43,6 +43,10 @@ AutoVizServerNode::AutoVizServerNode()
     m_topics.location = declare_parameter<std::string>("topics.location", "/location");
     m_topics.obstacles = declare_parameter<std::string>(
         "topics.obstacles", "/targets/final_objects");
+    m_topics.rangeMotionDirective = declare_parameter<std::string>(
+        "topics.range_motion_request", "/detection/range_motion_request");
+    m_topics.inspectionGoal = declare_parameter<std::string>(
+        "topics.inspection_request_goal", "/detection/inspection_request_goal");
     m_topics.controlCommand = declare_parameter<std::string>(
         "topics.control_command", "/chassis_command");
     m_topics.chassisState = declare_parameter<std::string>(
@@ -65,6 +69,8 @@ AutoVizServerNode::AutoVizServerNode()
     std::vector<SnapshotStore::TopicSpec> topicSpecs{
         {m_topics.location, "custom_msgs/msg/Location", wire::DATA_KIND_VEHICLE_STATE},
         {m_topics.obstacles, "custom_msgs/msg/FinalTargetArray", wire::DATA_KIND_OBSTACLES},
+        {m_topics.rangeMotionDirective, "custom_msgs/msg/RangeMotionRequest", wire::DATA_KIND_RANGE_MOTION_DIRECTIVE},
+        {m_topics.inspectionGoal, "custom_msgs/msg/InspectionRequestGoal", wire::DATA_KIND_INSPECTION_GOAL},
         {m_topics.controlCommand, "custom_msgs/msg/ChassisCommand", wire::DATA_KIND_CONTROL_COMMAND},
         {m_topics.chassisState, "custom_msgs/msg/ChassisStates", wire::DATA_KIND_CHASSIS_STATE},
         {m_topics.actionState, "custom_msgs/msg/SystemRunStates", wire::DATA_KIND_ACTION_STATE},
@@ -138,6 +144,12 @@ void AutoVizServerNode::createSubscriptions()
     m_obstacleSubscription = create_subscription<custom_msgs::msg::FinalTargetArray>(
         m_topics.obstacles, latestQos,
         std::bind(&AutoVizServerNode::onObstacles, this, std::placeholders::_1));
+    m_rangeMotionSubscription = create_subscription<custom_msgs::msg::RangeMotionRequest>(
+        m_topics.rangeMotionDirective, latestQos,
+        std::bind(&AutoVizServerNode::onRangeMotionDirective, this, std::placeholders::_1));
+    m_inspectionGoalSubscription = create_subscription<custom_msgs::msg::InspectionRequestGoal>(
+        m_topics.inspectionGoal, latestQos,
+        std::bind(&AutoVizServerNode::onInspectionGoal, this, std::placeholders::_1));
     m_controlSubscription = create_subscription<custom_msgs::msg::ChassisCommand>(
         m_topics.controlCommand, controlAuditQos,
         std::bind(&AutoVizServerNode::onControl, this, std::placeholders::_1));
@@ -199,6 +211,24 @@ void AutoVizServerNode::onObstacles(custom_msgs::msg::FinalTargetArray::ConstSha
     const auto receiveTimeNs = nowNs();
     m_store->updateObstacles(
         RobotWsProtoConverter::obstacles(*message, receiveTimeNs), receiveTimeNs);
+}
+
+void AutoVizServerNode::onRangeMotionDirective(
+    custom_msgs::msg::RangeMotionRequest::ConstSharedPtr message)
+{
+    if (!message) return;
+    const auto receiveTimeNs = nowNs();
+    m_store->updateRangeMotionDirective(
+        RobotWsProtoConverter::rangeMotionDirective(*message, receiveTimeNs), receiveTimeNs);
+}
+
+void AutoVizServerNode::onInspectionGoal(
+    custom_msgs::msg::InspectionRequestGoal::ConstSharedPtr message)
+{
+    if (!message) return;
+    const auto receiveTimeNs = nowNs();
+    m_store->updateInspectionGoal(
+        RobotWsProtoConverter::inspectionGoal(*message, receiveTimeNs), receiveTimeNs);
 }
 
 void AutoVizServerNode::onControl(custom_msgs::msg::ChassisCommand::ConstSharedPtr message)

@@ -12,6 +12,8 @@
 #include <custom_msgs/msg/chassis_states.hpp>
 #include <custom_msgs/msg/final_target_array.hpp>
 #include <custom_msgs/msg/location.hpp>
+#include <custom_msgs/msg/range_motion_request.hpp>
+#include <custom_msgs/msg/inspection_request_goal.hpp>
 #include <custom_msgs/msg/system_run_states.hpp>
 #include <custom_msgs/msg/task_params.hpp>
 #include <custom_msgs/msg/trajectory_msg.hpp>
@@ -38,6 +40,8 @@ private:
     struct TopicNames {
         std::string location;
         std::string obstacles;
+        std::string rangeMotionDirective;
+        std::string inspectionGoal;
         std::string controlCommand;
         std::string chassisState;
         std::string actionState;
@@ -56,6 +60,8 @@ private:
 
     void onLocation(custom_msgs::msg::Location::ConstSharedPtr message);
     void onObstacles(custom_msgs::msg::FinalTargetArray::ConstSharedPtr message);
+    void onRangeMotionDirective(custom_msgs::msg::RangeMotionRequest::ConstSharedPtr message);
+    void onInspectionGoal(custom_msgs::msg::InspectionRequestGoal::ConstSharedPtr message);
     void onControl(custom_msgs::msg::ChassisCommand::ConstSharedPtr message);
     void onChassis(custom_msgs::msg::ChassisStates::ConstSharedPtr message);
     void onAction(custom_msgs::msg::SystemRunStates::ConstSharedPtr message);
@@ -91,6 +97,8 @@ private:
 
     rclcpp::Subscription<custom_msgs::msg::Location>::SharedPtr m_locationSubscription;
     rclcpp::Subscription<custom_msgs::msg::FinalTargetArray>::SharedPtr m_obstacleSubscription;
+    rclcpp::Subscription<custom_msgs::msg::RangeMotionRequest>::SharedPtr m_rangeMotionSubscription;
+    rclcpp::Subscription<custom_msgs::msg::InspectionRequestGoal>::SharedPtr m_inspectionGoalSubscription;
     rclcpp::Subscription<custom_msgs::msg::ChassisCommand>::SharedPtr m_controlSubscription;
     rclcpp::Subscription<custom_msgs::msg::ChassisStates>::SharedPtr m_chassisSubscription;
     rclcpp::Subscription<custom_msgs::msg::SystemRunStates>::SharedPtr m_actionSubscription;

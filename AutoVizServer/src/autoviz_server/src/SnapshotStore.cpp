@@ -100,6 +100,20 @@ void SnapshotStore::updateObstacles(wire::ObstacleSet value, std::uint64_t recei
     record(wire::DATA_KIND_OBSTACLES, receiveTimeNs);
 }
 
+void SnapshotStore::updateRangeMotionDirective(wire::RangeMotionDirective value,
+                                               std::uint64_t receiveTimeNs)
+{
+    m_snapshot.mutable_perception_state()->mutable_range_motion_directive()->Swap(&value);
+    record(wire::DATA_KIND_RANGE_MOTION_DIRECTIVE, receiveTimeNs);
+}
+
+void SnapshotStore::updateInspectionGoal(wire::InspectionGoal value,
+                                         std::uint64_t receiveTimeNs)
+{
+    m_snapshot.mutable_perception_state()->mutable_inspection_goal()->Swap(&value);
+    record(wire::DATA_KIND_INSPECTION_GOAL, receiveTimeNs);
+}
+
 void SnapshotStore::updateActionState(wire::ActionState value, std::uint64_t receiveTimeNs)
 {
     value.mutable_header()->set_sequence(nextSequence(wire::DATA_KIND_ACTION_STATE));
@@ -333,6 +347,22 @@ void SnapshotStore::clear(wire::DataKind dataKind)
         break;
     case wire::DATA_KIND_OBSTACLES:
         m_snapshot.clear_obstacles();
+        break;
+    case wire::DATA_KIND_RANGE_MOTION_DIRECTIVE:
+        if (m_snapshot.has_perception_state()) {
+            m_snapshot.mutable_perception_state()->clear_range_motion_directive();
+            if (!m_snapshot.perception_state().has_inspection_goal()) {
+                m_snapshot.clear_perception_state();
+            }
+        }
+        break;
+    case wire::DATA_KIND_INSPECTION_GOAL:
+        if (m_snapshot.has_perception_state()) {
+            m_snapshot.mutable_perception_state()->clear_inspection_goal();
+            if (!m_snapshot.perception_state().has_range_motion_directive()) {
+                m_snapshot.clear_perception_state();
+            }
+        }
         break;
     case wire::DATA_KIND_ACTION_STATE:
         m_snapshot.clear_action_state();

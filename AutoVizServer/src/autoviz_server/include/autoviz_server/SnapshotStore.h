@@ -31,6 +31,9 @@ public:
     void updateGlobalTrajectory(::autoviz::Trajectory value, std::uint64_t receiveTimeNs);
     void updateLocalTrajectory(::autoviz::Trajectory value, std::uint64_t receiveTimeNs);
     void updateObstacles(::autoviz::ObstacleSet value, std::uint64_t receiveTimeNs);
+    void updateRangeMotionDirective(::autoviz::RangeMotionDirective value,
+                                    std::uint64_t receiveTimeNs);
+    void updateInspectionGoal(::autoviz::InspectionGoal value, std::uint64_t receiveTimeNs);
     void updateActionState(::autoviz::ActionState value, std::uint64_t receiveTimeNs);
     // Hidden action status/feedback enrich the current ActionState, but are not
     // /system_run_states messages and therefore must not advance its metadata.

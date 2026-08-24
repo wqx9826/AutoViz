@@ -15,15 +15,17 @@ Windows 开发基线统一为 Qt 6.10、Qt Kit 自带 MinGW 13.1 和同工具链
 静态库；Qt Creator/CLion 必须选择该编译器，禁止混入 MSYS2 UCRT64 的 protobuf/Abseil
 二进制。Linux Client 保持 Qt5，并使用 Linux 本机工具链重建自己的协议 SDK。
 
-协议为 2.3，不兼容 feature v1.1，不实现双栈。framing 为 4 字节大端长度 + protobuf
+协议为 2.5，不兼容 feature v1.1，不实现双栈。2.5 通过 `VisualizationSnapshot.perception_state=22`
+兼容扩展感知请求；旧 Server 的缺失 optional 字段不能在 Client 伪造成零或 false。framing 为 4 字节大端长度 + protobuf
 Envelope，最大 16 MiB。传输仅有 ClientHello、ServerHello、VisualizationSnapshot、
 Heartbeat、ProtocolError。
 
 ## robot_ws 输入
 
 `/location`、`/targets/final_objects`、`/chassis_command`、`/chassis_states`、
-`/system_run_states`、`/task_params`、`/local_path`、`/global_path` 全部完成映射。参考线是
-通用协议可选字段，当前 Adapter 无输入。
+`/system_run_states`、`/task_params`、`/local_path`、`/global_path` 全部完成映射；
+`/detection/range_motion_request` 与 `/detection/inspection_request_goal` 分别映射到同一
+`PerceptionState` 的两个独立 optional 字段。参考线是通用协议可选字段，当前 Adapter 无输入。
 
 角度为 rad、角速度为 rad/s，heading 东向为 0、逆时针/左转为正。Server 将
 SystemRunStates 目标角速度从 deg/s 转 rad/s；ChassisStates 与 Location 角速度按源值透传。
@@ -54,6 +56,12 @@ cmd 速度/航向/角速度/模式/档位/使能，`/location` 提供速度/航�
 不再驱动额外的“无效/未使能”过渡展示逻辑。
 底盘详情中的尾推遥测按左、右尾推分行显示；每行固定为母线电流、控制器温度、目标转速和实际转速，
 不将两侧数据拼接为单行长文本。
+
+详情页固定顺序为 ROS Topic、TaskParams、定位、底盘、控制、路径、感知信息、Action 信息、
+任务状态、控制时序；保留的垂向诊断页位于控制时序之后。TaskParams 的详细字段保留 protobuf optional presence：老 Server 有
+`TaskState` 但不具备某字段时，只有该字段显示“该 Server 无此信息”。感知信息不按当前
+`TaskParams.task_id` 过滤，三个输入各自的任务 ID 原样显示；FinalTarget 整帧被拒绝时，
+拒绝原因必须在此页保留到下一有效目标帧到达为止。
 
 Client 菜单中，“主视图显示管理”属于视图操作；“文件”提供已部署 `configs/` 目录入口
 （车辆尺寸 JSON 与浅色主题 QSS）以及退出；当前固定使用已验收的浅色 UI 基线，暂不开放

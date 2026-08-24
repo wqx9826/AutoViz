@@ -42,4 +42,54 @@ message ObstacleSet {
   optional Header header = 1;
   repeated Obstacle obstacle = 2;
   optional uint32 source_task_id = 3;
+  // Present only when the whole set was rejected by source validation.
+  // An empty obstacle list without this field means a valid set with no targets.
+  optional string rejection_reason = 4;
+}
+
+// Perception-issued directive. It states the requested motion behavior, not
+// a command that bypasses the planner's final safety decision.
+message RangeMotionDirective {
+  enum Motion {
+    MOTION_NONE = 0;
+    MOTION_NORMAL = 1;
+    MOTION_SLOW = 2;
+    MOTION_HOLD = 3;
+    MOTION_SURFACE = 4;
+  }
+
+  optional Header header = 1;
+  optional uint32 task_id = 2;
+  optional uint32 command_sequence = 3;
+  optional Motion motion = 4;
+  optional double speed_limit_mps = 5;
+  optional string reason = 6;
+}
+
+// Perception-issued target observation goal. Coordinates use the frame in
+// header.frame_id and metres; target heading is ENU radians.
+message InspectionGoal {
+  enum Mode {
+    MODE_NONE = 0;
+    MODE_OBSERVE = 1;
+    MODE_ADVANCE = 2;
+    MODE_RETURN_TO_PATH = 3;
+    MODE_CANCEL = 4;
+  }
+
+  optional Header header = 1;
+  optional uint32 task_id = 2;
+  optional uint32 goal_id = 3;
+  optional uint32 target_id = 4;
+  optional Point3D target_position = 5;
+  optional Point3D observation_position = 6;
+  optional double target_heading_rad = 7;
+  optional bool hold_on_arrival = 8;
+  optional Mode mode = 9;
+  optional double speed_limit_mps = 10;
+}
+
+message PerceptionState {
+  optional RangeMotionDirective range_motion_directive = 1;
+  optional InspectionGoal inspection_goal = 2;
 }

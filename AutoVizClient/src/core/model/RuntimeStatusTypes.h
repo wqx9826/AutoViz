@@ -19,7 +19,9 @@ enum class VisualizationChannel {
     ActionState,
     TaskState,
     RuntimeState,
-    VehicleParameters
+    VehicleParameters,
+    RangeMotionDirective,
+    InspectionGoal
 };
 
 struct TopicStatus {
@@ -273,30 +275,101 @@ struct ActionRuntimeStatus {
 struct TaskRuntimeStatus {
     bool valid = false;
     qint64 timestampMs = 0;
+    bool hasTaskType = false;
     int taskType = 0;
+    bool hasTaskId = false;
     int taskId = 0;
+    bool hasTaskEnable = false;
     bool taskEnable = false;
+    bool hasTaskStartRequested = false;
     bool taskStartRequested = false;
+    bool hasActionEnabled = false;
     bool actionEnabled = false;
+    bool hasBuoyancyAdjust = false;
     int buoyancyAdjust = 0;
+    bool hasEmergencyStop = false;
     bool emergencyStop = false;
+    bool hasReleaseEmergencyAscent = false;
     bool releaseEmergencyAscent = false;
+    bool hasRemoteMode = false;
     int remoteMode = 0;
+    bool hasPowerEnable = false;
     int powerEnable = 0;
     bool hasRemoteControl = false;
     // TaskParams 中的遥控/调试指令字段
+    bool hasCrawlGear = false;
     int crawlGear = 0;
+    bool hasCrawlSpeed = false;
     double crawlSpeed = 0.0;
+    bool hasCrawlAngularVelocity = false;
     double crawlAngularVelocity = 0.0;
+    bool hasForwardPercent = false;
     int forwardPercent = 0;
+    bool hasTurnPercent = false;
     int turnPercent = 0;
+    bool hasDivePercent = false;
     int divePercent = 0;
+    bool hasLeftTailActuatorSpeed = false;
     int leftTailActuatorSpeed = 0;
+    bool hasRightTailActuatorSpeed = false;
     int rightTailActuatorSpeed = 0;
+    bool hasLeftVerticalActuatorSpeed = false;
     int leftVerticalActuatorSpeed = 0;
+    bool hasRightVerticalActuatorSpeed = false;
     int rightVerticalActuatorSpeed = 0;
+    bool hasBackVerticalActuatorSpeed = false;
     int backVerticalActuatorSpeed = 0;
     QVector<int> powerSupplyCommands;
+};
+
+struct RangeMotionRuntimeStatus {
+    bool valid = false;
+    Header header;
+    qint64 timestampMs = 0;
+    bool hasTaskId = false;
+    int taskId = 0;
+    bool hasCommandSequence = false;
+    quint32 commandSequence = 0;
+    bool hasMotion = false;
+    int motion = 0;
+    bool hasSpeedLimit = false;
+    double speedLimitMps = 0.0;
+    bool hasReason = false;
+    QString reason;
+};
+
+struct InspectionGoalRuntimeStatus {
+    bool valid = false;
+    Header header;
+    qint64 timestampMs = 0;
+    bool hasTaskId = false;
+    int taskId = 0;
+    bool hasGoalId = false;
+    quint32 goalId = 0;
+    bool hasTargetId = false;
+    quint32 targetId = 0;
+    bool hasTargetPosition = false;
+    Vector3D targetPosition;
+    bool hasObservationPosition = false;
+    Vector3D observationPosition;
+    bool hasHeading = false;
+    double headingRad = 0.0;
+    bool hasHoldOnArrival = false;
+    bool holdOnArrival = false;
+    bool hasMode = false;
+    int mode = 0;
+    bool hasSpeedLimit = false;
+    double speedLimitMps = 0.0;
+};
+
+struct FinalTargetSetRuntimeStatus {
+    bool valid = false;
+    Header header;
+    qint64 timestampMs = 0;
+    bool hasTaskId = false;
+    int taskId = 0;
+    int targetCount = 0;
+    QString rejectionReason;
 };
 
 enum class RunVisualizationMode {

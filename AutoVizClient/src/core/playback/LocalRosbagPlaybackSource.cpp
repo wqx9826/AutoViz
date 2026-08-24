@@ -171,6 +171,13 @@ private:
     {
         if(topic==QStringLiteral("/location"))m_snapshot.clear_vehicle_state();
         else if(topic==QStringLiteral("/targets/final_objects"))m_snapshot.clear_obstacles();
+        else if(topic==QStringLiteral("/detection/range_motion_request") && m_snapshot.has_perception_state()) {
+            m_snapshot.mutable_perception_state()->clear_range_motion_directive();
+            if (!m_snapshot.perception_state().has_inspection_goal()) m_snapshot.clear_perception_state();
+        } else if(topic==QStringLiteral("/detection/inspection_request_goal") && m_snapshot.has_perception_state()) {
+            m_snapshot.mutable_perception_state()->clear_inspection_goal();
+            if (!m_snapshot.perception_state().has_range_motion_directive()) m_snapshot.clear_perception_state();
+        }
         else if(topic==QStringLiteral("/chassis_command")){m_snapshot.clear_control_command();m_centerTurnActive=false;}
         else if(topic==QStringLiteral("/chassis_states"))m_snapshot.clear_chassis_state();
         else if(topic==QStringLiteral("/system_run_states"))m_snapshot.clear_action_state();

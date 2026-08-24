@@ -238,3 +238,31 @@ status=2（EXECUTING）、progress 递增。
 
 遗留（待团队决策）：robot_ws 端 `goal_uuid` 丢零是数据源头问题，最稳妥是在 robot_ws 用
 `%02x` 修正；AutoViz 侧已容错，但对已录制的坏格式 bag 只能靠 lossy 对称比对匹配。
+
+## 2026-08-24 TaskParams 与感知详情接入验证
+
+协议升级至 2.5：`VisualizationSnapshot.perception_state=22` 保持 optional，包含彼此独立的
+`RangeMotionDirective` 和 `InspectionGoal`；旧 2.x Server 不发送该字段仍可连接。协议 GTest
+9/9 通过，覆盖感知状态 frame round-trip 与旧快照缺失 `PerceptionState`。Client synthetic CDR
+测试覆盖 RangeMotion 的 header/string/`float32` 对齐、InspectionGoal 的 `Point`/`float32` 对齐，
+并确认一个请求替换或过期不会清除另一个请求。详情 UI 测试覆盖 TaskParams 五分栏、感知三分栏、
+标签顺序、旧 TaskState 的逐字段“该 Server 无此信息”、消息自身 task ID 以及 FinalTarget 的拒绝原因和
+Z 列。
+
+Server 重新构建通过。`robot_ws_converter_test` 的 22 项覆盖两类感知请求转换和独立过期；
+`tcp_server_test` 在允许本机 loopback 绑定的环境中通过，`colcon test-result --verbose` 汇总为
+30 tests、0 errors、0 failures、0 skipped。沙箱内 `listen()` 会被策略拒绝，因此 TCP 测试必须在
+允许 loopback 的受控环境运行。
+
+指定本地回放输入为
+`/home/wqx/LZBK/data/rosbag/rosbag2_2026_08_18-09_12_43`。`AutoVizClientPlaybackTests` 通过，
+扫描 151,608 条受支持消息；`AutoVizControlStatusUiTests` 以 offscreen 模式从 0 秒 8 倍速播放，
+确认 TaskParams 已进入 Client 模型，并在详情页显示任务 ID、任务使能、动作使能和 1 至 16 路配电指令。
+该 bag 不包含 `/targets/final_objects`、`/detection/range_motion_request` 或
+`/detection/inspection_request_goal`，因此它只能作为 `/task_params` 的真实回放证据，不能证明感知
+topic 的实际录制回放；后者由合成 CDR 和 Server 转换测试覆盖。
+
+同一 bag 用 `ros2 bag play --rate 8.0` 驱动 Server，并以 protocol probe 和 offscreen Qt Client
+连接 `127.0.0.1:39090`。probe 在 8 秒得到 161 份快照、`task=1`，当时 `/task_params` 计数为 3,324；
+Client 日志确认“已连接 127.0.0.1:39090（robot_ws ROS2 adapter）”。该窗口中的三个感知 topic
+均为 count=0、timed_out=1，符合 bag 内容，未被错误显示为有效感知数据。

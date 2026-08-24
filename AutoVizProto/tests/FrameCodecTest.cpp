@@ -155,6 +155,24 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     event->set_previous_mode(11);
     event->set_current_mode(6);
     event->set_goal_id("goal-v2.1");
+    auto* range = snapshot->mutable_perception_state()->mutable_range_motion_directive();
+    range->mutable_header()->set_frame_id("odom");
+    range->set_task_id(8);
+    range->set_command_sequence(17);
+    range->set_motion(wire::RangeMotionDirective::MOTION_SLOW);
+    range->set_speed_limit_mps(0.35);
+    range->set_reason("range limit");
+    auto* inspection = snapshot->mutable_perception_state()->mutable_inspection_goal();
+    inspection->mutable_header()->set_frame_id("odom");
+    inspection->set_task_id(9);
+    inspection->set_goal_id(18);
+    inspection->set_target_id(42);
+    inspection->mutable_target_position()->set_z_m(-3.0);
+    inspection->mutable_observation_position()->set_z_m(-1.0);
+    inspection->set_target_heading_rad(1.2);
+    inspection->set_hold_on_arrival(true);
+    inspection->set_mode(wire::InspectionGoal::MODE_OBSERVE);
+    inspection->set_speed_limit_mps(0.4);
 
     wire::FrameBytes stream;
     for (const auto& envelope : expected) {
@@ -187,12 +205,34 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     EXPECT_EQ(actual.control_state_event(0).previous_mode(), 11);
     EXPECT_EQ(actual.control_state_event(0).current_mode(), 6);
     EXPECT_EQ(actual.control_state_event(0).goal_id(), "goal-v2.1");
+    ASSERT_TRUE(actual.has_perception_state());
+    EXPECT_EQ(actual.perception_state().range_motion_directive().task_id(), 8U);
+    EXPECT_EQ(actual.perception_state().range_motion_directive().motion(),
+              wire::RangeMotionDirective::MOTION_SLOW);
+    EXPECT_EQ(actual.perception_state().inspection_goal().target_id(), 42U);
+    EXPECT_DOUBLE_EQ(actual.perception_state().inspection_goal().target_position().z_m(), -3.0);
+    EXPECT_DOUBLE_EQ(actual.perception_state().inspection_goal().speed_limit_mps(), 0.4);
+}
+
+TEST(ProtocolEnvelopeTest, AcceptsOldSnapshotWithoutPerceptionState)
+{
+    wire::Envelope oldEnvelope;
+    oldEnvelope.mutable_snapshot()->set_sequence(9);
+    oldEnvelope.mutable_snapshot()->mutable_task_state()->set_task_id(7);
+
+    wire::FrameDecoder decoder;
+    std::vector<wire::Envelope> decoded;
+    std::string error;
+    ASSERT_TRUE(decoder.decode(encode(oldEnvelope), decoded, error)) << error;
+    ASSERT_EQ(decoded.size(), 1U);
+    EXPECT_FALSE(decoded.front().snapshot().has_perception_state());
+    EXPECT_EQ(decoded.front().snapshot().task_state().task_id(), 7U);
 }
 
 TEST(ProtocolVersionTest, AcceptsOnlyV2MajorVersion)
 {
     EXPECT_EQ(wire::kProtocolMajor, 2U);
-    EXPECT_EQ(wire::kProtocolMinor, 3U);
+    EXPECT_EQ(wire::kProtocolMinor, 5U);
     EXPECT_TRUE(wire::isProtocolMajorCompatible(2U));
     EXPECT_FALSE(wire::isProtocolMajorCompatible(1U));
 }

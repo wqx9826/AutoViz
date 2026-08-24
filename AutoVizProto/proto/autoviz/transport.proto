@@ -26,6 +26,7 @@ message VisualizationSnapshot {
   optional RuntimeState runtime_state = 19;
   optional VehicleParameters vehicle_parameters = 20;
   repeated ControlStateEvent control_state_event = 21;
+  optional PerceptionState perception_state = 22;
 }
 
 message ClientHello {

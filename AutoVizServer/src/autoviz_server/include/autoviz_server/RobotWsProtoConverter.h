@@ -7,6 +7,8 @@
 #include <custom_msgs/msg/chassis_states.hpp>
 #include <custom_msgs/msg/final_target_array.hpp>
 #include <custom_msgs/msg/location.hpp>
+#include <custom_msgs/msg/range_motion_request.hpp>
+#include <custom_msgs/msg/inspection_request_goal.hpp>
 #include <custom_msgs/msg/system_run_states.hpp>
 #include <custom_msgs/msg/task_params.hpp>
 #include <custom_msgs/msg/trajectory_msg.hpp>
@@ -24,6 +26,10 @@ public:
         const custom_msgs::msg::Location& message, std::uint64_t receiveTimeNs);
     static ::autoviz::ObstacleSet obstacles(
         const custom_msgs::msg::FinalTargetArray& message, std::uint64_t receiveTimeNs);
+    static ::autoviz::RangeMotionDirective rangeMotionDirective(
+        const custom_msgs::msg::RangeMotionRequest& message, std::uint64_t receiveTimeNs);
+    static ::autoviz::InspectionGoal inspectionGoal(
+        const custom_msgs::msg::InspectionRequestGoal& message, std::uint64_t receiveTimeNs);
     static ::autoviz::ControlCommand controlCommand(
         const custom_msgs::msg::ChassisCommand& message, std::uint64_t receiveTimeNs);
     static ::autoviz::ChassisState chassisState(

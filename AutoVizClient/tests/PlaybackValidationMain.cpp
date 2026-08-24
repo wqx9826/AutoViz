@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "core/network/ProtocolModelConverter.h"
@@ -35,6 +36,19 @@ void appendCdrFloat64(QByteArray* payload, double value)
     }
 }
 
+void appendCdrFloat32(QByteArray* payload, float value)
+{
+    while ((payload->size() - 4) % 4 != 0) {
+        payload->append('\0');
+    }
+    quint32 bits = 0;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    for (int index = 0; index < 4; ++index) {
+        appendCdrByte(payload, static_cast<quint8>((bits >> (index * 8)) & 0xffU));
+    }
+}
+
 void appendCdrInt16(QByteArray* payload, qint16 value)
 {
     while ((payload->size() - 4) % 2 != 0) {
@@ -42,6 +56,43 @@ void appendCdrInt16(QByteArray* payload, qint16 value)
     }
     appendCdrByte(payload, static_cast<quint8>(value & 0xff));
     appendCdrByte(payload, static_cast<quint8>((static_cast<quint16>(value) >> 8) & 0xff));
+}
+
+void appendCdrUint16(QByteArray* payload, quint16 value)
+{
+    while ((payload->size() - 4) % 2 != 0) payload->append('\0');
+    appendCdrByte(payload, static_cast<quint8>(value & 0xffU));
+    appendCdrByte(payload, static_cast<quint8>((value >> 8U) & 0xffU));
+}
+
+void appendCdrUint32(QByteArray* payload, quint32 value)
+{
+    while ((payload->size() - 4) % 4 != 0) payload->append('\0');
+    for (int index = 0; index < 4; ++index) {
+        appendCdrByte(payload, static_cast<quint8>((value >> (index * 8)) & 0xffU));
+    }
+}
+
+void appendCdrString(QByteArray* payload, const QByteArray& value)
+{
+    appendCdrUint32(payload, static_cast<quint32>(value.size() + 1));
+    payload->append(value);
+    payload->append('\0');
+}
+
+void appendCdrHeader(QByteArray* payload, const QByteArray& frame,
+                     qint32 seconds = 0, quint32 nanoseconds = 0)
+{
+    appendCdrUint32(payload, static_cast<quint32>(seconds));
+    appendCdrUint32(payload, nanoseconds);
+    appendCdrString(payload, frame);
+}
+
+void appendCdrCustomPoint(QByteArray* payload, double x, double y, double z)
+{
+    for (const double value : {120.0, 30.0, 8.0, 1.5, x, y, z, 0.0}) {
+        appendCdrFloat64(payload, value);
+    }
 }
 
 void appendZeroMotorState(QByteArray* payload)
@@ -134,6 +185,194 @@ bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
             "/chassis_command", "custom_msgs/msg/ChassisCommand", legacyPayload, 1,
             &legacySnapshot, &detail)) {
         error << "invalid ChassisCommand CDR length was accepted\n";
+        return false;
+    }
+    return true;
+}
+
+bool runFinalTargetCdrChecks(QTextStream& error)
+{
+    const auto appendTarget = [](QByteArray* payload, quint16 id, double x, double y,
+                                 double length, double width, double heading,
+                                 bool dimensionsValid, bool headingValid) {
+        appendCdrHeader(payload, "odom");
+        appendCdrUint16(payload, id);
+        for (const double value : {0.0, 0.0, 0.0, 0.0, x, y, 0.0, 0.0}) {
+            appendCdrFloat64(payload, value);
+        }
+        appendCdrByte(payload, 0);
+        appendCdrFloat64(payload, length);
+        appendCdrFloat64(payload, width);
+        appendCdrFloat64(payload, 0.5);
+        appendCdrFloat64(payload, heading);
+        appendCdrByte(payload, dimensionsValid ? 1 : 0);
+        appendCdrByte(payload, headingValid ? 1 : 0);
+        appendCdrByte(payload, 1);
+    };
+    const auto decode = [&appendTarget](double x, double length, double width, double heading,
+                                         bool dimensionsValid, bool headingValid,
+                                         ::autoviz::VisualizationSnapshot* snapshot, QString* detail) {
+        QByteArray payload(4, '\0');
+        payload[1] = char(1);
+        appendCdrHeader(&payload, "odom");
+        appendCdrUint32(&payload, 7);
+        appendCdrUint32(&payload, 1);
+        appendTarget(&payload, 42, x, 2.0, length, width, heading, dimensionsValid, headingValid);
+        return autoviz::playback::RobotWsCdrDecoder::decode(
+            "/targets/final_objects", "custom_msgs/msg/FinalTargetArray", payload, 1, snapshot, detail);
+    };
+
+    ::autoviz::VisualizationSnapshot snapshot;
+    QString detail;
+    if (!decode(1.0, 3.0, 4.0, 0.0, true, false, &snapshot, &detail)) {
+        error << "FinalTarget CDR decode failed: " << detail << '\n';
+        return false;
+    }
+    const auto model = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    if (snapshot.obstacles().obstacle_size() != 1
+        || snapshot.obstacles().obstacle(0).heading_valid()
+        || !snapshot.obstacles().obstacle(0).dimensions_valid()
+        || model.obstacles.size() != 1
+        || model.obstacles.front().shape != autoviz::model::ObstacleShapeType::Circle) {
+        error << "FinalTarget unknown-heading semantics self-test failed\n";
+        return false;
+    }
+
+    if (!decode(std::numeric_limits<double>::quiet_NaN(), 3.0, 4.0, 0.0, true, true,
+                &snapshot, &detail)
+        || snapshot.obstacles().obstacle_size() != 0
+        || !snapshot.obstacles().has_rejection_reason()
+        || snapshot.obstacles().rejection_reason()
+               != "obstacle set rejected: non-finite planar center (target_id=42)"
+        || autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot).obstacleRejectionReason
+               != QStringLiteral("目标集已拒绝：目标 ID 42 的平面中心 X/Y 不是有限数值。")) {
+        error << "FinalTarget invalid center did not clear the frame\n";
+        return false;
+    }
+    if (!decode(1.0, -3.0, 4.0, 0.0, true, true, &snapshot, &detail)
+        || snapshot.obstacles().obstacle_size() != 1
+        || snapshot.obstacles().obstacle(0).dimensions_valid()
+        || autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot).obstacles.front().shape
+               != autoviz::model::ObstacleShapeType::Point) {
+        error << "FinalTarget invalid dimensions did not become a point\n";
+        return false;
+    }
+    return true;
+}
+
+bool runPerceptionCdrChecks(QTextStream& error)
+{
+    ::autoviz::VisualizationSnapshot snapshot;
+    QString detail;
+
+    QByteArray rangePayload(4, '\0');
+    rangePayload[1] = char(1);  // CDR_LE
+    appendCdrHeader(&rangePayload, "odom", 12, 250);
+    appendCdrUint32(&rangePayload, 8);
+    appendCdrUint32(&rangePayload, 17);
+    appendCdrByte(&rangePayload, 2);  // MOTION_SLOW
+    appendCdrFloat32(&rangePayload, 0.35F);
+    appendCdrString(&rangePayload, "sonar limit");
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/detection/range_motion_request", "custom_msgs/msg/RangeMotionRequest",
+            rangePayload, 100, &snapshot, &detail)) {
+        error << "RangeMotionRequest CDR decode failed: " << detail << '\n';
+        return false;
+    }
+    const auto rangeModel = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    if (!snapshot.has_perception_state()
+        || !snapshot.perception_state().has_range_motion_directive()
+        || snapshot.perception_state().range_motion_directive().header().source_time_ns()
+               != 12000000250ULL
+        || snapshot.perception_state().range_motion_directive().task_id() != 8U
+        || snapshot.perception_state().range_motion_directive().command_sequence() != 17U
+        || std::abs(snapshot.perception_state().range_motion_directive().speed_limit_mps() - 0.35)
+               > 1.0e-6
+        || !rangeModel.rangeMotionRuntimeStatus.valid
+        || rangeModel.rangeMotionRuntimeStatus.reason != QStringLiteral("sonar limit")) {
+        error << "RangeMotionRequest CDR conversion did not preserve header/float/string fields\n";
+        return false;
+    }
+
+    QByteArray nonFiniteRangePayload(4, '\0');
+    nonFiniteRangePayload[1] = char(1);  // CDR_LE
+    appendCdrHeader(&nonFiniteRangePayload, "odom", 12, 250);
+    appendCdrUint32(&nonFiniteRangePayload, 8);
+    appendCdrUint32(&nonFiniteRangePayload, 18);
+    appendCdrByte(&nonFiniteRangePayload, 2);
+    appendCdrFloat32(&nonFiniteRangePayload, std::numeric_limits<float>::quiet_NaN());
+    appendCdrString(&nonFiniteRangePayload, "invalid speed");
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/detection/range_motion_request", "custom_msgs/msg/RangeMotionRequest",
+            nonFiniteRangePayload, 100, &snapshot, &detail)
+        || !std::isnan(snapshot.perception_state().range_motion_directive().speed_limit_mps())) {
+        error << "RangeMotionRequest CDR decode rejected a Server-preserved non-finite speed\n";
+        return false;
+    }
+
+    QByteArray inspectionPayload(4, '\0');
+    inspectionPayload[1] = char(1);  // CDR_LE
+    appendCdrHeader(&inspectionPayload, "odom", 13, 500);
+    appendCdrUint32(&inspectionPayload, 9);
+    appendCdrUint32(&inspectionPayload, 23);
+    appendCdrUint16(&inspectionPayload, 42);
+    appendCdrCustomPoint(&inspectionPayload, 1.0, 2.0, -3.0);
+    appendCdrCustomPoint(&inspectionPayload, 4.0, 5.0, -1.0);
+    appendCdrFloat64(&inspectionPayload, 1.25);
+    appendCdrByte(&inspectionPayload, 1);
+    appendCdrByte(&inspectionPayload, 1);  // MODE_OBSERVE
+    appendCdrFloat32(&inspectionPayload, 0.4F);
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/detection/inspection_request_goal", "custom_msgs/msg/InspectionRequestGoal",
+            inspectionPayload, 101, &snapshot, &detail)) {
+        error << "InspectionRequestGoal CDR decode failed: " << detail << '\n';
+        return false;
+    }
+    const auto model = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    if (!snapshot.perception_state().has_range_motion_directive()
+        || !snapshot.perception_state().has_inspection_goal()
+        || snapshot.perception_state().inspection_goal().target_id() != 42U
+        || std::abs(snapshot.perception_state().inspection_goal().target_position().z_m() + 3.0)
+               > 1.0e-12
+        || std::abs(snapshot.perception_state().inspection_goal().observation_position().z_m() + 1.0)
+               > 1.0e-12
+        || !model.inspectionGoalRuntimeStatus.valid
+        || !model.inspectionGoalRuntimeStatus.hasHoldOnArrival
+        || !model.inspectionGoalRuntimeStatus.holdOnArrival
+        || std::abs(model.inspectionGoalRuntimeStatus.speedLimitMps - 0.4) > 1.0e-6) {
+        error << "InspectionRequestGoal CDR conversion did not preserve Point/float fields\n";
+        return false;
+    }
+
+    QByteArray nonFiniteInspectionPayload(4, '\0');
+    nonFiniteInspectionPayload[1] = char(1);  // CDR_LE
+    appendCdrHeader(&nonFiniteInspectionPayload, "odom", 13, 500);
+    appendCdrUint32(&nonFiniteInspectionPayload, 9);
+    appendCdrUint32(&nonFiniteInspectionPayload, 24);
+    appendCdrUint16(&nonFiniteInspectionPayload, 42);
+    appendCdrCustomPoint(&nonFiniteInspectionPayload, 1.0, 2.0, -3.0);
+    appendCdrCustomPoint(&nonFiniteInspectionPayload, 4.0, 5.0, -1.0);
+    appendCdrFloat64(&nonFiniteInspectionPayload, std::numeric_limits<double>::quiet_NaN());
+    appendCdrByte(&nonFiniteInspectionPayload, 1);
+    appendCdrByte(&nonFiniteInspectionPayload, 1);  // MODE_OBSERVE
+    appendCdrFloat32(&nonFiniteInspectionPayload, std::numeric_limits<float>::infinity());
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/detection/inspection_request_goal", "custom_msgs/msg/InspectionRequestGoal",
+            nonFiniteInspectionPayload, 101, &snapshot, &detail)
+        || !std::isnan(snapshot.perception_state().inspection_goal().target_heading_rad())
+        || !std::isinf(snapshot.perception_state().inspection_goal().speed_limit_mps())) {
+        error << "InspectionRequestGoal CDR decode rejected Server-preserved non-finite fields\n";
+        return false;
+    }
+
+    // Updating either request replaces only its own current value. The other
+    // request must remain available until its own topic expires.
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/detection/range_motion_request", "custom_msgs/msg/RangeMotionRequest",
+            rangePayload, 102, &snapshot, &detail)
+        || !snapshot.perception_state().has_range_motion_directive()
+        || !snapshot.perception_state().has_inspection_goal()) {
+        error << "range request replacement cleared the inspection request\n";
         return false;
     }
     return true;
@@ -615,6 +854,12 @@ int main(int argc, char** argv)
     if (!runCurrentChassisCommandLayoutChecks(error)) {
         return 1;
     }
+    if (!runFinalTargetCdrChecks(error)) {
+        return 1;
+    }
+    if (!runPerceptionCdrChecks(error)) {
+        return 1;
+    }
     if (!runModeGearIndependenceChecks(error)) {
         return 1;
     }
@@ -645,7 +890,7 @@ int main(int argc, char** argv)
     if (!runGoalUuidNormalizationChecks(error)) {
         return 1;
     }
-    out << "CDR, command-summary source selection, legacy chassis pass-through, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
+    out << "CDR, FinalTarget and perception semantics, command-summary source selection, legacy chassis pass-through, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {

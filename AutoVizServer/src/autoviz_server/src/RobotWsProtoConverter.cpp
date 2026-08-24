@@ -235,6 +235,30 @@ const char* finalTargetClassLabel(std::uint8_t value)
     }
 }
 
+bool hasFiniteCenter(const custom_msgs::msg::FinalTarget& target)
+{
+    return std::isfinite(target.real_center_point.x)
+           && std::isfinite(target.real_center_point.y);
+}
+
+bool hasUsableDimensions(const custom_msgs::msg::FinalTarget& target)
+{
+    return target.dimensions_valid && std::isfinite(target.length)
+           && std::isfinite(target.width) && target.length > 0.0 && target.width > 0.0;
+}
+
+bool hasUsableHeading(const custom_msgs::msg::FinalTarget& target, bool dimensionsValid)
+{
+    return dimensionsValid && target.heading_valid && std::isfinite(target.heading);
+}
+
+bool hasUsableGeodeticPosition(const custom_msgs::msg::FinalTarget& target)
+{
+    const auto& point = target.real_center_point;
+    return target.geodetic_valid && std::isfinite(point.longitude) && std::isfinite(point.latitude)
+           && std::isfinite(point.depth) && std::isfinite(point.height);
+}
+
 // 把 canonical 32 位 hex 转成 robot_ws 用 %x 逐字节格式化会得到的 lossy 形式：
 // 每个字节若有前导零则丢弃。只应传入 canonical（32 位）字符串。
 std::string lossyUuidHex(std::string_view canonical)
@@ -315,6 +339,15 @@ wire::ObstacleSet RobotWsProtoConverter::obstacles(
                "robot_ws.final_targets", message.header.frame_id);
     result.set_source_task_id(message.task_id);
     for (const auto& source : message.targets) {
+        if (!hasFiniteCenter(source)) {
+            // Match robot_ws obstacle processing: one invalid XY center invalidates the frame.
+            result.set_rejection_reason(
+                "obstacle set rejected: non-finite planar center (target_id="
+                + std::to_string(source.target_id) + ")");
+            return result;
+        }
+    }
+    for (const auto& source : message.targets) {
         auto* target = result.add_obstacle();
         fillHeader(target->mutable_header(),
                    rosStampNs(source.header.stamp, sourceTimeNs),
@@ -329,20 +362,23 @@ wire::ObstacleSet RobotWsProtoConverter::obstacles(
         target->mutable_center()->set_x_m(source.real_center_point.x);
         target->mutable_center()->set_y_m(source.real_center_point.y);
         target->mutable_center()->set_z_m(source.real_center_point.z);
-        target->set_geodetic_valid(source.geodetic_valid);
-        target->set_dimensions_valid(source.dimensions_valid);
-        target->set_heading_valid(source.heading_valid);
-        if (source.geodetic_valid) {
+        const bool dimensionsValid = hasUsableDimensions(source);
+        const bool headingValid = hasUsableHeading(source, dimensionsValid);
+        const bool geodeticValid = hasUsableGeodeticPosition(source);
+        target->set_geodetic_valid(geodeticValid);
+        target->set_dimensions_valid(dimensionsValid);
+        target->set_heading_valid(headingValid);
+        if (geodeticValid) {
             auto* geodetic = target->mutable_geodetic_position();
             geodetic->set_longitude_deg(source.real_center_point.longitude);
             geodetic->set_latitude_deg(source.real_center_point.latitude);
             geodetic->set_depth_m(source.real_center_point.depth);
             geodetic->set_height_above_bottom_m(source.real_center_point.height);
         }
-        if (source.heading_valid) {
+        if (headingValid) {
             target->set_heading_rad(source.heading);
         }
-        if (source.dimensions_valid) {
+        if (dimensionsValid) {
             target->set_length_m(source.length);
             target->set_width_m(source.width);
             target->set_height_m(source.height);
@@ -350,6 +386,44 @@ wire::ObstacleSet RobotWsProtoConverter::obstacles(
         target->set_is_static(true);
         target->set_is_virtual(false);
     }
+    return result;
+}
+
+wire::RangeMotionDirective RobotWsProtoConverter::rangeMotionDirective(
+    const custom_msgs::msg::RangeMotionRequest& message, std::uint64_t receiveTimeNs)
+{
+    wire::RangeMotionDirective result;
+    fillHeader(result.mutable_header(), rosStampNs(message.header.stamp, receiveTimeNs), receiveTimeNs,
+               "robot_ws.range_motion_request", message.header.frame_id);
+    result.set_task_id(message.task_id);
+    result.set_command_sequence(message.command_seq);
+    result.set_motion(static_cast<wire::RangeMotionDirective::Motion>(message.motion));
+    result.set_speed_limit_mps(message.speed_limit_mps);
+    result.set_reason(message.reason);
+    return result;
+}
+
+wire::InspectionGoal RobotWsProtoConverter::inspectionGoal(
+    const custom_msgs::msg::InspectionRequestGoal& message, std::uint64_t receiveTimeNs)
+{
+    wire::InspectionGoal result;
+    fillHeader(result.mutable_header(), rosStampNs(message.header.stamp, receiveTimeNs), receiveTimeNs,
+               "robot_ws.inspection_request_goal", message.header.frame_id);
+    result.set_task_id(message.task_id);
+    result.set_goal_id(message.goal_id);
+    result.set_target_id(message.target_id);
+    auto* target = result.mutable_target_position();
+    target->set_x_m(message.target_point.x);
+    target->set_y_m(message.target_point.y);
+    target->set_z_m(message.target_point.z);
+    auto* observation = result.mutable_observation_position();
+    observation->set_x_m(message.goal_point.x);
+    observation->set_y_m(message.goal_point.y);
+    observation->set_z_m(message.goal_point.z);
+    result.set_target_heading_rad(message.goal_heading);
+    result.set_hold_on_arrival(message.hold_on_arrival);
+    result.set_mode(static_cast<wire::InspectionGoal::Mode>(message.mode));
+    result.set_speed_limit_mps(message.speed_limit);
     return result;
 }
 

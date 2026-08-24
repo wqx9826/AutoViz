@@ -4,16 +4,18 @@
 “远程/回放”两列必须进入同一个 `VisualizationSnapshot` 字段，再经过
 `ProtocolModelConverter -> DataManager -> UI`；未订阅的消息不推断字段含义。
 
-## 当前八条输入
+## 当前八条基础输入和两条可选感知请求
 
 | 输入 | 消息字段覆盖 | Server | 本地 CDR | Client/UI |
 | --- | --- | --- | --- | --- |
 | `/location` | 全部标量，包括 start/Gauss/origin/odom heading/omega X/Y/USBL words | `VehicleState` typed 字段 | `decodeLocation` 同序读取 | 定位详情；heading 与 odom_heading 并列显示，不做一致性告警 |
-| `/targets/final_objects` | task id、目标点、经纬度/深度/高度、尺寸/朝向及 validity | `ObstacleSet`/`Obstacle` | `decodeObstacles`，无尺寸目标保留为 Point | XY 点目标或 Box；缺失尺寸不填零冒充有效尺寸 |
+| `/targets/final_objects` | task id、目标点、经纬度/深度/高度、尺寸/朝向及 validity | `ObstacleSet`/`Obstacle` | `decodeObstacles`，无尺寸目标保留为 Point | XY 点、Box 或朝向未知的外接圆；当前主视图不消费目标 z/尺寸 height |
 | `/chassis_command` | 原始 mode、使能、速度、角速度、挡位、水推/垂向/浮力/声纳 | `ControlCommand` | `decodeCommand` | 控制详情；angular_velocity 原值透传 |
 | `/chassis_states` | 水推/履带执行器、航向 Kp/目标/实际/误差/输出、尾推遥测、BMS、配电、底盘状态 | `ChassisState` typed 字段 | 旧无尾推 277、旧含尾推 341、当前无尾推 325、当前含尾推 389；严格按长度选择 | 底盘详情；旧布局缺失的航向/尾推字段显示“无此版本数据” |
 | `/system_run_states` | Action 聚合 owner/goal/state/message/mode/目标/浮力/紧急上浮 | `ActionState` | `decodeAction` | Action 主状态；隐藏 status/feedback 仅作诊断 |
 | `/task_params` | 任务启动脉冲、动作使能、急停、解除按钮、遥控/调试/配电 | `TaskState` | `decodeTask` | “启动请求”与“动作使能”分开显示 |
+| `/detection/range_motion_request` | header、任务 ID、命令序号、动作、`float32` 限速、原因 | `PerceptionState.range_motion_directive` | `decodeRangeMotionRequest`；严格处理 header/string/float32 CDR 对齐 | 感知详情；消息任务 ID 原样显示，不按 TaskParams 过滤 |
+| `/detection/inspection_request_goal` | header、任务/目标 ID、目标/观察 `Point`、航向、保持、模式、`float32` 限速 | `PerceptionState.inspection_goal` | `decodeInspectionRequestGoal`；严格处理 Point 对齐 | 感知详情；两个请求独立新鲜度/超时 |
 | `/local_path` | header、goal UUID、每点 pose/twist/acceleration/time | `Trajectory` | `decodeLocalPath` | 现有 XY 渲染，详情保留完整字段 |
 | `/global_path` | header、每点 pose | `Trajectory` | `decodeGlobalPath` | 现有 XY 渲染，详情保留完整字段 |
 
@@ -23,13 +25,11 @@
 `GoalStatusArray` 和 feedback topic 仅在 bag 记录了 hidden topics 时合并。goal/result 本身
 当前没有独立可回放输入，因此不伪造协议字段。
 
-`FinalTarget`、`FinalTargetArray`、`Point`、`TrajectoryPointMsg` 和 `TrajectoryMsg` 是八条输入
+`FinalTarget`、`FinalTargetArray`、`Point`、`TrajectoryPointMsg` 和 `TrajectoryMsg` 是基础输入或感知请求
 中的嵌套/载体定义，已分别在目标和路径行展开；它们不是额外输入 topic。
 
-当前没有输入订阅的消息：`BehaviorTreeStates`、`InspectionRequestGoal`、
-`InspectionResponse`、`InstructionState`、`NavigationSensorCommand`、`Object`、
-`RangeMotionRequest`、`RawIns`、`Scene`。它们保留为后续 Adapter 接入对象，不能被当作当前
-八条输入的隐式来源。
+当前没有输入订阅的消息：`BehaviorTreeStates`、`InspectionResponse`、`InstructionState`、
+`NavigationSensorCommand`、`Object`、`RawIns`、`Scene`。它们不能被当作当前输入的隐式来源。
 
 ## 关键语义
 
@@ -39,6 +39,9 @@
   `Location.omega_z` 按源值透传；协议单位为 rad/s，UI 转为 deg/s。
 - `TaskParams.task_enable` 是 false -> true -> false 的自主任务启动请求，不是持续运行状态。
 - `odom_z`、`depth`、`height_above_bottom` 始终是三个独立字段。
+- `FinalTarget` 的中心 XY 非有限时整帧目标无效；尺寸仅在长宽均为有限正数时有效；尺寸有效但朝向缺失或非有限时，XY 视图画外接圆，绝不以 0 rad 伪造朝向。Server 与本地 CDR 使用相同规则。整帧拒绝时 `ObstacleSet.rejection_reason` 必须说明原因并由 UI 显示；有效的后续帧不携带该字段，提示随之清除。
+- `/detection/range_motion_request` 与 `/detection/inspection_request_goal` 共享 `PerceptionState` 容器但不是同一状态；Server 和回放端必须分别统计、分别过期，且不得因当前 `TaskParams.task_id` 不同而丢弃消息。
+- `TaskParams` 的详情字段以 protobuf optional presence 为准：旧 Server 未发送的单个字段仅显示“该 Server 无此信息”；本地 bag 完全没有相应 topic 则显示“该 bag 无此 Topic”。
 
 ## ChassisStates CDR 兼容
 

@@ -290,6 +290,53 @@ QString topicFreshnessText(const autoviz::model::TopicStatus* status)
                             : QStringLiteral("在线（%1）").arg(age);
 }
 
+QString perceptionTopicText(const autoviz::model::TopicStatus* status,
+                            autoviz::datacenter::VisualizationInputSource source)
+{
+    if (status == nullptr) {
+        return source == autoviz::datacenter::VisualizationInputSource::Ros2Bag
+                   ? QStringLiteral("该 bag 无此 Topic")
+                   : source == autoviz::datacenter::VisualizationInputSource::Remote
+                         ? QStringLiteral("该 Server 无此信息")
+                         : QStringLiteral("--");
+    }
+    if (status->messageCount == 0) return QStringLiteral("等待数据");
+    if (status->timedOut) return QStringLiteral("数据过期");
+    return QStringLiteral("在线（%1）").arg(formatAge(status->ageMs));
+}
+
+QString taskFieldText(const autoviz::model::TaskRuntimeStatus& task,
+                      bool present,
+                      const QString& value)
+{
+    if (!task.valid) return QStringLiteral("--");
+    return present ? value : QStringLiteral("该 Server 无此信息");
+}
+
+QString rangeMotionText(int motion)
+{
+    switch (motion) {
+    case 0: return QStringLiteral("无请求");
+    case 1: return QStringLiteral("正常继续");
+    case 2: return QStringLiteral("减速");
+    case 3: return QStringLiteral("保持/悬停");
+    case 4: return QStringLiteral("上浮");
+    default: return QStringLiteral("未知（%1）").arg(motion);
+    }
+}
+
+QString inspectionModeText(int mode)
+{
+    switch (mode) {
+    case 0: return QStringLiteral("无");
+    case 1: return QStringLiteral("观察");
+    case 2: return QStringLiteral("递进");
+    case 3: return QStringLiteral("返回路径");
+    case 4: return QStringLiteral("取消");
+    default: return QStringLiteral("未知（%1）").arg(mode);
+    }
+}
+
 QString dataSourceText(autoviz::datacenter::VisualizationInputSource inputSource)
 {
     switch (inputSource) {
@@ -938,8 +985,13 @@ QFont overviewValueFont()
     return font;
 }
 
-QString overviewBadgeObjectName(const QString& text)
+QString overviewBadgeObjectName(const QString& key, const QString& text)
 {
+    if (key == QStringLiteral("hardware.bms")) {
+        const bool bmsHealthy = text.startsWith(QStringLiteral("自检 正常 / 告警等级 0 / 告警项 0 /"));
+        return bmsHealthy ? QStringLiteral("status-normal") : QStringLiteral("status-warn");
+    }
+
     const bool hasFault = text.contains(QStringLiteral("故障"))
                           && !text.contains(QStringLiteral("故障 0"))
                           && !text.contains(QStringLiteral("故障项 0"))
@@ -1130,7 +1182,8 @@ void BottomStatusPanel::setupOverviewTab()
                                            {QStringLiteral("path.binding"), tr("任务/路径绑定")},
                                            {QStringLiteral("obstacle.state"), tr("Topic 状态")},
                                            {QStringLiteral("obstacle.count"), tr("障碍物数量")},
-                                           {QStringLiteral("obstacle.age"), tr("Topic 延迟")}}),
+                                           {QStringLiteral("obstacle.age"), tr("Topic 延迟")},
+                                           {QStringLiteral("obstacle.rejection"), tr("目标拒绝原因")}}),
                       1,
                       1);
     m_platformOverviewGroup = createOverviewGroup(tab,
@@ -1178,6 +1231,7 @@ QGroupBox* BottomStatusPanel::createOverviewGroup(QWidget* parent,
         keyLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
 
         auto* valueLabel = new QLabel(QStringLiteral("--"), group);
+        valueLabel->setObjectName(QStringLiteral("detail.%1").arg(field.first));
         valueLabel->setObjectName(QStringLiteral("overview.%1").arg(field.first));
         valueLabel->setFont(overviewValueFont());
         valueLabel->setProperty("class", QVariant(isOverviewBadgeKey(field.first) ? QStringLiteral("status-badge") : QStringLiteral("status-value")));
@@ -1186,7 +1240,9 @@ QGroupBox* BottomStatusPanel::createOverviewGroup(QWidget* parent,
         }
         valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         valueLabel->setTextInteractionFlags(Qt::NoTextInteraction);
-        valueLabel->setWordWrap(field.first == QStringLiteral("hardware.faults"));
+        valueLabel->setWordWrap(field.first == QStringLiteral("hardware.faults")
+                                || field.first == QStringLiteral("hardware.bms")
+                                || field.first == QStringLiteral("obstacle.rejection"));
         valueLabel->setMinimumWidth(scale.scaled(132));
         valueLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         layout->addWidget(keyLabel, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
@@ -1209,7 +1265,7 @@ void BottomStatusPanel::setOverviewValue(const QString& key, const QString& valu
     bool styleChanged = false;
     if (isOverviewBadgeKey(key)) {
         const QString badgeClass = QStringLiteral("status-badge");
-        const QString statusLevel = overviewBadgeObjectName(value);
+        const QString statusLevel = overviewBadgeObjectName(key, value);
         if (label->property("class").toString() != badgeClass) {
             label->setProperty("class", QVariant(badgeClass));
             styleChanged = true;
@@ -1291,6 +1347,7 @@ QGroupBox* BottomStatusPanel::createDetailGroup(QWidget* parent,
         keyLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
 
         auto* valueLabel = new QLabel(QStringLiteral("--"), group);
+        valueLabel->setObjectName(QStringLiteral("detail.%1").arg(field.first));
         valueLabel->setFont(overviewValueFont());
         valueLabel->setProperty("class", QVariant(QStringLiteral("status-value")));
         valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -1353,6 +1410,15 @@ void BottomStatusPanel::setupDetailsTab()
     setupTopicTab();
     setupStateTabs();
     setupControlTimelineTab();
+    // Keep the legacy vertical diagnostics page without breaking the requested
+    // detail-page sequence, which ends with the control timeline.
+    if (m_verticalDetailTab != nullptr) {
+        const int verticalIndex = m_detailTabs->indexOf(m_verticalDetailTab);
+        if (verticalIndex >= 0) {
+            m_detailTabs->removeTab(verticalIndex);
+            m_detailTabs->addTab(m_verticalDetailTab, tr("垂向"));
+        }
+    }
 
     m_tabs->addTab(tab, tr("详细信息"));
 }
@@ -1497,6 +1563,39 @@ void BottomStatusPanel::setupControlTimelineTab()
 
 void BottomStatusPanel::setupStateTabs()
 {
+    createDetailTab(tr("TaskParams"),
+                    {{tr("基础任务"),
+                      {{QStringLiteral("taskparams.state"), tr("数据状态")},
+                       {QStringLiteral("taskparams.time"), tr("更新时间")},
+                       {QStringLiteral("taskparams.topic"), tr("任务参数通道")},
+                       {QStringLiteral("taskparams.type"), tr("任务类型")},
+                       {QStringLiteral("taskparams.id"), tr("任务 ID")},
+                       {QStringLiteral("taskparams.start"), tr("启动请求")},
+                       {QStringLiteral("taskparams.enable"), tr("任务使能")},
+                       {QStringLiteral("taskparams.action_enable"), tr("动作使能")},
+                       {QStringLiteral("taskparams.emergency_stop"), tr("机械急停")},
+                       {QStringLiteral("taskparams.release_emergency_ascent"), tr("紧急上浮解除")},
+                       {QStringLiteral("taskparams.remote_mode"), tr("遥控模式")},
+                       {QStringLiteral("taskparams.power_enable"), tr("配电使能")},
+                       {QStringLiteral("taskparams.buoyancy"), tr("浮力")}}},
+                     {tr("爬行遥控"),
+                      {{QStringLiteral("taskparams.crawl_gear"), tr("档位")},
+                       {QStringLiteral("taskparams.crawl_speed"), tr("速度 (m/s)")},
+                       {QStringLiteral("taskparams.crawl_angular"), tr("角速度 (°/s)")}}},
+                     {tr("航行遥控"),
+                      {{QStringLiteral("taskparams.forward"), tr("前进百分比")},
+                       {QStringLiteral("taskparams.turn"), tr("转向百分比")},
+                       {QStringLiteral("taskparams.dive"), tr("下潜百分比")}}},
+                     {tr("推进器调试"),
+                      {{QStringLiteral("taskparams.tail_left"), tr("左尾推")},
+                       {QStringLiteral("taskparams.tail_right"), tr("右尾推")},
+                       {QStringLiteral("taskparams.vertical_left"), tr("左前垂推")},
+                       {QStringLiteral("taskparams.vertical_right"), tr("右前垂推")},
+                       {QStringLiteral("taskparams.vertical_back"), tr("后垂推")}}},
+                     {tr("配电通路"),
+                      {{QStringLiteral("taskparams.power_channels"), tr("1 至 16 路指令")}}}},
+                    2);
+
     createDetailTab(tr("定位"),
                     {{tr("基础状态"),
                       {{QStringLiteral("loc.state"), tr("数据状态")},
@@ -1601,6 +1700,8 @@ void BottomStatusPanel::setupStateTabs()
                       {{QStringLiteral("path.endpoint_note"), tr("终点说明")},
                        {QStringLiteral("path.endpoint_xy"), tr("终点 X/Y")}}}});
 
+    setupPerceptionTab();
+
     createDetailTab(tr("Action 信息"),
                     {{tr("当前 Action（公开聚合状态）"),
                       {{QStringLiteral("action_detail.current_type"), tr("Action 类型")},
@@ -1653,20 +1754,7 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("action.target_attitude"), tr("目标航向/角速度 (°, °/s)")},
                        {QStringLiteral("action.target_vertical"), tr("目标深度/高度")},
                        {QStringLiteral("action.buoyancy"), tr("浮力调节步长")},
-                       {QStringLiteral("action.emergency_ascent"), tr("紧急上浮状态")}}},
-                     {tr("任务参数"),
-                      {{QStringLiteral("task.state"), tr("任务数据状态")},
-                       {QStringLiteral("task.type_id"), tr("任务类型/ID")},
-                       {QStringLiteral("task.enable_estop"), tr("启动请求/急停/动作使能")},
-                       {QStringLiteral("task.buoyancy"), tr("任务浮力指令")},
-                       {QStringLiteral("task.remote_power"), tr("遥控模式/电源使能")},
-                       {QStringLiteral("task.release_emergency_ascent"), tr("紧急上浮解除按钮")}}},
-                     {tr("遥控指令"),
-                      {{QStringLiteral("task.remote.crawl"), tr("爬行档位/速度/角速度")},
-                       {QStringLiteral("task.remote.sailing"), tr("航行前进/转向/下潜百分比")},
-                       {QStringLiteral("task.remote.tail"), tr("尾推 L/R")},
-                       {QStringLiteral("task.remote.vertical"), tr("垂推 L/R/B")},
-                       {QStringLiteral("task.remote.power"), tr("配电通路 1-16 指令")}}}});
+                       {QStringLiteral("action.emergency_ascent"), tr("紧急上浮状态")}}}});
 
     m_verticalDetailTab = createDetailTab(tr("垂向"),
                     {{tr("垂向反馈"),
@@ -1678,6 +1766,108 @@ void BottomStatusPanel::setupStateTabs()
                       {{QStringLiteral("vertical.tank_level"), tr("水箱液位状态")},
                        {QStringLiteral("vertical.tank_state"), tr("压载水箱状态")},
                        {QStringLiteral("vertical.buoyancy"), tr("浮力调节步长")}}}});
+}
+
+void BottomStatusPanel::setupPerceptionTab()
+{
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    auto* scrollArea = new QScrollArea(m_detailTabs);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    auto* content = new QWidget(scrollArea);
+    auto* layout = new QGridLayout(content);
+    layout->setContentsMargins(scale.marginNormal(), scale.marginNormal(),
+                               scale.marginNormal(), scale.marginNormal());
+    layout->setHorizontalSpacing(scale.spacingNormal());
+    layout->setVerticalSpacing(scale.spacingNormal());
+
+    const auto rangeFields = QVector<QPair<QString, QString>>{
+        {QStringLiteral("perception.range.topic"), tr("Topic 状态")},
+        {QStringLiteral("perception.range.time"), tr("更新时间")},
+        {QStringLiteral("perception.range.task_id"), tr("任务 ID")},
+        {QStringLiteral("perception.range.sequence"), tr("命令序号")},
+        {QStringLiteral("perception.range.motion"), tr("动作")},
+        {QStringLiteral("perception.range.speed"), tr("限速 (m/s)")},
+        {QStringLiteral("perception.range.reason"), tr("原因")}};
+    const auto inspectionFields = QVector<QPair<QString, QString>>{
+        {QStringLiteral("perception.inspection.topic"), tr("Topic 状态")},
+        {QStringLiteral("perception.inspection.time"), tr("更新时间")},
+        {QStringLiteral("perception.inspection.ids"), tr("任务 / Goal / 目标 ID")},
+        {QStringLiteral("perception.inspection.mode"), tr("模式")},
+        {QStringLiteral("perception.inspection.target"), tr("目标点 X/Y/Z (m)")},
+        {QStringLiteral("perception.inspection.observation"), tr("观察点 X/Y/Z (m)")},
+        {QStringLiteral("perception.inspection.heading"), tr("目标航向")},
+        {QStringLiteral("perception.inspection.hold"), tr("到点保持")},
+        {QStringLiteral("perception.inspection.speed"), tr("限速 (m/s)")}};
+    const auto finalFields = QVector<QPair<QString, QString>>{
+        {QStringLiteral("perception.final.topic"), tr("Topic 状态")},
+        {QStringLiteral("perception.final.time"), tr("更新时间")},
+        {QStringLiteral("perception.final.task_id"), tr("任务 ID")},
+        {QStringLiteral("perception.final.count"), tr("目标数量")},
+        {QStringLiteral("perception.final.rejection"), tr("拒绝原因")}};
+    layout->addWidget(createDetailGroup(content, tr("测距运动请求"), rangeFields), 0, 0);
+    layout->addWidget(createDetailGroup(content, tr("观察目标请求"), inspectionFields), 0, 1);
+
+    auto* finalGroup = new QGroupBox(tr("最终融合目标"), content);
+    auto* finalLayout = new QVBoxLayout(finalGroup);
+    finalLayout->setContentsMargins(scale.scaled(12), scale.scaled(8),
+                                    scale.scaled(12), scale.scaled(8));
+    finalLayout->setSpacing(scale.spacingNormal());
+    auto* finalMetadata = new QWidget(finalGroup);
+    auto* finalMetadataLayout = new QGridLayout(finalMetadata);
+    finalMetadataLayout->setContentsMargins(0, 0, 0, 0);
+    finalMetadataLayout->setHorizontalSpacing(scale.spacingNormal());
+    finalMetadataLayout->setVerticalSpacing(scale.scaled(4));
+    for (int index = 0; index < finalFields.size(); ++index) {
+        const auto& field = finalFields.at(index);
+        auto* keyLabel = new QLabel(field.second, finalMetadata);
+        keyLabel->setFont(scale.font(scale.fontSizeNormal()));
+        keyLabel->setProperty("class", QVariant(QStringLiteral("status-key")));
+        auto* valueLabel = new QLabel(QStringLiteral("--"), finalMetadata);
+        valueLabel->setObjectName(QStringLiteral("detail.%1").arg(field.first));
+        valueLabel->setFont(overviewValueFont());
+        valueLabel->setProperty("class", QVariant(QStringLiteral("status-value")));
+        valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        valueLabel->setWordWrap(field.first == QStringLiteral("perception.final.rejection"));
+        m_detailValues.insert(field.first, valueLabel);
+        finalMetadataLayout->addWidget(keyLabel, index, 0);
+        finalMetadataLayout->addWidget(valueLabel, index, 1);
+    }
+    finalMetadataLayout->setColumnStretch(1, 1);
+    finalLayout->addWidget(finalMetadata);
+
+    m_finalTargetTable = new QTableWidget(finalGroup);
+    m_finalTargetTable->setObjectName(QStringLiteral("finalTargetTable"));
+    m_finalTargetTable->setFont(scale.font(scale.fontSizeSmall()));
+    m_finalTargetTable->setColumnCount(15);
+    m_finalTargetTable->setHorizontalHeaderLabels({tr("ID"), tr("类别"), tr("中心 X"), tr("中心 Y"),
+                                                    tr("中心 Z"), tr("经度"), tr("纬度"), tr("深度"),
+                                                    tr("高度"), tr("L"), tr("W"), tr("H"), tr("朝向"),
+                                                    tr("几何有效性"), tr("更新时间")});
+    m_finalTargetTable->verticalHeader()->setVisible(false);
+    m_finalTargetTable->setShowGrid(false);
+    m_finalTargetTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_finalTargetTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_finalTargetTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_finalTargetTable->setWordWrap(false);
+    m_finalTargetTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_finalTargetTable->horizontalHeader()->setHighlightSections(false);
+    m_finalTargetTable->verticalHeader()->setDefaultSectionSize(scale.scaled(30));
+    for (int column = 0; column < m_finalTargetTable->columnCount(); ++column) {
+        m_finalTargetTable->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    }
+    m_finalTargetTable->setMinimumHeight(scale.scaled(220));
+    finalLayout->addWidget(m_finalTargetTable);
+    layout->addWidget(finalGroup, 1, 0, 1, 2);
+    layout->setColumnStretch(0, 1);
+    layout->setColumnStretch(1, 1);
+    layout->setRowStretch(2, 1);
+
+    scrollArea->setWidget(content);
+    m_detailTabs->addTab(scrollArea, tr("感知信息"));
 }
 
 void BottomStatusPanel::updateOverview(
@@ -1770,8 +1960,13 @@ void BottomStatusPanel::updateOverview(
     setOverviewValue(QStringLiteral("path.local"), pathStatusText(localPath));
     setOverviewValue(QStringLiteral("path.binding"), pathBindingText(localPath, action));
     setOverviewValue(QStringLiteral("obstacle.count"), obstacleTopic != nullptr && obstacleTopic->messageCount > 0 ? QString::number(snapshot.obstacles.size()) : QStringLiteral("--"));
-    setOverviewValue(QStringLiteral("obstacle.state"), topicStateText(obstacleTopic));
+    setOverviewValue(QStringLiteral("obstacle.state"), snapshot.obstacleRejectionReason.isEmpty()
+                                                       ? topicStateText(obstacleTopic)
+                                                       : tr("已拒绝"));
     setOverviewValue(QStringLiteral("obstacle.age"), obstacleTopic != nullptr ? formatAge(obstacleTopic->ageMs) : QStringLiteral("--"));
+    setOverviewValue(QStringLiteral("obstacle.rejection"), snapshot.obstacleRejectionReason.isEmpty()
+                                                           ? QStringLiteral("--")
+                                                           : snapshot.obstacleRejectionReason);
 }
 
 void BottomStatusPanel::updateTopicTable(const autoviz::datacenter::VisualizationSnapshot& snapshot)
@@ -1812,6 +2007,48 @@ void BottomStatusPanel::updateTopicTable(const autoviz::datacenter::Visualizatio
 
 void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::VisualizationSnapshot& snapshot)
 {
+    const auto& task = snapshot.taskRuntimeStatus;
+    const auto* taskTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::TaskState);
+    setDetailValue(QStringLiteral("taskparams.state"), perceptionTopicText(taskTopic, snapshot.runtimeStatus.inputSource));
+    setDetailValue(QStringLiteral("taskparams.time"), task.valid ? formatTime(task.timestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("taskparams.topic"), perceptionTopicText(taskTopic, snapshot.runtimeStatus.inputSource));
+    setDetailValue(QStringLiteral("taskparams.type"), taskFieldText(task, task.hasTaskType, taskTypeText(true, task.taskType)));
+    setDetailValue(QStringLiteral("taskparams.id"), taskFieldText(task, task.hasTaskId, QString::number(task.taskId)));
+    setDetailValue(QStringLiteral("taskparams.start"), taskFieldText(task, task.hasTaskStartRequested, displayBool(true, task.taskStartRequested)));
+    setDetailValue(QStringLiteral("taskparams.enable"), taskFieldText(task, task.hasTaskEnable, displayBool(true, task.taskEnable)));
+    setDetailValue(QStringLiteral("taskparams.action_enable"), taskFieldText(task, task.hasActionEnabled, displayBool(true, task.actionEnabled)));
+    setDetailValue(QStringLiteral("taskparams.emergency_stop"), taskFieldText(task, task.hasEmergencyStop, displayBool(true, task.emergencyStop)));
+    setDetailValue(QStringLiteral("taskparams.release_emergency_ascent"), taskFieldText(task, task.hasReleaseEmergencyAscent, displayBool(true, task.releaseEmergencyAscent)));
+    setDetailValue(QStringLiteral("taskparams.remote_mode"), taskFieldText(task, task.hasRemoteMode, QString::number(task.remoteMode)));
+    setDetailValue(QStringLiteral("taskparams.power_enable"), taskFieldText(task, task.hasPowerEnable, displayBool(true, task.powerEnable != 0)));
+    setDetailValue(QStringLiteral("taskparams.buoyancy"), taskFieldText(task, task.hasBuoyancyAdjust, buoyancyCommandText(true, task.buoyancyAdjust)));
+    setDetailValue(QStringLiteral("taskparams.crawl_gear"), taskFieldText(task, task.hasCrawlGear, gearText(true, task.crawlGear)));
+    setDetailValue(QStringLiteral("taskparams.crawl_speed"), taskFieldText(task, task.hasCrawlSpeed, formatNumber(task.crawlSpeed)));
+    setDetailValue(QStringLiteral("taskparams.crawl_angular"), taskFieldText(task, task.hasCrawlAngularVelocity, formatAngularVelocityDegrees(task.crawlAngularVelocity)));
+    setDetailValue(QStringLiteral("taskparams.forward"), taskFieldText(task, task.hasForwardPercent, QStringLiteral("%1%").arg(task.forwardPercent)));
+    setDetailValue(QStringLiteral("taskparams.turn"), taskFieldText(task, task.hasTurnPercent, QStringLiteral("%1%").arg(task.turnPercent)));
+    setDetailValue(QStringLiteral("taskparams.dive"), taskFieldText(task, task.hasDivePercent, QStringLiteral("%1%").arg(task.divePercent)));
+    setDetailValue(QStringLiteral("taskparams.tail_left"), taskFieldText(task, task.hasLeftTailActuatorSpeed, QString::number(task.leftTailActuatorSpeed)));
+    setDetailValue(QStringLiteral("taskparams.tail_right"), taskFieldText(task, task.hasRightTailActuatorSpeed, QString::number(task.rightTailActuatorSpeed)));
+    setDetailValue(QStringLiteral("taskparams.vertical_left"), taskFieldText(task, task.hasLeftVerticalActuatorSpeed, QString::number(task.leftVerticalActuatorSpeed)));
+    setDetailValue(QStringLiteral("taskparams.vertical_right"), taskFieldText(task, task.hasRightVerticalActuatorSpeed, QString::number(task.rightVerticalActuatorSpeed)));
+    setDetailValue(QStringLiteral("taskparams.vertical_back"), taskFieldText(task, task.hasBackVerticalActuatorSpeed, QString::number(task.backVerticalActuatorSpeed)));
+    QString powerCommands;
+    if (!task.valid) {
+        powerCommands = QStringLiteral("--");
+    } else if (!task.hasRemoteControl) {
+        powerCommands = QStringLiteral("该 Server 无此信息");
+    } else if (task.powerSupplyCommands.isEmpty()) {
+        powerCommands = QStringLiteral("该 Server 无此信息");
+    } else {
+        QStringList values;
+        for (int index = 0; index < task.powerSupplyCommands.size(); ++index) {
+            values << QStringLiteral("%1:%2").arg(index + 1).arg(task.powerSupplyCommands.at(index) ? tr("开") : tr("关"));
+        }
+        powerCommands = values.join(QStringLiteral("  "));
+    }
+    setDetailValue(QStringLiteral("taskparams.power_channels"), powerCommands);
+
     const auto& loc = snapshot.localizationStatus;
     setDetailValue(QStringLiteral("loc.state"), validText(loc.valid));
     setDetailValue(QStringLiteral("loc.time"), formatTime(loc.timestampMs));
@@ -1949,8 +2186,62 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("path.endpoint_note"), endpoint.valid ? endpoint.label : QStringLiteral("--"));
     setDetailValue(QStringLiteral("path.endpoint_xy"), endpoint.valid ? QStringLiteral("%1 / %2").arg(formatNumber(endpoint.x), formatNumber(endpoint.y)) : QStringLiteral("--"));
 
+    const auto* rangeTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::RangeMotionDirective);
+    const auto* inspectionTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::InspectionGoal);
+    const auto* finalTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::Obstacles);
+    const auto& range = snapshot.rangeMotionRuntimeStatus;
+    const auto& inspection = snapshot.inspectionGoalRuntimeStatus;
+    const auto& finalTargets = snapshot.finalTargetSetRuntimeStatus;
+    setDetailValue(QStringLiteral("perception.range.topic"), perceptionTopicText(rangeTopic, snapshot.runtimeStatus.inputSource));
+    setDetailValue(QStringLiteral("perception.range.time"), range.valid ? formatTime(range.timestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.range.task_id"), range.valid && range.hasTaskId ? QString::number(range.taskId) : range.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.range.sequence"), range.valid && range.hasCommandSequence ? QString::number(range.commandSequence) : range.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.range.motion"), range.valid && range.hasMotion ? rangeMotionText(range.motion) : range.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.range.speed"), range.valid && range.hasSpeedLimit ? formatNumber(range.speedLimitMps) : range.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.range.reason"), range.valid && range.hasReason ? range.reason : range.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.topic"), perceptionTopicText(inspectionTopic, snapshot.runtimeStatus.inputSource));
+    setDetailValue(QStringLiteral("perception.inspection.time"), inspection.valid ? formatTime(inspection.timestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.ids"), inspection.valid && inspection.hasTaskId && inspection.hasGoalId && inspection.hasTargetId ? QStringLiteral("%1 / %2 / %3").arg(inspection.taskId).arg(inspection.goalId).arg(inspection.targetId) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.mode"), inspection.valid && inspection.hasMode ? inspectionModeText(inspection.mode) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.target"), inspection.valid && inspection.hasTargetPosition ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(inspection.targetPosition.x), formatNumber(inspection.targetPosition.y), formatNumber(inspection.targetPosition.z)) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.observation"), inspection.valid && inspection.hasObservationPosition ? QStringLiteral("%1 / %2 / %3").arg(formatNumber(inspection.observationPosition.x), formatNumber(inspection.observationPosition.y), formatNumber(inspection.observationPosition.z)) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.heading"), inspection.valid && inspection.hasHeading ? formatAngleDegrees(inspection.headingRad) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.hold"), inspection.valid && inspection.hasHoldOnArrival ? displayBool(true, inspection.holdOnArrival) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.inspection.speed"), inspection.valid && inspection.hasSpeedLimit ? formatNumber(inspection.speedLimitMps) : inspection.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.final.topic"), perceptionTopicText(finalTopic, snapshot.runtimeStatus.inputSource));
+    setDetailValue(QStringLiteral("perception.final.time"), finalTargets.valid ? formatTime(finalTargets.timestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.final.task_id"), finalTargets.valid && finalTargets.hasTaskId ? QString::number(finalTargets.taskId) : finalTargets.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.final.count"), finalTargets.valid ? QString::number(finalTargets.targetCount) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.final.rejection"), finalTargets.valid ? (finalTargets.rejectionReason.isEmpty() ? QStringLiteral("--") : finalTargets.rejectionReason) : QStringLiteral("--"));
+    if (m_finalTargetTable != nullptr) {
+        m_finalTargetTable->setRowCount(snapshot.obstacles.size());
+        for (int row = 0; row < snapshot.obstacles.size(); ++row) {
+            const auto& target = snapshot.obstacles.at(row);
+            const bool centerValid = std::isfinite(target.position.position.x)
+                                     && std::isfinite(target.position.position.y);
+            const QString geometry = QStringLiteral("位置 %1 / 尺寸 %2 / 朝向 %3")
+                                         .arg(centerValid ? tr("有效") : tr("无效"))
+                                         .arg(target.dimensionsValid ? tr("有效") : tr("无效"))
+                                         .arg(target.headingValid ? tr("有效") : tr("未知"));
+            const QStringList values = {QString::number(target.id),
+                                        target.classLabel.isEmpty() ? autoviz::model::toDisplayString(target.type) : target.classLabel,
+                                        formatNumber(target.position.position.x), formatNumber(target.position.position.y), formatNumber(target.position.z),
+                                        target.geodeticValid ? formatNumber(target.longitude, 6) : QStringLiteral("--"),
+                                        target.geodeticValid ? formatNumber(target.latitude, 6) : QStringLiteral("--"),
+                                        target.geodeticValid ? formatNumber(target.depth) : QStringLiteral("--"),
+                                        target.geodeticValid ? formatNumber(target.heightAboveBottom) : QStringLiteral("--"),
+                                        target.dimensionsValid ? formatNumber(target.length) : QStringLiteral("--"),
+                                        target.dimensionsValid ? formatNumber(target.width) : QStringLiteral("--"),
+                                        target.dimensionsValid ? formatNumber(target.height) : QStringLiteral("--"),
+                                        target.headingValid ? formatAngleDegrees(target.position.theta) : QStringLiteral("--"),
+                                        geometry, formatTime(target.header.timestamp)};
+            for (int column = 0; column < values.size(); ++column) {
+                m_finalTargetTable->setItem(row, column, makeAlignedItem(values.at(column), Qt::AlignCenter));
+            }
+        }
+    }
+
     const auto& action = snapshot.actionRuntimeStatus;
-    const auto& task = snapshot.taskRuntimeStatus;
     setDetailValue(QStringLiteral("action.source"), tr("action_state + task_state"));
     setDetailValue(QStringLiteral("action.mode"), autoviz::model::toDisplayString(snapshot.runVisualizationMode));
     setDetailValue(QStringLiteral("action.state"), validText(action.valid));

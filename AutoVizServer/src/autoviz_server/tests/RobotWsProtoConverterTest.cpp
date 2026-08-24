@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <cmath>
+#include <limits>
+#include <thread>
 #include <vector>
 
 #include "autoviz_server/RobotWsProtoConverter.h"
@@ -89,6 +91,101 @@ TEST(RobotWsProtoConverterTest, ConvertsFinalTargetsIncludingPointTargets)
     EXPECT_DOUBLE_EQ(actual.obstacle(0).length_m(), 3.0);
     EXPECT_TRUE(actual.obstacle(0).has_heading_rad());
     EXPECT_FALSE(actual.obstacle(1).dimensions_valid());
+}
+
+TEST(RobotWsProtoConverterTest, NormalizesFinalTargetGeometryValidity)
+{
+    custom_msgs::msg::FinalTargetArray source;
+    source.targets.resize(1);
+    auto& target = source.targets.front();
+    target.real_center_point.x = 1.0;
+    target.real_center_point.y = 2.0;
+    target.length = 3.0;
+    target.width = 4.0;
+    target.dimensions_valid = true;
+    target.heading_valid = false;
+
+    auto actual = autoviz_server::RobotWsProtoConverter::obstacles(source, kReceiveTimeNs);
+    ASSERT_EQ(actual.obstacle_size(), 1);
+    EXPECT_TRUE(actual.obstacle(0).dimensions_valid());
+    EXPECT_FALSE(actual.obstacle(0).heading_valid());
+    EXPECT_FALSE(actual.obstacle(0).has_heading_rad());
+
+    target.length = -3.0;
+    actual = autoviz_server::RobotWsProtoConverter::obstacles(source, kReceiveTimeNs);
+    ASSERT_EQ(actual.obstacle_size(), 1);
+    EXPECT_FALSE(actual.obstacle(0).dimensions_valid());
+    EXPECT_FALSE(actual.obstacle(0).heading_valid());
+    EXPECT_FALSE(actual.obstacle(0).has_length_m());
+
+    target.real_center_point.x = std::numeric_limits<double>::quiet_NaN();
+    actual = autoviz_server::RobotWsProtoConverter::obstacles(source, kReceiveTimeNs);
+    EXPECT_EQ(actual.obstacle_size(), 0);
+    EXPECT_EQ(actual.rejection_reason(),
+              "obstacle set rejected: non-finite planar center (target_id=0)");
+}
+
+TEST(RobotWsProtoConverterTest, ConvertsPerceptionRequests)
+{
+    custom_msgs::msg::RangeMotionRequest rangeSource;
+    rangeSource.header.frame_id = "odom";
+    rangeSource.header.stamp.sec = 7;
+    rangeSource.header.stamp.nanosec = 25;
+    rangeSource.task_id = 8;
+    rangeSource.command_seq = 11;
+    rangeSource.motion = rangeSource.MOTION_SLOW;
+    rangeSource.speed_limit_mps = 0.35F;
+    rangeSource.reason = "range limit";
+    const auto range = autoviz_server::RobotWsProtoConverter::rangeMotionDirective(
+        rangeSource, kReceiveTimeNs);
+    EXPECT_EQ(range.header().source_time_ns(), 7000000025ULL);
+    EXPECT_EQ(range.header().server_receive_time_ns(), kReceiveTimeNs);
+    EXPECT_EQ(range.header().frame_id(), "odom");
+    EXPECT_EQ(range.task_id(), 8U);
+    EXPECT_EQ(range.command_sequence(), 11U);
+    EXPECT_EQ(range.motion(), autoviz::RangeMotionDirective::MOTION_SLOW);
+    EXPECT_NEAR(range.speed_limit_mps(), 0.35, 1.0e-6);
+    EXPECT_EQ(range.reason(), "range limit");
+
+    custom_msgs::msg::InspectionRequestGoal inspectionSource;
+    inspectionSource.header.frame_id = "odom";
+    inspectionSource.task_id = 9;
+    inspectionSource.goal_id = 12;
+    inspectionSource.target_id = 42;
+    inspectionSource.target_point.x = 1.0;
+    inspectionSource.target_point.y = 2.0;
+    inspectionSource.target_point.z = -3.0;
+    inspectionSource.goal_point.x = 4.0;
+    inspectionSource.goal_point.y = 5.0;
+    inspectionSource.goal_point.z = -1.0;
+    inspectionSource.goal_heading = 1.25;
+    inspectionSource.hold_on_arrival = true;
+    inspectionSource.mode = inspectionSource.MODE_OBSERVE;
+    inspectionSource.speed_limit = 0.4F;
+    const auto inspection = autoviz_server::RobotWsProtoConverter::inspectionGoal(
+        inspectionSource, kReceiveTimeNs);
+    EXPECT_EQ(inspection.header().source_time_ns(), kReceiveTimeNs);
+    EXPECT_EQ(inspection.task_id(), 9U);
+    EXPECT_EQ(inspection.goal_id(), 12U);
+    EXPECT_EQ(inspection.target_id(), 42U);
+    EXPECT_DOUBLE_EQ(inspection.target_position().z_m(), -3.0);
+    EXPECT_DOUBLE_EQ(inspection.observation_position().z_m(), -1.0);
+    EXPECT_DOUBLE_EQ(inspection.target_heading_rad(), 1.25);
+    EXPECT_TRUE(inspection.hold_on_arrival());
+    EXPECT_EQ(inspection.mode(), autoviz::InspectionGoal::MODE_OBSERVE);
+    EXPECT_NEAR(inspection.speed_limit_mps(), 0.4, 1.0e-6);
+
+    rangeSource.speed_limit_mps = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_TRUE(std::isnan(
+        autoviz_server::RobotWsProtoConverter::rangeMotionDirective(
+            rangeSource, kReceiveTimeNs).speed_limit_mps()));
+
+    inspectionSource.goal_heading = std::numeric_limits<double>::quiet_NaN();
+    inspectionSource.speed_limit = std::numeric_limits<float>::infinity();
+    const auto nonFiniteInspection = autoviz_server::RobotWsProtoConverter::inspectionGoal(
+        inspectionSource, kReceiveTimeNs);
+    EXPECT_TRUE(std::isnan(nonFiniteInspection.target_heading_rad()));
+    EXPECT_TRUE(std::isinf(nonFiniteInspection.speed_limit_mps()));
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsCommonAndUnderwaterControlCommand)
@@ -444,6 +541,32 @@ TEST(SnapshotStoreTest, ExpiresActionCurrentStateButRetainsAuditEvent)
     EXPECT_EQ(snapshot.control_state_event(0).header().sequence(), 1U);
     ASSERT_EQ(snapshot.runtime_state().topic_size(), 1);
     EXPECT_TRUE(snapshot.runtime_state().topic(0).timed_out());
+}
+
+TEST(SnapshotStoreTest, ExpiresPerceptionRequestsIndependently)
+{
+    autoviz_server::SnapshotStore store({
+        {"/detection/range_motion_request", "custom_msgs/msg/RangeMotionRequest",
+         autoviz::DATA_KIND_RANGE_MOTION_DIRECTIVE},
+        {"/detection/inspection_request_goal", "custom_msgs/msg/InspectionRequestGoal",
+         autoviz::DATA_KIND_INSPECTION_GOAL}});
+    autoviz::RangeMotionDirective range;
+    range.set_task_id(8);
+    store.updateRangeMotionDirective(range, kReceiveTimeNs);
+    std::this_thread::sleep_for(std::chrono::milliseconds(70));
+    autoviz::InspectionGoal inspection;
+    inspection.set_task_id(9);
+    store.updateInspectionGoal(inspection, kReceiveTimeNs + 1);
+
+    store.expire(std::chrono::steady_clock::now(), std::chrono::milliseconds(50));
+    const auto snapshot = store.buildSnapshot(kReceiveTimeNs + 2, 0);
+    ASSERT_TRUE(snapshot.has_perception_state());
+    EXPECT_FALSE(snapshot.perception_state().has_range_motion_directive());
+    EXPECT_TRUE(snapshot.perception_state().has_inspection_goal());
+    EXPECT_EQ(snapshot.perception_state().inspection_goal().task_id(), 9U);
+    ASSERT_EQ(snapshot.runtime_state().topic_size(), 2);
+    EXPECT_TRUE(snapshot.runtime_state().topic(0).timed_out());
+    EXPECT_FALSE(snapshot.runtime_state().topic(1).timed_out());
 }
 
 TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)

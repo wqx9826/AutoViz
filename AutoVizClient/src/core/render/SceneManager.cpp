@@ -676,6 +676,18 @@ void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
             includeVisibleContentBounds(marker->sceneBoundingRect());
             continue;
         }
+        if (obstacle.shape == autoviz::model::ObstacleShapeType::Circle) {
+            const double radius = 0.5 * std::hypot(obstacle.length, obstacle.width);
+            auto* marker = m_scene->addEllipse(x - radius, y - radius, 2.0 * radius, 2.0 * radius,
+                                               QPen(QColor("#ef476f"), 0.0),
+                                               QBrush(QColor(239, 71, 111, 90)));
+            marker->setToolTip(QStringLiteral("%1\nid=%2 class=%3\n尺寸有效，朝向未知")
+                                   .arg(obstacle.sourceTopic.isEmpty() ? QStringLiteral("obstacle") : obstacle.sourceTopic)
+                                   .arg(obstacle.id)
+                                   .arg(obstacle.classLabel.isEmpty() ? QString::number(obstacle.sourceClass) : obstacle.classLabel));
+            includeVisibleContentBounds(marker->sceneBoundingRect());
+            continue;
+        }
         auto* rect = m_scene->addRect(x - obstacle.length * 0.5,
                                       y - obstacle.width * 0.5,
                                       obstacle.length,
