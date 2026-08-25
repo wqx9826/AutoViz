@@ -273,12 +273,11 @@ private:
                                          &error,
                                          &m_actionDiagnostics);
     }
-    void stampSequence(const QString& topic, quint64 sequence, int firstEvent)
+    void stampSequence(const QString& topic, quint64 sequence)
     {
         if(topic=="/chassis_command"&&m_snapshot.has_control_command())m_snapshot.mutable_control_command()->mutable_header()->set_sequence(sequence);
         else if(topic=="/chassis_states"&&m_snapshot.has_chassis_state())m_snapshot.mutable_chassis_state()->mutable_header()->set_sequence(sequence);
         else if(topic=="/system_run_states"&&m_snapshot.has_action_state())m_snapshot.mutable_action_state()->mutable_header()->set_sequence(sequence);
-        for(int index=firstEvent;index<m_snapshot.control_state_event_size();++index)m_snapshot.mutable_control_state_event(index)->mutable_header()->set_sequence(sequence);
     }
     bool applyMessage(const PendingMessage& message, quint64 sequence)
     {
@@ -288,9 +287,8 @@ private:
             if(globalPath)m_snapshot.clear_global_trajectory();else m_snapshot.clear_local_trajectory();
             return true;
         }
-        const int firstEvent=m_snapshot.control_state_event_size();
         if(!decodeMessage(message))return false;
-        stampSequence(message.topic,sequence,firstEvent);
+        stampSequence(message.topic,sequence);
         if(message.topic==QStringLiteral("/chassis_command")&&m_snapshot.has_control_command()){
             const bool center=m_snapshot.control_command().maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
             if(center&&!m_centerTurnActive){m_snapshot.clear_global_trajectory();m_snapshot.clear_local_trajectory();}

@@ -115,9 +115,10 @@ protobuf 传递依赖和不同构建类型都需要在 Client/Server 重复处�
 - UI 行为依赖的字段使用显式 typed 字段；DiagnosticMetric 只承载扩展诊断。
 - 不兼容语义、单位或坐标变化提升握手的 protocol major。
 
-当前版本为 2.5。2.5 在 `VisualizationSnapshot` 新增 optional `perception_state=22`，其中的
-`RangeMotionDirective` 与 `InspectionGoal` 分别独立可选，旧快照缺失该字段保持兼容。它们的
-来源健康状态为 `DataKind` 12/13。Envelope 只包含 ClientHello、ServerHello、
+当前版本为 2.6。2.5 在 `VisualizationSnapshot` 新增 optional `perception_state=22`，其中的
+`RangeMotionDirective` 与 `InspectionGoal` 分别独立可选，旧快照缺失该字段保持兼容。2.6
+废弃了重复推导的控制状态事件和不具备独立来源的任务启动脉冲，其 field number 均已 reserved。
+它们的来源健康状态为 `DataKind` 12/13。Envelope 只包含 ClientHello、ServerHello、
 VisualizationSnapshot、Heartbeat 和 ProtocolError；v1 的订阅与增量 field number 已保留但不再使用。
 
 FrameCodec 的发送和接收 API 对称且显式返回错误：

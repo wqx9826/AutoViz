@@ -45,6 +45,8 @@ TEST(RobotWsProtoConverterTest, ConvertsLocationAndKeepsVerticalQuantitiesDistin
 
     const auto actual = autoviz_server::RobotWsProtoConverter::vehicleState(
         source, kReceiveTimeNs);
+    EXPECT_FALSE(actual.header().has_source_time_ns());
+    EXPECT_EQ(actual.header().server_receive_time_ns(), kReceiveTimeNs);
     EXPECT_DOUBLE_EQ(actual.position().x_m(), 1.25);
     EXPECT_DOUBLE_EQ(actual.position().z_m(), 3.75);
     EXPECT_DOUBLE_EQ(actual.underwater().odom_z_m(), 3.75);
@@ -432,6 +434,8 @@ TEST(RobotWsProtoConverterTest, ConvertsTaskIncludingEmergencyRelease)
 
     const auto actual = autoviz_server::RobotWsProtoConverter::taskState(
         source, kReceiveTimeNs);
+    EXPECT_FALSE(actual.header().has_source_time_ns());
+    EXPECT_EQ(actual.header().server_receive_time_ns(), kReceiveTimeNs);
     EXPECT_EQ(actual.task_id(), 8);
     EXPECT_TRUE(actual.emergency_stop());
     EXPECT_TRUE(actual.underwater().release_emergency_ascent());
@@ -520,7 +524,7 @@ TEST(SnapshotStoreTest, TracksTopicsAndClearsTimedOutSnapshotFields)
     EXPECT_EQ(after.runtime_state().topic(0).timeout_ns(), 5000000000ULL);
 }
 
-TEST(SnapshotStoreTest, ExpiresActionCurrentStateButRetainsAuditEvent)
+TEST(SnapshotStoreTest, ExpiresActionCurrentState)
 {
     autoviz_server::SnapshotStore store({
         {"/system_run_states", "custom_msgs/msg/SystemRunStates", autoviz::DATA_KIND_ACTION_STATE}});
@@ -536,9 +540,6 @@ TEST(SnapshotStoreTest, ExpiresActionCurrentStateButRetainsAuditEvent)
     const auto snapshot = store.buildSnapshot(kReceiveTimeNs, 0);
 
     EXPECT_FALSE(snapshot.has_action_state());
-    ASSERT_EQ(snapshot.control_state_event_size(), 1);
-    EXPECT_EQ(snapshot.control_state_event(0).goal_id(), "vertical-goal");
-    EXPECT_EQ(snapshot.control_state_event(0).header().sequence(), 1U);
     ASSERT_EQ(snapshot.runtime_state().topic_size(), 1);
     EXPECT_TRUE(snapshot.runtime_state().topic(0).timed_out());
 }
@@ -569,7 +570,7 @@ TEST(SnapshotStoreTest, ExpiresPerceptionRequestsIndependently)
     EXPECT_FALSE(snapshot.runtime_state().topic(1).timed_out());
 }
 
-TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)
+TEST(SnapshotStoreTest, RecordsCurrentCommandAndChassisState)
 {
     autoviz_server::SnapshotStore store({
         {"/system_run_states", "custom_msgs/msg/SystemRunStates", autoviz::DATA_KIND_ACTION_STATE},
@@ -583,11 +584,6 @@ TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)
     store.updateControlCommand(command, kReceiveTimeNs + 2);
     const auto snapshot = store.buildSnapshot(kReceiveTimeNs + 2, 0);
     ASSERT_EQ(snapshot.control_command().header().sequence(), 2U);
-    ASSERT_EQ(snapshot.control_state_event_size(), 3);
-    EXPECT_EQ(snapshot.control_state_event(2).goal_id(), "goal-6");
-    EXPECT_EQ(snapshot.control_state_event(2).current_mode(), 5);
-    EXPECT_TRUE(snapshot.control_state_event(2).current_enabled());
-    EXPECT_EQ(snapshot.control_state_event(2).current_gear(), 1);
 
     autoviz::ChassisState chassis;
     chassis.set_gear(0);
@@ -598,14 +594,10 @@ TEST(SnapshotStoreTest, RecordsCommandAndChassisTransitionsWithGoal)
     chassis.mutable_platform()->mutable_right_crawl_motor()->set_output_enabled(true);
     store.updateChassisState(chassis, kReceiveTimeNs + 4);
     const auto outputSnapshot = store.buildSnapshot(kReceiveTimeNs + 4, 0);
-    ASSERT_EQ(outputSnapshot.control_state_event_size(), 5);
-    const auto& outputEvent = outputSnapshot.control_state_event(4);
-    EXPECT_EQ(outputEvent.header().sequence(), 2U);
-    EXPECT_FALSE(outputEvent.previous_crawl_output_enabled());
-    EXPECT_TRUE(outputEvent.current_crawl_output_enabled());
+    EXPECT_EQ(outputSnapshot.chassis_state().header().sequence(), 2U);
 }
 
-TEST(SnapshotStoreTest, RetainsIntermediateCommandEventsBetweenPublishes)
+TEST(SnapshotStoreTest, RetainsLatestCommandBetweenPublishes)
 {
     autoviz_server::SnapshotStore store({
         {"/chassis_command", "custom_msgs/msg/ChassisCommand",
@@ -632,13 +624,8 @@ TEST(SnapshotStoreTest, RetainsIntermediateCommandEventsBetweenPublishes)
     const auto snapshot = store.buildSnapshot(kReceiveTimeNs + 2, 0);
     ASSERT_TRUE(snapshot.has_control_command());
     EXPECT_EQ(snapshot.control_command().header().sequence(), 3U);
-    ASSERT_EQ(snapshot.control_state_event_size(), 3);
-    EXPECT_EQ(snapshot.control_state_event(1).previous_mode(), 11);
-    EXPECT_EQ(snapshot.control_state_event(1).current_mode(), 0);
-    EXPECT_FALSE(snapshot.control_state_event(1).current_enabled());
-    EXPECT_EQ(snapshot.control_state_event(2).previous_mode(), 0);
-    EXPECT_EQ(snapshot.control_state_event(2).current_mode(), 6);
-    EXPECT_TRUE(snapshot.control_state_event(2).current_enabled());
+    EXPECT_TRUE(snapshot.control_command().enabled());
+    EXPECT_EQ(snapshot.control_command().target_gear(), 1);
 }
 
 TEST(SnapshotStoreTest, ActionDiagnosticsDoNotAdvanceSystemRunStatesMetadata)
@@ -666,7 +653,6 @@ TEST(SnapshotStoreTest, ActionDiagnosticsDoNotAdvanceSystemRunStatesMetadata)
               kReceiveTimeNs);
     EXPECT_EQ(snapshot.action_state().native_status(), 2);
     EXPECT_DOUBLE_EQ(snapshot.action_state().feedback_progress(), 0.5);
-    ASSERT_EQ(snapshot.control_state_event_size(), 1);
     ASSERT_EQ(snapshot.runtime_state().topic_size(), 1);
     EXPECT_EQ(snapshot.runtime_state().topic(0).message_count(), 1U);
     EXPECT_EQ(snapshot.runtime_state().topic(0).last_update_time_ns(),

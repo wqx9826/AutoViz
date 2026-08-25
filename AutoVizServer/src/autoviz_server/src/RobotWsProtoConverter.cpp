@@ -279,7 +279,7 @@ wire::VehicleState RobotWsProtoConverter::vehicleState(
     const custom_msgs::msg::Location& message, std::uint64_t receiveTimeNs)
 {
     wire::VehicleState state;
-    fillHeader(state.mutable_header(), receiveTimeNs, receiveTimeNs,
+    fillHeader(state.mutable_header(), 0, receiveTimeNs,
                "robot_ws.location", "odom");
     state.mutable_position()->set_x_m(message.odom_x);
     state.mutable_position()->set_y_m(message.odom_y);
@@ -620,12 +620,11 @@ wire::TaskState RobotWsProtoConverter::taskState(
     const custom_msgs::msg::TaskParams& message, std::uint64_t receiveTimeNs)
 {
     wire::TaskState state;
-    fillHeader(state.mutable_header(), receiveTimeNs, receiveTimeNs,
+    fillHeader(state.mutable_header(), 0, receiveTimeNs,
                "robot_ws.task_params");
     state.set_task_type(message.task_type);
     state.set_task_id(message.task_id);
     state.set_enabled(message.task_enable);
-    state.set_task_start_requested(message.task_enable);
     state.set_action_enabled(message.is_enable);
     state.set_emergency_stop(message.emergency_stop);
     state.set_remote_mode(message.remote_mode);

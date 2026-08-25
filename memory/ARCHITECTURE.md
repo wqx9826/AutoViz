@@ -35,17 +35,15 @@ ROS callback
 
 Node 不处理 hello、session 或 socket；VisualizationServer 不理解 ROS。SnapshotStore 仅由
 ROS SingleThreadedExecutor 访问。TCP 慢客户端的旧待发快照会被新快照替换，不建立无界
-快照队列。三条控制审计 topic 使用 100 深度的有界 best-effort ROS 队列，进入回调后的每个
-语义切换都会追加到会话事件历史；隐藏 Action status/feedback 只刷新诊断，不冒充
-`/system_run_states` 消息推进其序号或接收时间。
+快照队列。控制相关 topic 与其他输入一样只维护当前值；隐藏 Action status/feedback 只刷新
+诊断，不冒充 `/system_run_states` 消息推进其序号或接收时间。
 
 ## Client 数据流
 
 - `RemoteVisualizationSource`：连接、v2 hello、完整快照、心跳、错误、重连和 session。
 - `ProtocolModelConverter`：完整 protobuf snapshot 到内部模型的唯一入口。
 - `DataManager`：原子替换值快照；同 session 延续历史轨迹；只接受当前活动输入来源的 replace/reset。
-- `SnapshotStore` 同时维护控制状态审计历史；三条控制 topic 的当前值均按配置超时清除，
-  但审计事件保留到 session 结束。
+- 三条控制 topic 的当前值均按配置超时清除；不维护派生的控制状态事件历史。
 - `SceneManager/UI`：主线程每 50 ms 读内部快照，不 include protobuf，不解析 topic 名。
 
 本地回放是第二条互斥的数据源链路：
@@ -90,12 +88,12 @@ custom_msgs 声明的协议缩放值传输，不擅自推断角度单位。
 `(timestamp, split index, message id)` 顺序；暂停和调速先把快照同步到报告位置，若处理预算
 不足则回退报告位置，禁止进度领先状态。seek 通过预检生成的中心转向边界过滤旧路径。
 
-控制相关的三条 topic 在回放合并前逐条进入事件追踪器，避免高倍率批处理遗漏瞬时
-`mode=11 -> mode=6`、档位或履带输出切换；数值快照仍可按 topic 合并。
+控制相关的三条 topic 在回放合并前逐条应用，以保证中心转向和路径清理顺序；不记录派生的
+模式、档位或履带输出事件历史。
 
 Server 20 Hz 完整快照和本地高倍率回放都可能在 Client 两次 50 ms 刷新之间经过多个命令状态。
-底部控制总览与“控制指令”只读取当前完整快照；控制时序仍保留会话事件历史用于审计，但不再
-维护为显示短暂 mode=0 而设计的 UI 补偿队列、停留计时或“无效（切换）”展示状态。
+底部控制总览、“控制指令”和控制时序均只读取当前完整快照；不维护为显示短暂 mode=0 而设计的
+UI 补偿队列、停留计时或“无效（切换）”展示状态。
 
 本地回放每次发布时递增协议 snapshot sequence，并把已应用的 bag 时间、控制命令状态和该序号
 作为一个快照写入 `DataManager`。远程 Server 快照和本地 `RobotWsCdrDecoder` 必须产出相同的

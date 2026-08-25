@@ -56,7 +56,6 @@ void SnapshotStore::updateVehicleState(wire::VehicleState value, std::uint64_t r
 void SnapshotStore::updateChassisState(wire::ChassisState value, std::uint64_t receiveTimeNs)
 {
     value.mutable_header()->set_sequence(nextSequence(wire::DATA_KIND_CHASSIS_STATE));
-    trackChassisEvent(value);
     m_snapshot.mutable_chassis_state()->Swap(&value);
     record(wire::DATA_KIND_CHASSIS_STATE, receiveTimeNs);
 }
@@ -71,7 +70,6 @@ void SnapshotStore::updateControlCommand(wire::ControlCommand value,
         m_snapshot.clear_local_trajectory();
     }
     m_centerTurnActive = centerTurn;
-    trackCommandEvent(value);
     m_snapshot.mutable_control_command()->Swap(&value);
     record(wire::DATA_KIND_CONTROL_COMMAND, receiveTimeNs);
 }
@@ -117,7 +115,6 @@ void SnapshotStore::updateInspectionGoal(wire::InspectionGoal value,
 void SnapshotStore::updateActionState(wire::ActionState value, std::uint64_t receiveTimeNs)
 {
     value.mutable_header()->set_sequence(nextSequence(wire::DATA_KIND_ACTION_STATE));
-    trackActionEvent(value);
     // SystemRunStates: 2=canceling, 3=succeeded, 4=aborted. 只保存最近一次
     // 终态，用于详情页；当前快照仍始终表达最新公开聚合状态。
     if (value.state() == 2 || value.state() == 3 || value.state() == 4) {
@@ -246,81 +243,6 @@ std::uint64_t SnapshotStore::nextSequence(wire::DataKind dataKind)
 {
     const auto* state = monitor(dataKind);
     return state == nullptr ? 0 : state->messageCount + 1;
-}
-
-void SnapshotStore::appendControlEvent(const wire::ControlStateEvent& event)
-{
-    m_snapshot.add_control_state_event()->CopyFrom(event);
-}
-
-void SnapshotStore::trackActionEvent(const wire::ActionState& value)
-{
-    if (m_hasActionSemantic && value.chassis_mode() == m_actionMode) return;
-    wire::ControlStateEvent event;
-    event.mutable_header()->CopyFrom(value.header());
-    event.set_source(wire::ControlStateEvent::SOURCE_ACTION_EXPECTATION);
-    event.set_goal_id(value.goal_id());
-    if (m_hasActionSemantic) event.set_previous_mode(m_actionMode);
-    event.set_current_mode(value.chassis_mode());
-    appendControlEvent(event);
-    m_hasActionSemantic = true;
-    m_actionMode = value.chassis_mode();
-}
-
-void SnapshotStore::trackCommandEvent(const wire::ControlCommand& value)
-{
-    const std::int32_t mode = commandMode(value);
-    if (m_hasCommandSemantic && mode == m_commandMode && value.target_gear() == m_commandGear
-        && value.enabled() == m_commandEnabled) return;
-    wire::ControlStateEvent event;
-    event.mutable_header()->CopyFrom(value.header());
-    event.set_source(wire::ControlStateEvent::SOURCE_CONTROL_COMMAND);
-    if (m_snapshot.has_action_state()) event.set_goal_id(m_snapshot.action_state().goal_id());
-    if (m_hasCommandSemantic) {
-        event.set_previous_mode(m_commandMode);
-        event.set_previous_gear(m_commandGear);
-        event.set_previous_enabled(m_commandEnabled);
-    }
-    event.set_current_mode(mode);
-    event.set_current_gear(value.target_gear());
-    event.set_current_enabled(value.enabled());
-    appendControlEvent(event);
-    m_hasCommandSemantic = true;
-    m_commandMode = mode;
-    m_commandGear = value.target_gear();
-    m_commandEnabled = value.enabled();
-}
-
-void SnapshotStore::trackChassisEvent(const wire::ChassisState& value)
-{
-    bool hasOutput = false;
-    bool output = false;
-    if (value.has_platform() && value.platform().has_left_crawl_motor()
-        && value.platform().has_right_crawl_motor()) {
-        const bool left = value.platform().left_crawl_motor().output_enabled();
-        const bool right = value.platform().right_crawl_motor().output_enabled();
-        hasOutput = left == right;
-        output = left;
-    }
-    if (m_hasChassisSemantic && value.gear() == m_chassisGear
-        && (!hasOutput || (m_hasChassisOutputSemantic && output == m_chassisOutputEnabled))) return;
-    wire::ControlStateEvent event;
-    event.mutable_header()->CopyFrom(value.header());
-    event.set_source(wire::ControlStateEvent::SOURCE_CHASSIS_FEEDBACK);
-    if (m_snapshot.has_action_state()) event.set_goal_id(m_snapshot.action_state().goal_id());
-    if (m_hasChassisSemantic) {
-        event.set_previous_gear(m_chassisGear);
-        if (m_hasChassisOutputSemantic) event.set_previous_crawl_output_enabled(m_chassisOutputEnabled);
-    }
-    event.set_current_gear(value.gear());
-    if (hasOutput) event.set_current_crawl_output_enabled(output);
-    appendControlEvent(event);
-    m_hasChassisSemantic = true;
-    m_chassisGear = value.gear();
-    if (hasOutput) {
-        m_hasChassisOutputSemantic = true;
-        m_chassisOutputEnabled = output;
-    }
 }
 
 void SnapshotStore::clear(wire::DataKind dataKind)

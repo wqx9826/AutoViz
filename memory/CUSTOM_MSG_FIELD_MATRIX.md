@@ -13,7 +13,7 @@
 | `/chassis_command` | 原始 mode、使能、速度、角速度、挡位、水推/垂向/浮力/声纳 | `ControlCommand` | `decodeCommand` | 控制详情；angular_velocity 原值透传 |
 | `/chassis_states` | 水推/履带执行器、航向 Kp/目标/实际/误差/输出、尾推遥测、BMS、配电、底盘状态 | `ChassisState` typed 字段 | 旧无尾推 277、旧含尾推 341、当前无尾推 325、当前含尾推 389；严格按长度选择 | 底盘详情；旧布局缺失的航向/尾推字段显示“无此版本数据” |
 | `/system_run_states` | Action 聚合 owner/goal/state/message/mode/目标/浮力/紧急上浮 | `ActionState` | `decodeAction` | Action 主状态；隐藏 status/feedback 仅作诊断 |
-| `/task_params` | 任务启动脉冲、动作使能、急停、解除按钮、遥控/调试/配电 | `TaskState` | `decodeTask` | “启动请求”与“动作使能”分开显示 |
+| `/task_params` | 任务使能、动作使能、急停、解除按钮、遥控/调试/配电 | `TaskState` | `decodeTask` | 当前任务使能与动作使能分别显示 |
 | `/detection/range_motion_request` | header、任务 ID、命令序号、动作、`float32` 限速、原因 | `PerceptionState.range_motion_directive` | `decodeRangeMotionRequest`；严格处理 header/string/float32 CDR 对齐 | 感知详情；消息任务 ID 原样显示，不按 TaskParams 过滤 |
 | `/detection/inspection_request_goal` | header、任务/目标 ID、目标/观察 `Point`、航向、保持、模式、`float32` 限速 | `PerceptionState.inspection_goal` | `decodeInspectionRequestGoal`；严格处理 Point 对齐 | 感知详情；两个请求独立新鲜度/超时 |
 | `/local_path` | header、goal UUID、每点 pose/twist/acceleration/time | `Trajectory` | `decodeLocalPath` | 现有 XY 渲染，详情保留完整字段 |
@@ -37,7 +37,8 @@
 - mode=9“水推设备测试/紧急上浮”归入水推类平台；mode=10/11 仍只通过原始 mode 产生航行/爬行中心转向语义，`expected_gear=4` 不改变模式。
 - `ChassisCommand.angular_velocity`、`ChassisStates.current_angular_velocity`、
   `Location.omega_z` 按源值透传；协议单位为 rad/s，UI 转为 deg/s。
-- `TaskParams.task_enable` 是 false -> true -> false 的自主任务启动请求，不是持续运行状态。
+- `TaskParams.task_enable` 在协议中只表示当前任务使能；robot_ws 未提供可可靠回放的独立启动事件，
+  因此不虚构“启动请求”字段。
 - `odom_z`、`depth`、`height_above_bottom` 始终是三个独立字段。
 - `FinalTarget` 的中心 XY 非有限时整帧目标无效；尺寸仅在长宽均为有限正数时有效；尺寸有效但朝向缺失或非有限时，XY 视图画外接圆，绝不以 0 rad 伪造朝向。Server 与本地 CDR 使用相同规则。整帧拒绝时 `ObstacleSet.rejection_reason` 必须说明原因并由 UI 显示；有效的后续帧不携带该字段，提示随之清除。
 - `/detection/range_motion_request` 与 `/detection/inspection_request_goal` 共享 `PerceptionState` 容器但不是同一状态；Server 和回放端必须分别统计、分别过期，且不得因当前 `TaskParams.task_id` 不同而丢弃消息。

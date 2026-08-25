@@ -170,7 +170,6 @@ void DataManager::initializeMockData()
     task.taskType = 2;
     task.taskId = 1;
     task.taskEnable = true;
-    task.taskStartRequested = true;
     task.actionEnabled = true;
     task.emergencyStop = false;
     task.remoteMode = 0;
@@ -266,7 +265,6 @@ bool DataManager::resetVisualizationData(VisualizationInputSource inputSource)
     m_snapshot.inspectionGoalRuntimeStatus = model::InspectionGoalRuntimeStatus{};
     m_snapshot.controlCmd = model::ControlCmd{};
     m_snapshot.topicStatuses = model::TopicStatusList{};
-    m_snapshot.controlStateEvents = model::ControlStateEventList{};
     m_snapshot.localizationStatus = model::LocalizationStatus{};
     m_snapshot.chassisRuntimeStatus = model::ChassisRuntimeStatus{};
     m_snapshot.controlCommandStatus = model::ControlCommandStatus{};

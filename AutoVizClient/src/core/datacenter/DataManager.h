@@ -51,7 +51,6 @@ struct VisualizationSnapshot {
     model::InspectionGoalRuntimeStatus inspectionGoalRuntimeStatus;
     model::ControlCmd controlCmd;
     model::TopicStatusList topicStatuses;
-    model::ControlStateEventList controlStateEvents;
     model::LocalizationStatus localizationStatus;
     model::ChassisRuntimeStatus chassisRuntimeStatus;
     model::ControlCommandStatus controlCommandStatus;

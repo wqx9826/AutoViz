@@ -244,7 +244,7 @@ bool decodeLocation(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString
     for(double&v:d) if(!r.f64(v,e)) return false;
     for(int i=0;i<4;++i) if(!r.i64(usbl[i],e)) return false;
     if(!r.f64(ux,e)||!r.f64(uy,e)||!r.f64(uz,e)) return false;
-    auto* v=s->mutable_vehicle_state(); fillHeader(v->mutable_header(),ts,ts,"robot_ws.location","odom");
+    auto* v=s->mutable_vehicle_state(); fillHeader(v->mutable_header(),0,ts,"robot_ws.location","odom");
     // d: lon,lat,height,depth,gauss3,origin5,odom3,odom_heading,velocity4,pitch,roll,heading,omega3,acc4
     v->mutable_position()->set_x_m(d[12]); v->mutable_position()->set_y_m(d[13]); v->mutable_position()->set_z_m(d[14]);
     v->set_heading_rad(d[22]); v->set_pitch_rad(d[20]); v->set_roll_rad(d[21]);
@@ -345,7 +345,7 @@ bool decodeTask(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
     // TaskParams stores three sailing percentages followed by five actuator commands.
     // Keep the wire order aligned with the robot_ws schema so bag playback matches Server conversion.
     for(int index=0;index<8;++index)if(!r.i8(remoteValues[index],e))return false;
-    auto*t=s->mutable_task_state();fillHeader(t->mutable_header(),ts,ts,"robot_ws.task_params");t->set_task_type(task);t->set_task_id(id);t->set_enabled(enabled);t->set_task_start_requested(enabled);t->set_action_enabled(action);t->set_emergency_stop(emergency);t->set_remote_mode(remote);t->set_power_enable(power);t->mutable_underwater()->set_release_emergency_ascent(release);t->mutable_underwater()->set_buoyancy_command(buoyancy(buoy));
+    auto*t=s->mutable_task_state();fillHeader(t->mutable_header(),0,ts,"robot_ws.task_params");t->set_task_type(task);t->set_task_id(id);t->set_enabled(enabled);t->set_action_enabled(action);t->set_emergency_stop(emergency);t->set_remote_mode(remote);t->set_power_enable(power);t->mutable_underwater()->set_release_emergency_ascent(release);t->mutable_underwater()->set_buoyancy_command(buoyancy(buoy));
     auto* remoteControl=t->mutable_remote_control();remoteControl->set_crawl_gear(gear);remoteControl->set_crawl_speed_mps(crawlSpeed);remoteControl->set_crawl_angular_velocity_radps(crawlRate);
     remoteControl->set_forward_percent(remoteValues[0]);remoteControl->set_turn_percent(remoteValues[1]);remoteControl->set_dive_percent(remoteValues[2]);remoteControl->set_left_tail_actuator_speed(remoteValues[3]);remoteControl->set_right_tail_actuator_speed(remoteValues[4]);remoteControl->set_left_vertical_actuator_speed(remoteValues[5]);remoteControl->set_right_vertical_actuator_speed(remoteValues[6]);remoteControl->set_back_vertical_actuator_speed(remoteValues[7]);
     for(int index=0;index<16;++index){if(!r.boolean(ps,e))return false;remoteControl->add_power_supply_enabled(ps);}return true;
@@ -463,7 +463,6 @@ bool RobotWsCdrDecoder::sameGoalUuid(const QString& a, const QString& b)
 bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByteArray&payload,quint64 ts,wire::VisualizationSnapshot*snapshot,QString*error,ActionDiagnosticCache* actionDiagnostics)
 {
     if(!snapshot){if(error)*error=QStringLiteral("snapshot 为空");return false;}if(!isSupported(topic,type)){if(error)*error=QStringLiteral("不支持 %1 (%2)").arg(topic,type);return false;}CdrReader r(payload);if(!r.begin(error))return false;
-    const bool hadAction=snapshot->has_action_state(); const int oldAction=hadAction?snapshot->action_state().chassis_mode():0;
     const ChassisCdrLayout chassisLayout = topic == "/chassis_states" ? chassisCdrLayout(payload) : ChassisCdrLayout::Legacy;
     if (topic == "/chassis_states" && chassisLayout == ChassisCdrLayout::Invalid) {
         if (error) *error = QStringLiteral("ChassisStates CDR 长度不匹配旧布局或当前布局: %1 字节").arg(payload.size());
@@ -476,8 +475,6 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
         if (error) *error = QStringLiteral("ChassisCommand CDR 长度不匹配旧布局或当前布局: %1 字节").arg(payload.size());
         return false;
     }
-    const bool hadCommand=snapshot->has_control_command(); const auto oldCommand=hadCommand?snapshot->control_command():wire::ControlCommand{};
-    const bool hadChassis=snapshot->has_chassis_state(); const auto oldChassis=hadChassis?snapshot->chassis_state():wire::ChassisState{};
     // rosbag 的一条 topic 消息与 Server 发送的同名 snapshot 字段语义相同：它是
     // 当前完整值，不是对上一条消息的增量。尤其 Path、障碍物和底盘状态包含 repeated
     // 字段；不先清理就会在本地回放中把旧点/旧状态反复累加。
@@ -498,15 +495,6 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
     bool ok=false;
     if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/detection/range_motion_request")ok=decodeRangeMotion(r,ts,snapshot,error);else if(topic=="/detection/inspection_request_goal")ok=decodeInspectionGoal(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error,commandLayout);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
     if(!ok||!r.finished(error))return false;
-    auto append=[&snapshot](wire::ControlStateEvent&&e){snapshot->add_control_state_event()->Swap(&e);};
-    if(topic=="/system_run_states"&&snapshot->has_action_state()){
-        const auto&v=snapshot->action_state();if(!hadAction||oldAction!=v.chassis_mode()){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_ACTION_EXPECTATION);e.set_goal_id(v.goal_id());if(hadAction)e.set_previous_mode(oldAction);e.set_current_mode(v.chassis_mode());append(std::move(e));}
-    }else if(topic=="/chassis_command"&&snapshot->has_control_command()){
-        const auto mode=[](const wire::ControlCommand&v){if(v.has_source_mode())return v.source_mode();const bool y=v.maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;return v.mode()==wire::ControlCommand::MODE_CRAWL?(y?11:6):(v.mode()==wire::ControlCommand::MODE_SAILING?(y?10:0):0);};const auto&v=snapshot->control_command();if(!hadCommand||mode(oldCommand)!=mode(v)||oldCommand.target_gear()!=v.target_gear()||oldCommand.enabled()!=v.enabled()){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_CONTROL_COMMAND);if(snapshot->has_action_state())e.set_goal_id(snapshot->action_state().goal_id());if(hadCommand){e.set_previous_mode(mode(oldCommand));e.set_previous_gear(oldCommand.target_gear());e.set_previous_enabled(oldCommand.enabled());}e.set_current_mode(mode(v));e.set_current_gear(v.target_gear());e.set_current_enabled(v.enabled());append(std::move(e));}
-    }else if(topic=="/chassis_states"&&snapshot->has_chassis_state()){
-        const auto output=[](const wire::ChassisState&v,bool*has){if(v.has_platform()&&v.platform().has_left_crawl_motor()&&v.platform().has_right_crawl_motor()){const bool left=v.platform().left_crawl_motor().output_enabled(),right=v.platform().right_crawl_motor().output_enabled();*has=left==right;return left;}*has=false;return false;};
-        const auto&v=snapshot->chassis_state();bool hadOldOutput=false,hasOutput=false;const bool oldOutput=output(oldChassis,&hadOldOutput),currentOutput=output(v,&hasOutput);const bool gearChanged=!hadChassis||oldChassis.gear()!=v.gear();const bool outputChanged=hasOutput&&(!hadOldOutput||oldOutput!=currentOutput);if(gearChanged||outputChanged){wire::ControlStateEvent e;e.mutable_header()->CopyFrom(v.header());e.set_source(wire::ControlStateEvent::SOURCE_CHASSIS_FEEDBACK);if(snapshot->has_action_state())e.set_goal_id(snapshot->action_state().goal_id());if(hadChassis)e.set_previous_gear(oldChassis.gear());if(hadOldOutput)e.set_previous_crawl_output_enabled(oldOutput);e.set_current_gear(v.gear());if(hasOutput)e.set_current_crawl_output_enabled(currentOutput);append(std::move(e));}
-    }
     return true;
 }
 

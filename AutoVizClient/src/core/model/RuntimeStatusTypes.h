@@ -36,32 +36,6 @@ struct TopicStatus {
     bool timedOut = true;
 };
 
-enum class ControlEventSource { Unknown, ActionExpectation, ControlCommand, ChassisFeedback };
-
-struct ControlStateEvent {
-    Header header;
-    ControlEventSource source = ControlEventSource::Unknown;
-    QString goalUuid;
-    bool hasPreviousMode = false;
-    int previousMode = 0;
-    bool hasCurrentMode = false;
-    int currentMode = 0;
-    bool hasPreviousGear = false;
-    int previousGear = 0;
-    bool hasCurrentGear = false;
-    int currentGear = 0;
-    bool hasPreviousEnabled = false;
-    bool previousEnabled = false;
-    bool hasCurrentEnabled = false;
-    bool currentEnabled = false;
-    bool hasPreviousCrawlOutputEnabled = false;
-    bool previousCrawlOutputEnabled = false;
-    bool hasCurrentCrawlOutputEnabled = false;
-    bool currentCrawlOutputEnabled = false;
-};
-
-using ControlStateEventList = QVector<ControlStateEvent>;
-
 using TopicStatusList = QVector<TopicStatus>;
 
 struct LocalizationStatus {
@@ -281,8 +255,6 @@ struct TaskRuntimeStatus {
     int taskId = 0;
     bool hasTaskEnable = false;
     bool taskEnable = false;
-    bool hasTaskStartRequested = false;
-    bool taskStartRequested = false;
     bool hasActionEnabled = false;
     bool actionEnabled = false;
     bool hasBuoyancyAdjust = false;

@@ -38,7 +38,6 @@ VisualizationSnapshot controlSnapshot(int mode,
                                       int commandGear,
                                       int feedbackGear,
                                       quint64 sequence,
-                                      const autoviz::model::ControlStateEventList& events = {},
                                       bool commandEnabled = true,
                                       const QString& sessionId = {})
 {
@@ -81,31 +80,7 @@ VisualizationSnapshot controlSnapshot(int mode,
         topicStatus(autoviz::model::VisualizationChannel::ControlCommand, sequence, timestampMs),
         topicStatus(autoviz::model::VisualizationChannel::ChassisState, sequence, timestampMs),
     };
-    snapshot.controlStateEvents = events;
     return snapshot;
-}
-
-autoviz::model::ControlStateEvent modeEvent(int previousMode,
-                                            int currentMode,
-                                            quint64 sequence)
-{
-    autoviz::model::ControlStateEvent event;
-    event.source = autoviz::model::ControlEventSource::ControlCommand;
-    event.header.receiveTimestamp = 1786936821000LL + static_cast<qint64>(sequence);
-    event.header.sequence = sequence;
-    event.hasPreviousMode = true;
-    event.previousMode = previousMode;
-    event.hasCurrentMode = true;
-    event.currentMode = currentMode;
-    event.hasPreviousGear = true;
-    event.previousGear = previousMode == 11 ? 4 : (previousMode == 6 ? 1 : 0);
-    event.hasCurrentGear = true;
-    event.currentGear = currentMode == 11 ? 4 : (currentMode == 6 ? 1 : 0);
-    event.hasPreviousEnabled = true;
-    event.previousEnabled = previousMode != 0;
-    event.hasCurrentEnabled = true;
-    event.currentEnabled = currentMode != 0;
-    return event;
 }
 
 bool runInputOwnershipChecks(QTextStream& error)
@@ -170,8 +145,7 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     panel.resize(1280, 720);
     panel.show();
 
-    autoviz::model::ControlStateEventList events;
-    auto initialSnapshot = controlSnapshot(11, 4, 4, 101, events);
+    auto initialSnapshot = controlSnapshot(11, 4, 4, 101);
     initialSnapshot.chassisRuntimeStatus.bms.valid = true;
     initialSnapshot.chassisRuntimeStatus.bms.alarmLevel = 3;
     initialSnapshot.chassisRuntimeStatus.bms.warningCodes = {0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0};
@@ -303,9 +277,7 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     detailSnapshot.taskRuntimeStatus.taskType = 2;
     detailSnapshot.taskRuntimeStatus.hasTaskId = true;
     detailSnapshot.taskRuntimeStatus.taskId = 9;
-    detailSnapshot.taskRuntimeStatus.hasTaskStartRequested = true;
-    detailSnapshot.taskRuntimeStatus.taskStartRequested = true;
-    // Simulate an old Server that has TaskState but lacks this newer optional field.
+    // Simulate an old Server that has TaskState but lacks task_enable.
     detailSnapshot.taskRuntimeStatus.hasTaskEnable = false;
     detailSnapshot.rangeMotionRuntimeStatus.valid = true;
     detailSnapshot.rangeMotionRuntimeStatus.timestampMs = 1786936821101LL;
@@ -409,9 +381,7 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
 
     tabs->setCurrentIndex(1);
     detailTabs->setCurrentIndex(detailTabs->count() - 1);
-    events.push_back(modeEvent(11, 0, 102));
-    events.push_back(modeEvent(0, 6, 103));
-    const auto coalescedSnapshot = controlSnapshot(6, 1, 1, 103, events);
+    const auto coalescedSnapshot = controlSnapshot(6, 1, 1, 103);
     panel.updateSnapshot(coalescedSnapshot);
     app.processEvents();
 
@@ -452,7 +422,7 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
         return false;
     }
 
-    panel.updateSnapshot(controlSnapshot(6, 1, 1, 1, events, true,
+    panel.updateSnapshot(controlSnapshot(6, 1, 1, 1, true,
                                          QStringLiteral("local:new-session")));
     if (modeLabel->text() != QStringLiteral("自主爬行")
         || stateLabel->text() != QStringLiteral("自主爬行 / 已使能")) {

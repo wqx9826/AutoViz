@@ -62,7 +62,6 @@ private:
     QHash<QString, QLabel*> m_detailValues;
     QTableWidget* m_topicTable = nullptr;
     QTableWidget* m_controlAssociationTable = nullptr;
-    QTableWidget* m_controlEventTable = nullptr;
     QTableWidget* m_finalTargetTable = nullptr;
     QLabel* m_topicSummaryLabel = nullptr;
 };

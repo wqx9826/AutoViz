@@ -1,7 +1,7 @@
 # AutoVizServer
 
 AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取八条基础 robot_ws topic 和两条可选
-感知请求 topic，转换为来源无关的 AutoViz Protocol v2.5 完整快照，并通过 TCP 只读发送给 Qt Client。
+感知请求 topic，转换为来源无关的 AutoViz Protocol v2.6 完整快照，并通过 TCP 只读发送给 Qt Client。
 
 ## 从 ROS 回调到 TCP 的固定数据流
 
@@ -18,12 +18,10 @@ ROS 回调不联网，只做一次转换和一次缓存更新。网络层不 inc
 缺少某个 optional 字段，表示该数据当前不存在；topic 超过 `topic_timeout_ms` 后，
 `SnapshotStore` 移除该字段，Client 原子替换快照时自然清空，不需要 UPSERT/CLEAR 状态机。
 
-`/system_run_states`、`/chassis_command` 与 `/chassis_states` 的每次语义状态变化还会写入
-当前 session 的控制审计时间线。三个 custom_msgs 没有发布端 Header，因此仅写入 Server ROS
-回调接收时间与 per-topic 序号，不伪造发布端时间；超时只清除当前状态，审计历史保留到 session 结束。
-三条审计通道使用 100 深度的有界 best-effort 订阅队列，降低单线程执行器短时繁忙时在 ROS
-回调前丢失短暂切换帧的风险；其余最新值通道仍使用 10 深度队列。隐藏 Action status/feedback
-只更新诊断字段，不增加 `/system_run_states` 的序号、计数或接收时间。
+`/system_run_states`、`/chassis_command` 与 `/chassis_states` 均只向完整快照写入当前值；不再
+生成派生的控制审计事件。三个 custom_msgs 没有发布端 Header，因此仅写入 Server ROS 回调
+接收时间与 per-topic 序号，不伪造发布端时间。隐藏 Action status/feedback 只更新诊断字段，
+不增加 `/system_run_states` 的序号、计数或接收时间。
 
 中心转向仅由 `/chassis_command.mode=10/11` 判定，不能由档位推断。进入中心转向后
 `SnapshotStore` 立即清除并抑制全局/局部路径；收到非中心转向命令后解除抑制，但必须等新的

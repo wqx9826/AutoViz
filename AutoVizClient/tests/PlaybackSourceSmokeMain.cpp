@@ -144,20 +144,10 @@ int main(int argc, char** argv)
                              }
                              if (phase == Phase::OneXPlaying) {
                                  const auto snapshot = manager.getSnapshot();
-                                 bool sawExit = false;
-                                 bool sawCrawl = false;
-                                 for (const auto& event : snapshot.controlStateEvents) {
-                                     if (event.source != autoviz::model::ControlEventSource::ControlCommand) continue;
-                                     sawExit |= event.hasPreviousMode && event.previousMode == 11
-                                                && event.hasCurrentMode && event.currentMode == 0;
-                                     sawCrawl |= event.hasPreviousMode && event.previousMode == 0
-                                                 && event.hasCurrentMode && event.currentMode == 6;
-                                 }
                                  if (!snapshot.controlCommandStatus.valid
                                      || snapshot.controlCommandStatus.mode != 6
-                                     || snapshot.runtimeStatus.snapshotSequence == 0
-                                     || !sawExit || !sawCrawl) {
-                                     fail(QStringLiteral("1x playback retained mode=11 after 11->0->6"));
+                                     || snapshot.runtimeStatus.snapshotSequence == 0) {
+                                     fail(QStringLiteral("1x playback did not reach the current mode=6 command"));
                                      return;
                                  }
                                  QTextStream(stdout) << "1x transition pause latency: " << latency << " ms\n";
@@ -169,30 +159,12 @@ int main(int argc, char** argv)
                              QTextStream(stdout) << "8x pause latency: " << latency << " ms\n";
                              if (centerTurnScenario) {
                                  const auto snapshot = manager.getSnapshot();
-                                 bool sawEnter = false;
-                                 bool sawExit = false;
-                                 bool sawCrawl = false;
-                                 bool sawCrawlOutput = false;
-                                 bool allEventsSequenced = true;
-                                 for (const auto& event : snapshot.controlStateEvents) {
-                                     allEventsSequenced &= event.header.sequence > 0;
-                                     if (event.source == autoviz::model::ControlEventSource::ChassisFeedback
-                                         && event.hasCurrentCrawlOutputEnabled) {
-                                         sawCrawlOutput = true;
-                                     }
-                                     if (event.source != autoviz::model::ControlEventSource::ControlCommand) continue;
-                                     sawEnter |= event.hasPreviousMode && event.previousMode == 6
-                                                 && event.hasCurrentMode && event.currentMode == 11;
-                                     sawExit |= event.hasPreviousMode && event.previousMode == 11
-                                                && event.hasCurrentMode && event.currentMode == 0;
-                                     sawCrawl |= event.hasPreviousMode && event.previousMode == 0
-                                                 && event.hasCurrentMode && event.currentMode == 6;
-                                 }
                                  if (!snapshot.controlCommandStatus.valid
                                      || snapshot.controlCommandStatus.mode != 6
-                                     || !sawEnter || !sawExit || !sawCrawl
-                                     || !sawCrawlOutput || !allEventsSequenced) {
-                                     fail(QStringLiteral("8x playback lost 6->11->0->6 command events or sequences"));
+                                     || !snapshot.chassisRuntimeStatus.valid
+                                     || !snapshot.chassisRuntimeStatus.leftCrawlMotor.outputEnabled
+                                     || !snapshot.chassisRuntimeStatus.rightCrawlMotor.outputEnabled) {
+                                     fail(QStringLiteral("8x playback did not reach the current command and chassis state"));
                                      return;
                                  }
                              }

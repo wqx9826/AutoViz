@@ -15,8 +15,9 @@ Windows 开发基线统一为 Qt 6.10、Qt Kit 自带 MinGW 13.1 和同工具链
 静态库；Qt Creator/CLion 必须选择该编译器，禁止混入 MSYS2 UCRT64 的 protobuf/Abseil
 二进制。Linux Client 保持 Qt5，并使用 Linux 本机工具链重建自己的协议 SDK。
 
-协议为 2.5，不兼容 feature v1.1，不实现双栈。2.5 通过 `VisualizationSnapshot.perception_state=22`
-兼容扩展感知请求；旧 Server 的缺失 optional 字段不能在 Client 伪造成零或 false。framing 为 4 字节大端长度 + protobuf
+协议为 2.6，不兼容 feature v1.1，不实现双栈。2.5 通过 `VisualizationSnapshot.perception_state=22`
+兼容扩展感知请求；2.6 删除了重复推导的控制事件和不具备独立来源的任务启动脉冲，并保留其 field number。
+旧 Server 的缺失 optional 字段不能在 Client 伪造成零或 false。framing 为 4 字节大端长度 + protobuf
 Envelope，最大 16 MiB。传输仅有 ClientHello、ServerHello、VisualizationSnapshot、
 Heartbeat、ProtocolError。
 

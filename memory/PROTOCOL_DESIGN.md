@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.5
+# AutoViz Protocol v2.6
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
@@ -40,7 +40,9 @@ field 3（旧 SubscribeRequest）和 5（旧 ChannelUpdate）已 `reserved`，�
 VehicleState=10、ChassisState=11、ControlCommand=12、global/local trajectory=13/14、
 ReferenceLine=15、ObstacleSet=16、ActionState=17、TaskState=18、RuntimeState=19、
 VehicleParameters=20。
-`PerceptionState=22` 是 2.5 新增的 optional 字段；21 已用于 control state event。
+`PerceptionState=22` 是 2.5 新增的 optional 字段；21 曾用于推导的 control state event，现已
+`reserved`。`TaskState=10` 曾用于 task_start_requested，现同样 `reserved`，因为 robot_ws
+只提供当前 `task_enable`，不能可靠表达独立的启动事件。
 
 ## 完整快照语义
 
@@ -56,9 +58,6 @@ Client                         Server
 - major 不一致返回 fatal ProtocolError；同 major 的 minor 可兼容。
 - 握手前禁止快照；握手后立即发送最新快照。
 - optional 字段缺失就是当前无数据，Client 原子替换，不存在 CLEAR。
-- `VisualizationSnapshot.control_state_event` 是当前 session 的完整控制状态审计历史；记录
-  Action 期望、控制下发和底盘反馈的模式/档位/使能/履带输出切换及当时 Goal UUID。断线或
-  session 改变清空该历史。
 - session 变化或断线必须清空全部远程状态和历史轨迹。
 - Server 最多 20 Hz 合并脏数据；空闲用心跳，不重复发送相同快照。
 

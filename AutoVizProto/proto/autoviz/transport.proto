@@ -25,7 +25,7 @@ message VisualizationSnapshot {
   optional TaskState task_state = 18;
   optional RuntimeState runtime_state = 19;
   optional VehicleParameters vehicle_parameters = 20;
-  repeated ControlStateEvent control_state_event = 21;
+  reserved 21;
   optional PerceptionState perception_state = 22;
 }
 

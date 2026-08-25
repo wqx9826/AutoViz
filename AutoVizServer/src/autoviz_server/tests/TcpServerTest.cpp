@@ -173,11 +173,6 @@ TEST(VisualizationServerTest, RequiresHelloThenSendsHelloAndLatestSnapshot)
 
     autoviz::VisualizationSnapshot snapshot;
     snapshot.mutable_vehicle_state()->mutable_position()->set_x_m(12.5);
-    auto* event = snapshot.add_control_state_event();
-    event->set_source(autoviz::ControlStateEvent::SOURCE_CONTROL_COMMAND);
-    event->set_previous_mode(11);
-    event->set_current_mode(0);
-    event->set_current_enabled(false);
     server.publishSnapshot(snapshot);
 
     TestClient client;
@@ -200,10 +195,6 @@ TEST(VisualizationServerTest, RequiresHelloThenSendsHelloAndLatestSnapshot)
     }));
     EXPECT_EQ(received.snapshot().session_id(), session);
     EXPECT_DOUBLE_EQ(received.snapshot().vehicle_state().position().x_m(), 12.5);
-    ASSERT_EQ(received.snapshot().control_state_event_size(), 1);
-    EXPECT_EQ(received.snapshot().control_state_event(0).previous_mode(), 11);
-    EXPECT_EQ(received.snapshot().control_state_event(0).current_mode(), 0);
-    EXPECT_FALSE(received.snapshot().control_state_event(0).current_enabled());
     server.stop();
 }
 

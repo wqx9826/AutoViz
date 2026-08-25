@@ -53,6 +53,19 @@ QString formatTime(qint64 timestampMs)
     return QDateTime::fromMSecsSinceEpoch(timestampMs).toString(QStringLiteral("HH:mm:ss.zzz"));
 }
 
+QString formatInputTime(qint64 timestampMs,
+                        autoviz::datacenter::VisualizationInputSource inputSource)
+{
+    if (timestampMs <= 0) return QStringLiteral("--");
+    if (inputSource == autoviz::datacenter::VisualizationInputSource::Ros2Bag) {
+        return QStringLiteral("记录：%1").arg(formatTime(timestampMs));
+    }
+    if (inputSource == autoviz::datacenter::VisualizationInputSource::Remote) {
+        return QStringLiteral("接收：%1").arg(formatTime(timestampMs));
+    }
+    return formatTime(timestampMs);
+}
+
 QString formatFrequency(double frequencyHz)
 {
     if (frequencyHz <= 0.0) {
@@ -1540,23 +1553,6 @@ void BottomStatusPanel::setupControlTimelineTab()
     associationLayout->addWidget(m_controlAssociationTable);
     layout->addWidget(associationGroup, 0);
 
-    auto* eventGroup = new QGroupBox(tr("模式切换事件时间线"), content);
-    auto* eventLayout = new QVBoxLayout(eventGroup);
-    m_controlEventTable = new QTableWidget(eventGroup);
-    m_controlEventTable->setObjectName(QStringLiteral("controlEventTable"));
-    configureTable(m_controlEventTable);
-    m_controlEventTable->setColumnCount(5);
-    m_controlEventTable->setHorizontalHeaderLabels({tr("消息时间"), tr("序号"), tr("来源"),
-                                                     tr("Goal UUID"), tr("状态变化")});
-    m_controlEventTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_controlEventTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_controlEventTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_controlEventTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    m_controlEventTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    m_controlEventTable->setMinimumHeight(scale.scaled(280));
-    eventLayout->addWidget(m_controlEventTable);
-    layout->addWidget(eventGroup, 1);
-
     scrollArea->setWidget(content);
     m_detailTabs->addTab(scrollArea, tr("控制时序"));
 }
@@ -1570,7 +1566,6 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("taskparams.topic"), tr("任务参数通道")},
                        {QStringLiteral("taskparams.type"), tr("任务类型")},
                        {QStringLiteral("taskparams.id"), tr("任务 ID")},
-                       {QStringLiteral("taskparams.start"), tr("启动请求")},
                        {QStringLiteral("taskparams.enable"), tr("任务使能")},
                        {QStringLiteral("taskparams.action_enable"), tr("动作使能")},
                        {QStringLiteral("taskparams.emergency_stop"), tr("机械急停")},
@@ -2010,11 +2005,10 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     const auto& task = snapshot.taskRuntimeStatus;
     const auto* taskTopic = findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::TaskState);
     setDetailValue(QStringLiteral("taskparams.state"), perceptionTopicText(taskTopic, snapshot.runtimeStatus.inputSource));
-    setDetailValue(QStringLiteral("taskparams.time"), task.valid ? formatTime(task.timestampMs) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("taskparams.time"), task.valid ? formatInputTime(task.timestampMs, snapshot.runtimeStatus.inputSource) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("taskparams.topic"), perceptionTopicText(taskTopic, snapshot.runtimeStatus.inputSource));
     setDetailValue(QStringLiteral("taskparams.type"), taskFieldText(task, task.hasTaskType, taskTypeText(true, task.taskType)));
     setDetailValue(QStringLiteral("taskparams.id"), taskFieldText(task, task.hasTaskId, QString::number(task.taskId)));
-    setDetailValue(QStringLiteral("taskparams.start"), taskFieldText(task, task.hasTaskStartRequested, displayBool(true, task.taskStartRequested)));
     setDetailValue(QStringLiteral("taskparams.enable"), taskFieldText(task, task.hasTaskEnable, displayBool(true, task.taskEnable)));
     setDetailValue(QStringLiteral("taskparams.action_enable"), taskFieldText(task, task.hasActionEnabled, displayBool(true, task.actionEnabled)));
     setDetailValue(QStringLiteral("taskparams.emergency_stop"), taskFieldText(task, task.hasEmergencyStop, displayBool(true, task.emergencyStop)));
@@ -2051,7 +2045,7 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
 
     const auto& loc = snapshot.localizationStatus;
     setDetailValue(QStringLiteral("loc.state"), validText(loc.valid));
-    setDetailValue(QStringLiteral("loc.time"), formatTime(loc.timestampMs));
+    setDetailValue(QStringLiteral("loc.time"), formatInputTime(loc.timestampMs, snapshot.runtimeStatus.inputSource));
     setDetailValue(QStringLiteral("loc.topic"), topicFreshnessText(findTopicStatus(snapshot.topicStatuses, autoviz::model::VisualizationChannel::VehicleState)));
     setDetailValue(QStringLiteral("loc.gps_time"), displayInt64(loc.valid, loc.gpsTime));
     setDetailValue(QStringLiteral("loc.start_time"), displayInt64(loc.valid, loc.startTimeS));
@@ -2289,7 +2283,7 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("action_detail.recent_time"), formatTime(recentAction.timestampMs));
     setDetailValue(QStringLiteral("task.state"), validText(task.valid));
     setDetailValue(QStringLiteral("task.type_id"), taskTypeAndIdText(task));
-    setDetailValue(QStringLiteral("task.enable_estop"), task.valid ? QStringLiteral("%1 / %2 / %3").arg(displayBool(true, task.taskStartRequested), displayBool(true, task.emergencyStop), displayBool(true, task.actionEnabled)) : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("task.enable_estop"), task.valid ? QStringLiteral("%1 / %2").arg(displayBool(true, task.emergencyStop), displayBool(true, task.actionEnabled)) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("task.buoyancy"), buoyancyCommandText(task.valid, task.buoyancyAdjust));
     setDetailValue(QStringLiteral("task.remote_power"), task.valid ? QStringLiteral("%1 / %2").arg(task.remoteMode).arg(task.powerEnable) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("task.release_emergency_ascent"), task.valid
@@ -2344,7 +2338,7 @@ void BottomStatusPanel::updateControlTimeline(
     const autoviz::datacenter::VisualizationSnapshot& snapshot,
     const autoviz::ui::status::ControlStatusSummary& commandSummary)
 {
-    if (m_controlAssociationTable == nullptr || m_controlEventTable == nullptr) {
+    if (m_controlAssociationTable == nullptr) {
         return;
     }
 
@@ -2425,51 +2419,4 @@ void BottomStatusPanel::updateControlTimeline(
         }
     }
 
-    const int previousEventRows = m_controlEventTable->rowCount();
-    m_controlEventTable->setRowCount(snapshot.controlStateEvents.size());
-    for (int row = 0; row < snapshot.controlStateEvents.size(); ++row) {
-        const auto& event = snapshot.controlStateEvents.at(row);
-        QString source;
-        switch (event.source) {
-        case autoviz::model::ControlEventSource::ActionExpectation: source = tr("Action 期望"); break;
-        case autoviz::model::ControlEventSource::ControlCommand: source = tr("控制命令"); break;
-        case autoviz::model::ControlEventSource::ChassisFeedback: source = tr("底盘反馈"); break;
-        case autoviz::model::ControlEventSource::Unknown: default: source = tr("未知"); break;
-        }
-        QStringList changes;
-        if (event.hasCurrentMode) {
-            changes << tr("模式 %1 -> %2")
-                           .arg(event.hasPreviousMode ? chassisModeText(true, event.previousMode) : QStringLiteral("--"),
-                                chassisModeText(true, event.currentMode));
-        }
-        if (event.hasCurrentGear) {
-            changes << tr("档位 %1 -> %2")
-                           .arg(event.hasPreviousGear ? gearText(true, event.previousGear) : QStringLiteral("--"),
-                                gearText(true, event.currentGear));
-        }
-        if (event.hasCurrentEnabled) {
-            changes << tr("使能 %1 -> %2")
-                           .arg(event.hasPreviousEnabled ? (event.previousEnabled ? tr("使能") : tr("未使能")) : QStringLiteral("--"),
-                                event.currentEnabled ? tr("使能") : tr("未使能"));
-        }
-        if (event.hasCurrentCrawlOutputEnabled) {
-            changes << tr("履带输出 %1 -> %2")
-                           .arg(event.hasPreviousCrawlOutputEnabled ? (event.previousCrawlOutputEnabled ? tr("使能") : tr("未使能")) : QStringLiteral("--"),
-                                event.currentCrawlOutputEnabled ? tr("使能") : tr("未使能"));
-        }
-        const qint64 eventTime = event.header.receiveTimestamp > 0
-                                     ? event.header.receiveTimestamp
-                                     : event.header.timestamp;
-        const QStringList values = {formatTime(eventTime),
-                                    event.header.sequence > 0 ? QString::number(event.header.sequence) : QStringLiteral("--"),
-                                    source,
-                                    event.goalUuid.isEmpty() ? QStringLiteral("--") : event.goalUuid,
-                                    changes.isEmpty() ? QStringLiteral("--") : changes.join(QStringLiteral("；"))};
-        for (int column = 0; column < values.size(); ++column) {
-            m_controlEventTable->setItem(row, column, makeItem(values.at(column)));
-        }
-    }
-    if (m_controlEventTable->rowCount() > previousEventRows) {
-        m_controlEventTable->scrollToBottom();
-    }
 }

@@ -645,8 +645,6 @@ model::TaskRuntimeStatus convertTask(const wire::TaskState& source)
     target.taskId = source.task_id();
     target.hasTaskEnable = source.has_enabled();
     target.taskEnable = source.enabled();
-    target.hasTaskStartRequested = source.has_task_start_requested();
-    target.taskStartRequested = source.task_start_requested();
     target.hasActionEnabled = source.has_action_enabled();
     target.actionEnabled = source.action_enabled();
     target.hasEmergencyStop = source.has_emergency_stop();
@@ -781,38 +779,6 @@ model::TopicStatusList convertTopics(const wire::RuntimeState& source)
     return target;
 }
 
-model::ControlEventSource convertControlEventSource(wire::ControlStateEvent::Source source)
-{
-    switch (source) {
-    case wire::ControlStateEvent::SOURCE_ACTION_EXPECTATION: return model::ControlEventSource::ActionExpectation;
-    case wire::ControlStateEvent::SOURCE_CONTROL_COMMAND: return model::ControlEventSource::ControlCommand;
-    case wire::ControlStateEvent::SOURCE_CHASSIS_FEEDBACK: return model::ControlEventSource::ChassisFeedback;
-    default: return model::ControlEventSource::Unknown;
-    }
-}
-
-model::ControlStateEventList convertControlEvents(const wire::VisualizationSnapshot& source)
-{
-    model::ControlStateEventList result;
-    result.reserve(source.control_state_event_size());
-    for (const auto& item : source.control_state_event()) {
-        model::ControlStateEvent event;
-        if (item.has_header()) event.header = convertHeader(item.header());
-        event.source = convertControlEventSource(item.source());
-        event.goalUuid = QString::fromStdString(item.goal_id());
-        event.hasPreviousMode = item.has_previous_mode(); event.previousMode = item.previous_mode();
-        event.hasCurrentMode = item.has_current_mode(); event.currentMode = item.current_mode();
-        event.hasPreviousGear = item.has_previous_gear(); event.previousGear = item.previous_gear();
-        event.hasCurrentGear = item.has_current_gear(); event.currentGear = item.current_gear();
-        event.hasPreviousEnabled = item.has_previous_enabled(); event.previousEnabled = item.previous_enabled();
-        event.hasCurrentEnabled = item.has_current_enabled(); event.currentEnabled = item.current_enabled();
-        event.hasPreviousCrawlOutputEnabled = item.has_previous_crawl_output_enabled(); event.previousCrawlOutputEnabled = item.previous_crawl_output_enabled();
-        event.hasCurrentCrawlOutputEnabled = item.has_current_crawl_output_enabled(); event.currentCrawlOutputEnabled = item.current_crawl_output_enabled();
-        result.push_back(event);
-    }
-    return result;
-}
-
 model::PathRuntimeStatus makePathStatus(const wire::Trajectory& source)
 {
     model::PathRuntimeStatus status;
@@ -914,7 +880,6 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
     if (source.has_runtime_state()) {
         target.topicStatuses = convertTopics(source.runtime_state());
     }
-    target.controlStateEvents = convertControlEvents(source);
     if (source.has_vehicle_parameters()) {
         target.vehicleConfig.vehicleLength = source.vehicle_parameters().length_m();
         target.vehicleConfig.vehicleWidth = source.vehicle_parameters().width_m();

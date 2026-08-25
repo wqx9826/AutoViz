@@ -59,36 +59,33 @@ source stamp 缺失必须保持缺失，接收时间与 per-topic sequence 必�
 DB3 原始 CDR 共包含 1,592 条 `mode=0,is_enable=0`：多数中心转向退出区间持续 80～100 ms，
 另有 `04:49.162～05:15.582` 的 26.42 秒连续区间和末尾约 5.02 秒连续区间。8 倍速时短区间
 小于一次 50 ms UI 刷新，Server 20 Hz 完整快照也存在相同的合并窗口。控件级测试将包含
-`11 -> 0 -> 6` 两个事件、但当前值已经为 6 的单份快照直接交给 UI，断言总览只显示当前
+`11 -> 0 -> 6` 后当前值已经为 6 的单份快照直接交给 UI，断言总览只显示当前
 mode=6，不通过 UI 队列重放短暂 mode=0；该测试不依赖固定 bag seek 时间，同时覆盖远程和本地
 共用的展示逻辑。
 `AutoVizPlaybackSourceSmoke` 会 seek 到 42 秒中心转向区间断言两条路径为空，再 seek 到 81 秒
 断言 mode=6 与边界后新路径恢复，再 seek 到 131 秒断言下一次真实 mode=11 仍能进入中心转向。
-从 79 秒开始的 1 倍速连续回放通过 `11 -> 0 -> 6` 后，当前快照为 mode=6，两个瞬时切换均保留
-在事件时间线，实测暂停确认延迟 0 ms；8 倍速同样验证完整 `6 -> 11 -> 0 -> 6` 事件及非零
-topic 序号。运动总览不再为了短暂 mode=0 维护过渡队列，而是直接显示当前完整快照；
+从 79 秒开始的 1 倍速连续回放通过 `11 -> 0 -> 6` 后，当前快照为 mode=6，实测暂停确认延迟
+0 ms；8 倍速同样验证最终当前命令与底盘状态。运动总览不再为了短暂 mode=0 维护过渡队列，
+而是直接显示当前完整快照；
 `AutoVizControlStatusUiTests` 对 coalesced `11 -> 0 -> 6` 快照立即断言 mode=6。Server
 `robot_ws_converter_test` 为 17/17，通过 mode/gear 独立性、路径立即清除、中心转向期间抑制及
 退出后等待新路径；TCP 测试在允许 localhost listen 的环境为 7/7。
 
-Server 额外覆盖同一个 20 Hz 发布周期内连续收到 `11 -> 0 -> 6`：当前命令最终为 mode=6，
-三条命令事件仍按 per-topic sequence 1/2/3 完整保留。隐藏 Action status/feedback 的诊断刷新
-不会增加 `/system_run_states` 的 message count、sequence 或 last receive time。三条控制审计
-订阅使用 100 深度有界 best-effort 队列，减少回调调度延迟造成的入口前丢帧。
+Server 额外覆盖同一个 20 Hz 发布周期内连续收到 `11 -> 0 -> 6`：当前命令最终为 mode=6。
+隐藏 Action status/feedback 的诊断刷新
+不会增加 `/system_run_states` 的 message count、sequence 或 last receive time。
 
 真实 Server 链路使用 `ros2 bag play rosbag2_2026_08_17-03_18_59 --rate 8.0`，Server 在
 `127.0.0.1:39191` 以 20 Hz 发布，协议探针连续读取 18 秒、361 份完整快照。探针从 TCP
-`control_state_event` 同时确认 `11 -> 0` 与 `0 -> 6`，并观察到 `/chassis_command` 回调计数
-19,248、`/chassis_states` 19,335、`/system_run_states` 3,601。说明 20 Hz 只合并当前值，
-不会丢失已进入 ROS 回调的中间控制事件；慢 Client 的后续完整快照仍携带会话事件历史。
+观察到 `/chassis_command` 回调计数 19,248、`/chassis_states` 19,335、`/system_run_states` 3,601。
+说明 20 Hz 全量快照只表达当前状态；中间状态变化不再作为派生事件重复发送。
 
 `AutoVizControlStatusUiTests` 通过控件级回归：隐藏总览时依次写入 mode `11 -> 0 -> 6`，重新显示
-后“当前运动”和“控制指令”均直接读取最新的“自主爬行”快照，控制时序当前行与总览共同读取
+后“当前运动”“控制指令”和控制时序关联表均直接读取最新的“自主爬行”快照，
 mode=6、topic sequence=103；并断言爬行/航行速度与指令 rev 的来源值彼此独立。测试还确认
 激活 bag 后迟到的 Remote mode=11 snapshot/reset 均被拒绝，切回 Remote 后迟到的 bag snapshot/reset
 也被拒绝，当前活动来源的数据保持不变。普通总览值不再
-每帧触发 QSS repolish，状态 badge 只在样式等级变化时重抛光。将状态面板压缩到 360 px 高度时，
-控制时序页的独立纵向滚动条存在有效范围并可滚动到底，完整事件表不会再被父布局裁切。
+每帧触发 QSS repolish，状态 badge 只在样式等级变化时重抛光。
 
 本地回放 snapshot sequence 已验证单调递增，并与已应用 bag 时间、控制命令状态在同一原子
 快照中发布；UI 进度不领先该快照时间。Client 状态刷新统一由 MainWindow 的 50 ms 定时器驱动，
