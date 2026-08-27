@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iterator>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -219,44 +220,28 @@ void fillTwist(wire::Twist3D* target, const geometry_msgs::msg::Twist& source)
     target->mutable_angular()->set_z(source.angular.z);
 }
 
-const char* finalTargetClassLabel(std::uint8_t value)
+bool hasFiniteReferencePoint(const custom_msgs::msg::FinalTarget& target)
 {
-    switch (value) {
-    case custom_msgs::msg::FinalTarget::CLASS_MINE:
-        return "mine";
-    case custom_msgs::msg::FinalTarget::CLASS_NET:
-        return "net";
-    case custom_msgs::msg::FinalTarget::CLASS_OBSTACLE:
-        return "obstacle";
-    case custom_msgs::msg::FinalTarget::CLASS_OTHER:
-        return "other";
-    default:
-        return "unknown";
+    return std::isfinite(target.reference_point.x)
+           && std::isfinite(target.reference_point.y);
+}
+
+bool hasValidRadius(const custom_msgs::msg::FinalTarget& target)
+{
+    return std::isfinite(target.radius) && target.radius > 0.0;
+}
+
+bool hasValidBoundary(const custom_msgs::msg::FinalTarget& target)
+{
+    if (target.boundary.size() < 3 || target.boundary.size() > 128) return false;
+    double twiceArea = 0.0;
+    for (std::size_t index = 0; index < target.boundary.size(); ++index) {
+        const auto& point = target.boundary[index];
+        const auto& next = target.boundary[(index + 1) % target.boundary.size()];
+        if (!std::isfinite(point.x) || !std::isfinite(point.y)) return false;
+        twiceArea += point.x * next.y - next.x * point.y;
     }
-}
-
-bool hasFiniteCenter(const custom_msgs::msg::FinalTarget& target)
-{
-    return std::isfinite(target.real_center_point.x)
-           && std::isfinite(target.real_center_point.y);
-}
-
-bool hasUsableDimensions(const custom_msgs::msg::FinalTarget& target)
-{
-    return target.dimensions_valid && std::isfinite(target.length)
-           && std::isfinite(target.width) && target.length > 0.0 && target.width > 0.0;
-}
-
-bool hasUsableHeading(const custom_msgs::msg::FinalTarget& target, bool dimensionsValid)
-{
-    return dimensionsValid && target.heading_valid && std::isfinite(target.heading);
-}
-
-bool hasUsableGeodeticPosition(const custom_msgs::msg::FinalTarget& target)
-{
-    const auto& point = target.real_center_point;
-    return target.geodetic_valid && std::isfinite(point.longitude) && std::isfinite(point.latitude)
-           && std::isfinite(point.depth) && std::isfinite(point.height);
+    return std::isfinite(twiceArea) && std::abs(twiceArea) > 1.0e-9;
 }
 
 // 把 canonical 32 位 hex 转成 robot_ws 用 %x 逐字节格式化会得到的 lossy 形式：
@@ -330,61 +315,71 @@ wire::VehicleState RobotWsProtoConverter::vehicleState(
     return state;
 }
 
-wire::ObstacleSet RobotWsProtoConverter::obstacles(
+wire::FinalTargetSet RobotWsProtoConverter::finalTargets(
     const custom_msgs::msg::FinalTargetArray& message, std::uint64_t receiveTimeNs)
 {
-    wire::ObstacleSet result;
+    wire::FinalTargetSet result;
     const auto sourceTimeNs = rosStampNs(message.header.stamp, receiveTimeNs);
     fillHeader(result.mutable_header(), sourceTimeNs, receiveTimeNs,
                "robot_ws.final_targets", message.header.frame_id);
     result.set_source_task_id(message.task_id);
+    result.set_mine_number(message.mine_number);
+    if (message.header.frame_id != "odom") {
+        result.set_rejection_reason("final target set rejected: array frame is not odom");
+        return result;
+    }
+    std::set<std::uint16_t> ids;
     for (const auto& source : message.targets) {
-        if (!hasFiniteCenter(source)) {
-            // Match robot_ws obstacle processing: one invalid XY center invalidates the frame.
-            result.set_rejection_reason(
-                "obstacle set rejected: non-finite planar center (target_id="
-                + std::to_string(source.target_id) + ")");
+        if (!ids.insert(source.target_id).second) {
+            result.set_rejection_reason("final target set rejected: duplicate target_id="
+                                        + std::to_string(source.target_id));
+            return result;
+        }
+        if (source.header.frame_id != "odom") {
+            result.set_rejection_reason("final target set rejected: target frame is not odom (target_id="
+                                        + std::to_string(source.target_id) + ")");
+            return result;
+        }
+        if (!hasFiniteReferencePoint(source)) {
+            result.set_rejection_reason("final target set rejected: non-finite reference point (target_id="
+                                        + std::to_string(source.target_id) + ")");
+            return result;
+        }
+        if (!hasValidRadius(source)) {
+            result.set_rejection_reason("final target set rejected: invalid radius (target_id="
+                                        + std::to_string(source.target_id) + ")");
+            return result;
+        }
+        if (source.final_class > custom_msgs::msg::FinalTarget::CLASS_OBSTACLE) {
+            result.set_rejection_reason("final target set rejected: invalid final_class (target_id="
+                                        + std::to_string(source.target_id) + ")");
             return result;
         }
     }
     for (const auto& source : message.targets) {
-        auto* target = result.add_obstacle();
-        fillHeader(target->mutable_header(),
-                   rosStampNs(source.header.stamp, sourceTimeNs),
-                   receiveTimeNs,
-                   "robot_ws.final_target",
-                   source.header.frame_id);
-        target->set_id(std::to_string(source.target_id));
-        target->set_type(wire::Obstacle::TYPE_OTHER);
-        target->set_source_class(source.final_class);
-        target->set_class_label(finalTargetClassLabel(source.final_class));
-        target->set_source("fusion");
-        target->mutable_center()->set_x_m(source.real_center_point.x);
-        target->mutable_center()->set_y_m(source.real_center_point.y);
-        target->mutable_center()->set_z_m(source.real_center_point.z);
-        const bool dimensionsValid = hasUsableDimensions(source);
-        const bool headingValid = hasUsableHeading(source, dimensionsValid);
-        const bool geodeticValid = hasUsableGeodeticPosition(source);
-        target->set_geodetic_valid(geodeticValid);
-        target->set_dimensions_valid(dimensionsValid);
-        target->set_heading_valid(headingValid);
-        if (geodeticValid) {
-            auto* geodetic = target->mutable_geodetic_position();
-            geodetic->set_longitude_deg(source.real_center_point.longitude);
-            geodetic->set_latitude_deg(source.real_center_point.latitude);
-            geodetic->set_depth_m(source.real_center_point.depth);
-            geodetic->set_height_above_bottom_m(source.real_center_point.height);
+        auto* target = result.add_target();
+        fillHeader(target->mutable_header(), rosStampNs(source.header.stamp, sourceTimeNs),
+                   receiveTimeNs, "robot_ws.final_target", source.header.frame_id);
+        target->set_target_id(source.target_id);
+        target->set_final_class(source.final_class);
+        target->mutable_reference_point()->set_x_m(source.reference_point.x);
+        target->mutable_reference_point()->set_y_m(source.reference_point.y);
+        target->set_radius_m(source.radius);
+        if (source.final_class == custom_msgs::msg::FinalTarget::CLASS_NET) {
+            if (source.boundary.empty()) {
+                target->set_boundary_valid(true);
+            } else if (hasValidBoundary(source)) {
+                target->set_boundary_valid(true);
+                for (const auto& point : source.boundary) {
+                    auto* vertex = target->mutable_boundary()->add_point();
+                    vertex->set_x_m(point.x);
+                    vertex->set_y_m(point.y);
+                }
+            } else {
+                target->set_boundary_valid(false);
+                target->set_boundary_note("渔网边界无效，已回退保守圆");
+            }
         }
-        if (headingValid) {
-            target->set_heading_rad(source.heading);
-        }
-        if (dimensionsValid) {
-            target->set_length_m(source.length);
-            target->set_width_m(source.width);
-            target->set_height_m(source.height);
-        }
-        target->set_is_static(true);
-        target->set_is_virtual(false);
     }
     return result;
 }

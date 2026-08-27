@@ -141,9 +141,10 @@ private:
         info.channels=channels.values().toVector();for(const auto&c:info.channels)if(!c.present&&c.topic!="/targets/final_objects")info.warnings<<tr("缺少通道 %1").arg(c.topic);
         emit progress(5,tr("正在完整解码 %1 条受支持消息").arg(supportedCount));
         m_centerTurnTransitions.clear();
+        bool skippedLegacyFinalTargets=false;
         bool hasCenterTurnState=false;
         bool centerTurnState=false;
-        const QString decodeSql=messageUnionSql(QStringLiteral("WHERE t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp,split_index,message_id";q.setForwardOnly(true);if(!q.exec(decodeSql)){error=q.lastError().text();return false;}qint64 n=0;while(q.next()){wire::VisualizationSnapshot scratch;QString detail;if(!RobotWsCdrDecoder::decode(q.value(1).toString(),q.value(2).toString(),q.value(3).toByteArray(),q.value(0).toULongLong(),&scratch,&detail)){error=tr("消息解码失败：%1，第 %2 条：%3").arg(q.value(1).toString()).arg(n+1).arg(detail);return false;}if(q.value(1).toString()==QStringLiteral("/chassis_command")&&scratch.has_control_command()){const bool active=scratch.control_command().maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;if(!hasCenterTurnState||active!=centerTurnState){m_centerTurnTransitions.push_back({{q.value(0).toLongLong(),q.value(4).toInt(),q.value(5).toLongLong()},active});hasCenterTurnState=true;centerTurnState=active;}}++n;if(n%10000==0)emit progress(5+static_cast<int>(94.0*n/supportedCount),tr("已验证 %1 / %2 条消息").arg(n).arg(supportedCount));}return true;
+        const QString decodeSql=messageUnionSql(QStringLiteral("WHERE t.name IN %1").arg(supportedTopicListSql()))+" ORDER BY timestamp,split_index,message_id";q.setForwardOnly(true);if(!q.exec(decodeSql)){error=q.lastError().text();return false;}qint64 n=0;while(q.next()){wire::VisualizationSnapshot scratch;QString detail;const QString topic=q.value(1).toString();if(!RobotWsCdrDecoder::decode(topic,q.value(2).toString(),q.value(3).toByteArray(),q.value(0).toULongLong(),&scratch,&detail)){if(topic==QStringLiteral("/targets/final_objects")){if(!skippedLegacyFinalTargets){info.warnings<<tr("已跳过不兼容的旧 FinalTargetArray：%1").arg(detail);skippedLegacyFinalTargets=true;}++n;continue;}error=tr("消息解码失败：%1，第 %2 条：%3").arg(topic).arg(n+1).arg(detail);return false;}if(topic==QStringLiteral("/chassis_command")&&scratch.has_control_command()){ const bool active=scratch.control_command().maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;if(!hasCenterTurnState||active!=centerTurnState){m_centerTurnTransitions.push_back({{q.value(0).toLongLong(),q.value(4).toInt(),q.value(5).toLongLong()},active});hasCenterTurnState=true;centerTurnState=active;}}++n;if(n%10000==0)emit progress(5+static_cast<int>(94.0*n/supportedCount),tr("已验证 %1 / %2 条消息").arg(n).arg(supportedCount));}return true;
     }
     static bool keyLess(const OrderingKey& left, const OrderingKey& right)
     {
@@ -157,7 +158,8 @@ private:
     }
     static bool isSequentialTopic(const QString& topic)
     {
-        return topic == QStringLiteral("/chassis_command")
+        return topic == QStringLiteral("/targets/final_objects")
+               || topic == QStringLiteral("/chassis_command")
                || topic == QStringLiteral("/chassis_states")
                || topic == QStringLiteral("/system_run_states")
                || topic == QStringLiteral("/global_path")
@@ -170,7 +172,7 @@ private:
     void clearTopicSnapshot(const QString& topic)
     {
         if(topic==QStringLiteral("/location"))m_snapshot.clear_vehicle_state();
-        else if(topic==QStringLiteral("/targets/final_objects"))m_snapshot.clear_obstacles();
+        else if(topic==QStringLiteral("/targets/final_objects"))m_snapshot.clear_final_targets();
         else if(topic==QStringLiteral("/detection/range_motion_request") && m_snapshot.has_perception_state()) {
             m_snapshot.mutable_perception_state()->clear_range_motion_directive();
             if (!m_snapshot.perception_state().has_inspection_goal()) m_snapshot.clear_perception_state();
@@ -205,6 +207,11 @@ private:
         resetSnapshot();
         const QString countSql=QStringLiteral("SELECT name,COUNT(*),MAX(timestamp) FROM (%1) GROUP BY name").arg(unionSql("m.timestamp timestamp,t.name name",QStringLiteral("WHERE m.timestamp <= ? AND t.name IN %1").arg(supportedTopicListSql())));
         QSqlQuery counts(m_db);counts.prepare(countSql);for(int i=0;i<m_files.size();++i)counts.addBindValue(absolute);if(counts.exec())while(counts.next()){m_counts[counts.value(0).toString()]=counts.value(1).toULongLong();m_lastTimes[counts.value(0).toString()]=counts.value(2).toLongLong();}
+        // Failed legacy/truncated FinalTarget frames are intentionally ignored.
+        // Recompute this topic below from successfully decoded frames rather than
+        // letting the SQL-level raw message count advertise stale data as fresh.
+        m_counts.remove(QStringLiteral("/targets/final_objects"));
+        m_lastTimes.remove(QStringLiteral("/targets/final_objects"));
 
         const OrderingKey targetKey{absolute,std::numeric_limits<int>::max(),std::numeric_limits<qint64>::max()};
         bool centerAtTarget=false;
@@ -220,10 +227,30 @@ private:
 
         QVector<PendingMessage> latest;
         for(const auto& topic:RobotWsCdrDecoder::supportedTopics()){
-            const QString sql=messageUnionSql("WHERE m.timestamp <= ? AND t.name = ?")+" ORDER BY timestamp DESC,split_index DESC,message_id DESC LIMIT 1";
-            QSqlQuery q(m_db);q.prepare(sql);for(int i=0;i<m_files.size();++i){q.addBindValue(absolute);q.addBindValue(topic);}if(!q.exec()||!q.next())continue;
-            const PendingMessage message=messageFromRow(q);
-            latest.push_back(message);
+            const bool finalTargets = topic == QStringLiteral("/targets/final_objects");
+            const QString sql=messageUnionSql("WHERE m.timestamp <= ? AND t.name = ?")
+                                  + " ORDER BY timestamp DESC,split_index DESC,message_id DESC"
+                                  + (finalTargets ? QString{} : QStringLiteral(" LIMIT 1"));
+            QSqlQuery q(m_db);q.prepare(sql);for(int i=0;i<m_files.size();++i){q.addBindValue(absolute);q.addBindValue(topic);}if(!q.exec())continue;
+            if (!finalTargets) { if(q.next()) latest.push_back(messageFromRow(q)); continue; }
+
+            quint64 validCount = 0;
+            bool haveLatestValid = false;
+            PendingMessage latestValid;
+            while (q.next()) {
+                const PendingMessage message = messageFromRow(q);
+                wire::VisualizationSnapshot scratch;
+                QString detail;
+                if (!RobotWsCdrDecoder::decode(message.topic, message.type, message.payload,
+                                                message.timestampNs, &scratch, &detail)) continue;
+                ++validCount;
+                if (!haveLatestValid) { latestValid = message; haveLatestValid = true; }
+            }
+            if (haveLatestValid) {
+                m_counts[topic] = validCount;
+                m_lastTimes[topic] = latestValid.timestampNs;
+                latest.push_back(latestValid);
+            }
         }
 
         bool commandTimedOut=false;
@@ -287,7 +314,11 @@ private:
             if(globalPath)m_snapshot.clear_global_trajectory();else m_snapshot.clear_local_trajectory();
             return true;
         }
-        if(!decodeMessage(message))return false;
+        if(!decodeMessage(message)) {
+            // Callers isolate an incompatible FinalTargetArray frame, but need
+            // this false result to avoid advancing its count/freshness state.
+            return false;
+        }
         stampSequence(message.topic,sequence);
         if(message.topic==QStringLiteral("/chassis_command")&&m_snapshot.has_control_command()){
             const bool center=m_snapshot.control_command().maneuver()==wire::ControlCommand::MANEUVER_YAW_IN_PLACE;
@@ -320,10 +351,21 @@ private:
             if (m_pendingTs > target) break;
 
             const PendingMessage message = messageFromRow(m_query);
-            m_counts[message.topic]++;
-            m_lastTimes[message.topic] = message.timestampNs;
-            if(isSequentialTopic(message.topic))applyMessage(message,m_counts.value(message.topic));
-            else latestByTopic[message.topic] = message;
+            const bool finalTargets = message.topic == QStringLiteral("/targets/final_objects");
+            if (finalTargets) {
+                const quint64 nextSequence = m_counts.value(message.topic) + 1;
+                // A legacy or damaged FinalTarget CDR frame is skipped without
+                // mutating its last successful snapshot or freshness metadata.
+                if (applyMessage(message, nextSequence)) {
+                    m_counts[message.topic] = nextSequence;
+                    m_lastTimes[message.topic] = message.timestampNs;
+                }
+            } else {
+                m_counts[message.topic]++;
+                m_lastTimes[message.topic] = message.timestampNs;
+                if(isSequentialTopic(message.topic))applyMessage(message,m_counts.value(message.topic));
+                else latestByTopic[message.topic] = message;
+            }
             lastProcessedNs = message.timestampNs;
             m_hasPending = false;
             ++processedRows;

@@ -137,7 +137,7 @@ int main(int argc, char** argv)
                 localPath |= snapshot.has_local_trajectory();
                 action |= snapshot.has_action_state();
                 task |= snapshot.has_task_state();
-                obstacles |= snapshot.has_obstacles();
+                obstacles |= snapshot.has_final_targets();
                 if (snapshot.has_runtime_state()) {
                     latestTopics.assign(snapshot.runtime_state().topic().begin(),
                                         snapshot.runtime_state().topic().end());

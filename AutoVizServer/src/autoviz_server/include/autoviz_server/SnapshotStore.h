@@ -30,7 +30,7 @@ public:
     void updateControlCommand(::autoviz::ControlCommand value, std::uint64_t receiveTimeNs);
     void updateGlobalTrajectory(::autoviz::Trajectory value, std::uint64_t receiveTimeNs);
     void updateLocalTrajectory(::autoviz::Trajectory value, std::uint64_t receiveTimeNs);
-    void updateObstacles(::autoviz::ObstacleSet value, std::uint64_t receiveTimeNs);
+    void updateFinalTargets(::autoviz::FinalTargetSet value, std::uint64_t receiveTimeNs);
     void updateRangeMotionDirective(::autoviz::RangeMotionDirective value,
                                     std::uint64_t receiveTimeNs);
     void updateInspectionGoal(::autoviz::InspectionGoal value, std::uint64_t receiveTimeNs);

@@ -92,9 +92,9 @@ void SnapshotStore::updateLocalTrajectory(wire::Trajectory value,
     record(wire::DATA_KIND_LOCAL_TRAJECTORY, receiveTimeNs);
 }
 
-void SnapshotStore::updateObstacles(wire::ObstacleSet value, std::uint64_t receiveTimeNs)
+void SnapshotStore::updateFinalTargets(wire::FinalTargetSet value, std::uint64_t receiveTimeNs)
 {
-    m_snapshot.mutable_obstacles()->Swap(&value);
+    m_snapshot.mutable_final_targets()->Swap(&value);
     record(wire::DATA_KIND_OBSTACLES, receiveTimeNs);
 }
 
@@ -268,7 +268,7 @@ void SnapshotStore::clear(wire::DataKind dataKind)
         m_snapshot.clear_reference_line();
         break;
     case wire::DATA_KIND_OBSTACLES:
-        m_snapshot.clear_obstacles();
+        m_snapshot.clear_final_targets();
         break;
     case wire::DATA_KIND_RANGE_MOTION_DIRECTIVE:
         if (m_snapshot.has_perception_state()) {

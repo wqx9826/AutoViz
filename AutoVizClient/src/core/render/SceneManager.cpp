@@ -677,14 +677,22 @@ void SceneManager::drawObstacles(const autoviz::model::ObstacleList& obstacles)
             continue;
         }
         if (obstacle.shape == autoviz::model::ObstacleShapeType::Circle) {
-            const double radius = 0.5 * std::hypot(obstacle.length, obstacle.width);
+            const double radius = obstacle.isFinalTarget
+                                      ? obstacle.conservativeRadius
+                                      : 0.5 * std::hypot(obstacle.length, obstacle.width);
             auto* marker = m_scene->addEllipse(x - radius, y - radius, 2.0 * radius, 2.0 * radius,
                                                QPen(QColor("#ef476f"), 0.0),
                                                QBrush(QColor(239, 71, 111, 90)));
-            marker->setToolTip(QStringLiteral("%1\nid=%2 class=%3\n尺寸有效，朝向未知")
+            const QString finalTargetNote = obstacle.isFinalTarget
+                                                ? (obstacle.finalTargetBoundaryState == autoviz::model::FinalTargetBoundaryState::InvalidFallbackCircle
+                                                       ? QStringLiteral("渔网边界无效，已回退保守圆")
+                                                       : QStringLiteral("参考点 + 保守半径圆"))
+                                                : QStringLiteral("尺寸有效，朝向未知");
+            marker->setToolTip(QStringLiteral("%1\nid=%2 class=%3\n%4")
                                    .arg(obstacle.sourceTopic.isEmpty() ? QStringLiteral("obstacle") : obstacle.sourceTopic)
                                    .arg(obstacle.id)
-                                   .arg(obstacle.classLabel.isEmpty() ? QString::number(obstacle.sourceClass) : obstacle.classLabel));
+                                   .arg(obstacle.classLabel.isEmpty() ? QString::number(obstacle.sourceClass) : obstacle.classLabel)
+                                   .arg(finalTargetNote));
             includeVisibleContentBounds(marker->sceneBoundingRect());
             continue;
         }

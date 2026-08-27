@@ -201,6 +201,27 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
             return false;
         }
     }
+    auto* taskParamsScrollArea = panel.findChild<QScrollArea*>(QStringLiteral("taskParamsScrollArea"));
+    if (taskParamsScrollArea == nullptr) {
+        error << "TaskParams scroll area is missing\n";
+        return false;
+    }
+    const auto taskParamsGroup = [taskParamsScrollArea](const QString& title) {
+        const auto groups = taskParamsScrollArea->findChildren<QGroupBox*>();
+        const auto group = std::find_if(groups.cbegin(), groups.cend(), [&title](const auto* candidate) {
+            return candidate->title() == title;
+        });
+        return group == groups.cend() ? nullptr : *group;
+    };
+    auto* basicTaskGroup = taskParamsGroup(QStringLiteral("基础任务"));
+    auto* crawlRemoteGroup = taskParamsGroup(QStringLiteral("爬行遥控"));
+    auto* sailingRemoteGroup = taskParamsGroup(QStringLiteral("航行遥控"));
+    if (basicTaskGroup == nullptr || crawlRemoteGroup == nullptr || sailingRemoteGroup == nullptr
+        || crawlRemoteGroup->height() >= basicTaskGroup->height()
+        || sailingRemoteGroup->y() >= basicTaskGroup->geometry().bottom()) {
+        error << "TaskParams compact remote-control layout is invalid\n";
+        return false;
+    }
     auto* crawlSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.crawl_speed"));
     auto* sailingSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.sailing_speed"));
     auto* crawlAngularLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.crawl_angular"));
@@ -315,6 +336,8 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     detailSnapshot.finalTargetSetRuntimeStatus.timestampMs = 1786936821103LL;
     detailSnapshot.finalTargetSetRuntimeStatus.hasTaskId = true;
     detailSnapshot.finalTargetSetRuntimeStatus.taskId = 9;
+    detailSnapshot.finalTargetSetRuntimeStatus.hasMineNumber = true;
+    detailSnapshot.finalTargetSetRuntimeStatus.mineNumber = 1;
     detailSnapshot.finalTargetSetRuntimeStatus.targetCount = 1;
     detailSnapshot.finalTargetSetRuntimeStatus.rejectionReason = QStringLiteral("目标集已拒绝：测试原因");
     detailSnapshot.obstacleRejectionReason = detailSnapshot.finalTargetSetRuntimeStatus.rejectionReason;
@@ -322,18 +345,10 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     target.id = 42;
     target.classLabel = QStringLiteral("障碍物");
     target.position.position = {1.0, 2.0};
-    target.position.z = -3.0;
-    target.geodeticValid = true;
-    target.longitude = 120.0;
-    target.latitude = 30.0;
-    target.depth = 8.0;
-    target.heightAboveBottom = 1.5;
-    target.dimensionsValid = true;
-    target.length = 3.0;
-    target.width = 1.0;
-    target.height = 0.5;
-    target.headingValid = true;
-    target.position.theta = 1.0;
+    target.isFinalTarget = true;
+    target.conservativeRadius = 3.0;
+    target.finalTargetBoundaryState = autoviz::model::FinalTargetBoundaryState::InvalidFallbackCircle;
+    target.finalTargetBoundaryNote = QStringLiteral("渔网边界无效，已回退保守圆");
     detailSnapshot.obstacles = {target};
     detailSnapshot.topicStatuses += {
         topicStatus(autoviz::model::VisualizationChannel::TaskState, 2, 1786936821100LL),
@@ -356,27 +371,20 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
         || inspectionIds->text() != QStringLiteral("9 / 18 / 42")
         || finalRejection->text() != QStringLiteral("目标集已拒绝：测试原因")
         || targetTable->rowCount() != 1
-        || targetTable->item(0, 4) == nullptr || targetTable->item(0, 4)->text() != QStringLiteral("-3.000")) {
+        || targetTable->item(0, 4) == nullptr || targetTable->item(0, 4)->text() != QStringLiteral("3.000")
+        || targetTable->item(0, 6) == nullptr || targetTable->item(0, 6)->text() != QStringLiteral("边界无效，回退圆")) {
         error << "TaskParams/perception detail fields did not render correctly: task='"
               << (missingTaskEnable == nullptr ? QStringLiteral("<null>") : missingTaskEnable->text())
               << "', range='" << (rangeTaskId == nullptr ? QStringLiteral("<null>") : rangeTaskId->text())
               << "', inspection='" << (inspectionIds == nullptr ? QStringLiteral("<null>") : inspectionIds->text())
               << "', rejection='" << (finalRejection == nullptr ? QStringLiteral("<null>") : finalRejection->text())
               << "', rows=" << (targetTable == nullptr ? -1 : targetTable->rowCount())
-              << ", z='" << (targetTable == nullptr || targetTable->item(0, 4) == nullptr
-                                    ? QStringLiteral("<null>") : targetTable->item(0, 4)->text())
+              << ", radius='" << (targetTable == nullptr || targetTable->item(0, 4) == nullptr
+                                         ? QStringLiteral("<null>") : targetTable->item(0, 4)->text())
               << "'\n";
         return false;
     }
 
-    auto planarOnlySnapshot = detailSnapshot;
-    planarOnlySnapshot.obstacles.front().position.z = std::numeric_limits<double>::quiet_NaN();
-    panel.updateSnapshot(planarOnlySnapshot);
-    if (targetTable->item(0, 13) == nullptr
-        || !targetTable->item(0, 13)->text().startsWith(QStringLiteral("位置 有效"))) {
-        error << "FinalTarget detail treated a non-finite Z as an invalid planar center\n";
-        return false;
-    }
     panel.updateSnapshot(initialSnapshot);
 
     tabs->setCurrentIndex(1);

@@ -47,6 +47,36 @@ message ObstacleSet {
   optional string rejection_reason = 4;
 }
 
+// Fused FinalTarget result. `reference_point` is an observation reference,
+// not necessarily the geometry centre. `radius_m` is the conservative maximum
+// distance from that reference to the target outline. Boundary points are XY
+// odom coordinates and are meaningful only for final_class=CLASS_NET (2).
+message FinalTarget {
+  optional Header header = 1;
+  optional uint32 target_id = 2;
+  optional uint32 final_class = 3;
+  optional Point2D reference_point = 4;
+  optional double radius_m = 5;
+  optional Polygon2D boundary = 6;
+  // false means a CLASS_NET boundary was supplied but could not be safely
+  // rendered; clients must render the conservative circle instead.
+  optional bool boundary_valid = 7 [default = true];
+  optional string boundary_note = 8;
+}
+
+// Current fusion result set from robot_ws /targets/final_objects. This is
+// intentionally distinct from ObstacleSet: old box-centre/size semantics must
+// never be inferred from FinalTarget reference-point/radius data.
+message FinalTargetSet {
+  optional Header header = 1;
+  optional uint32 source_task_id = 2;
+  optional uint32 mine_number = 3;
+  repeated FinalTarget target = 4;
+  // Present only when the whole set is rejected. A present empty target list
+  // without this field is a valid result with no fused targets.
+  optional string rejection_reason = 5;
+}
+
 // Perception-issued directive. It states the requested motion behavior, not
 // a command that bypasses the planner's final safety decision.
 message RangeMotionDirective {

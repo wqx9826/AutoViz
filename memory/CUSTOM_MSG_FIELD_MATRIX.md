@@ -9,7 +9,7 @@
 | 输入 | 消息字段覆盖 | Server | 本地 CDR | Client/UI |
 | --- | --- | --- | --- | --- |
 | `/location` | 全部标量，包括 start/Gauss/origin/odom heading/omega X/Y/USBL words | `VehicleState` typed 字段 | `decodeLocation` 同序读取 | 定位详情；heading 与 odom_heading 并列显示，不做一致性告警 |
-| `/targets/final_objects` | task id、目标点、经纬度/深度/高度、尺寸/朝向及 validity | `ObstacleSet`/`Obstacle` | `decodeObstacles`，无尺寸目标保留为 Point | XY 点、Box 或朝向未知的外接圆；当前主视图不消费目标 z/尺寸 height |
+| `/targets/final_objects` | Array task_id/mine_number；目标 header/ID/class/reference XY/radius；仅渔网 boundary XY | `FinalTargetSet`（snapshot field 23） | `decodeFinalTargets`，严格当前 CDR 布局 | 参考点 + 保守圆；合法渔网边界画多边形，无效/缺失边界回退圆 |
 | `/chassis_command` | 原始 mode、使能、速度、角速度、挡位、水推/垂向/浮力/声纳 | `ControlCommand` | `decodeCommand` | 控制详情；angular_velocity 原值透传 |
 | `/chassis_states` | 水推/履带执行器、航向 Kp/目标/实际/误差/输出、尾推遥测、BMS、配电、底盘状态 | `ChassisState` typed 字段 | 旧无尾推 277、旧含尾推 341、当前无尾推 325、当前含尾推 389；严格按长度选择 | 底盘详情；旧布局缺失的航向/尾推字段显示“无此版本数据” |
 | `/system_run_states` | Action 聚合 owner/goal/state/message/mode/目标/浮力/紧急上浮 | `ActionState` | `decodeAction` | Action 主状态；隐藏 status/feedback 仅作诊断 |
@@ -40,7 +40,7 @@
 - `TaskParams.task_enable` 在协议中只表示当前任务使能；robot_ws 未提供可可靠回放的独立启动事件，
   因此不虚构“启动请求”字段。
 - `odom_z`、`depth`、`height_above_bottom` 始终是三个独立字段。
-- `FinalTarget` 的中心 XY 非有限时整帧目标无效；尺寸仅在长宽均为有限正数时有效；尺寸有效但朝向缺失或非有限时，XY 视图画外接圆，绝不以 0 rad 伪造朝向。Server 与本地 CDR 使用相同规则。整帧拒绝时 `ObstacleSet.rejection_reason` 必须说明原因并由 UI 显示；有效的后续帧不携带该字段，提示随之清除。
+- 当前 `FinalTarget` 的 array/target header 必须为 `odom`，同帧 target_id 唯一，reference X/Y 必须有限、radius 必须为有限正数、final_class 必须在 0..3；违反任一条件整帧拒绝。`reference_point` 不是几何中心，协议/UI 不得伪造 Z、尺寸、朝向或经纬度。仅 CLASS_NET 消费 boundary：空边界合法且回退保守圆；点数不足 3、非有限或零面积时仅该目标回退圆。Server 与本地 CDR 使用相同规则；整帧拒绝时 `FinalTargetSet.rejection_reason` 必须说明原因并由 UI 显示，有效后续帧清除提示。旧 FinalTarget CDR 布局仅跳过该 Topic，不影响 bag 其他通道。
 - `/detection/range_motion_request` 与 `/detection/inspection_request_goal` 共享 `PerceptionState` 容器但不是同一状态；Server 和回放端必须分别统计、分别过期，且不得因当前 `TaskParams.task_id` 不同而丢弃消息。
 - `TaskParams` 的详情字段以 protobuf optional presence 为准：旧 Server 未发送的单个字段仅显示“该 Server 无此信息”；本地 bag 完全没有相应 topic 则显示“该 bag 无此 Topic”。
 

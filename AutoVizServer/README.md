@@ -1,7 +1,7 @@
 # AutoVizServer
 
 AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取八条基础 robot_ws topic 和两条可选
-感知请求 topic，转换为来源无关的 AutoViz Protocol v2.6 完整快照，并通过 TCP 只读发送给 Qt Client。
+感知请求 topic，转换为来源无关的 AutoViz Protocol v2.7 完整快照，并通过 TCP 只读发送给 Qt Client。
 
 ## 从 ROS 回调到 TCP 的固定数据流
 
@@ -65,7 +65,7 @@ Client                                      Server
 | topic | v2 数据 | 关键归一化 |
 | --- | --- | --- |
 | `/location` | VehicleState + UnderwaterState | odom_z/depth/离底高度保持独立；附带经纬度与 USBL 诊断 |
-| `/targets/final_objects` | ObstacleSet | 只读取当前真实 ID、分类、中心、尺寸、有效标志 |
+| `/targets/final_objects` | FinalTargetSet（snapshot field 23） | task_id/mine_number、目标 ID/分类、参考点 XY、保守半径及仅渔网适用的边界；旧 ObstacleSet=16 保留但不用于当前消息 |
 | `/chassis_command` | ControlCommand + UnderwaterCommand | 通用运动与水下命令分层 |
 | `/chassis_states` | ChassisState + UnderwaterChassisState + PlatformDiagnostics + tail telemetry | 反馈角速度按源值透传 |
 | `/system_run_states` | ActionState + UnderwaterCommand | 目标角速度 deg/s 转 rad/s |

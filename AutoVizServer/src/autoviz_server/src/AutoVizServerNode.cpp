@@ -209,8 +209,8 @@ void AutoVizServerNode::onObstacles(custom_msgs::msg::FinalTargetArray::ConstSha
 {
     if (!message) return;
     const auto receiveTimeNs = nowNs();
-    m_store->updateObstacles(
-        RobotWsProtoConverter::obstacles(*message, receiveTimeNs), receiveTimeNs);
+    m_store->updateFinalTargets(
+        RobotWsProtoConverter::finalTargets(*message, receiveTimeNs), receiveTimeNs);
 }
 
 void AutoVizServerNode::onRangeMotionDirective(

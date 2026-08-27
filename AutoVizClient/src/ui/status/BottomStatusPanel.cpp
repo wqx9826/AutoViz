@@ -1557,39 +1557,78 @@ void BottomStatusPanel::setupControlTimelineTab()
     m_detailTabs->addTab(scrollArea, tr("控制时序"));
 }
 
+void BottomStatusPanel::setupTaskParamsTab()
+{
+    const auto& scale = autoviz::ui::theme::UiScaleManager::instance();
+    auto* scrollArea = new QScrollArea(m_detailTabs);
+    scrollArea->setObjectName(QStringLiteral("taskParamsScrollArea"));
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    auto* content = new QWidget(scrollArea);
+    auto* layout = new QGridLayout(content);
+    layout->setContentsMargins(scale.marginNormal(), scale.marginNormal(), scale.marginNormal(), scale.marginNormal());
+    layout->setHorizontalSpacing(scale.spacingNormal());
+    layout->setVerticalSpacing(scale.spacingNormal());
+
+    auto* basicTask = createDetailGroup(content, tr("基础任务"),
+                                        {{QStringLiteral("taskparams.state"), tr("数据状态")},
+                                         {QStringLiteral("taskparams.time"), tr("更新时间")},
+                                         {QStringLiteral("taskparams.topic"), tr("任务参数通道")},
+                                         {QStringLiteral("taskparams.type"), tr("任务类型")},
+                                         {QStringLiteral("taskparams.id"), tr("任务 ID")},
+                                         {QStringLiteral("taskparams.enable"), tr("任务使能")},
+                                         {QStringLiteral("taskparams.action_enable"), tr("动作使能")},
+                                         {QStringLiteral("taskparams.emergency_stop"), tr("机械急停")},
+                                         {QStringLiteral("taskparams.release_emergency_ascent"), tr("紧急上浮解除")},
+                                         {QStringLiteral("taskparams.remote_mode"), tr("遥控模式")},
+                                         {QStringLiteral("taskparams.power_enable"), tr("配电使能")},
+                                         {QStringLiteral("taskparams.buoyancy"), tr("浮力")}});
+    auto* crawlRemote = createDetailGroup(content, tr("爬行遥控"),
+                                          {{QStringLiteral("taskparams.crawl_gear"), tr("档位")},
+                                           {QStringLiteral("taskparams.crawl_speed"), tr("速度 (m/s)")},
+                                           {QStringLiteral("taskparams.crawl_angular"), tr("角速度 (°/s)")}});
+    auto* sailingRemote = createDetailGroup(content, tr("航行遥控"),
+                                            {{QStringLiteral("taskparams.forward"), tr("前进百分比")},
+                                             {QStringLiteral("taskparams.turn"), tr("转向百分比")},
+                                             {QStringLiteral("taskparams.dive"), tr("下潜百分比")}});
+    auto* thrusterDebug = createDetailGroup(content, tr("推进器调试"),
+                                            {{QStringLiteral("taskparams.tail_left"), tr("左尾推")},
+                                             {QStringLiteral("taskparams.tail_right"), tr("右尾推")},
+                                             {QStringLiteral("taskparams.vertical_left"), tr("左前垂推")},
+                                             {QStringLiteral("taskparams.vertical_right"), tr("右前垂推")},
+                                             {QStringLiteral("taskparams.vertical_back"), tr("后垂推")}});
+    auto* powerChannels = createDetailGroup(content, tr("配电通路"),
+                                             {{QStringLiteral("taskparams.power_channels"), tr("1 至 16 路指令")}});
+
+    // The task fields have intentionally uneven lengths.  A normal 2-column
+    // grid stretches the three-row crawl group to the height of 基础任务,
+    // creating the large blank region visible before.  Keep each control group
+    // at its natural height and stack the short groups in the right column.
+    auto* rightColumn = new QWidget(content);
+    auto* rightLayout = new QVBoxLayout(rightColumn);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(scale.spacingNormal());
+    rightLayout->addWidget(crawlRemote);
+    rightLayout->addWidget(sailingRemote);
+    rightLayout->addWidget(thrusterDebug);
+    rightLayout->addWidget(powerChannels);
+    rightLayout->addStretch(1);
+
+    layout->addWidget(basicTask, 0, 0, Qt::AlignTop);
+    layout->addWidget(rightColumn, 0, 1, Qt::AlignTop);
+    layout->setColumnStretch(0, 1);
+    layout->setColumnStretch(1, 1);
+    layout->setRowStretch(1, 1);
+
+    scrollArea->setWidget(content);
+    m_detailTabs->addTab(scrollArea, tr("TaskParams"));
+}
+
 void BottomStatusPanel::setupStateTabs()
 {
-    createDetailTab(tr("TaskParams"),
-                    {{tr("基础任务"),
-                      {{QStringLiteral("taskparams.state"), tr("数据状态")},
-                       {QStringLiteral("taskparams.time"), tr("更新时间")},
-                       {QStringLiteral("taskparams.topic"), tr("任务参数通道")},
-                       {QStringLiteral("taskparams.type"), tr("任务类型")},
-                       {QStringLiteral("taskparams.id"), tr("任务 ID")},
-                       {QStringLiteral("taskparams.enable"), tr("任务使能")},
-                       {QStringLiteral("taskparams.action_enable"), tr("动作使能")},
-                       {QStringLiteral("taskparams.emergency_stop"), tr("机械急停")},
-                       {QStringLiteral("taskparams.release_emergency_ascent"), tr("紧急上浮解除")},
-                       {QStringLiteral("taskparams.remote_mode"), tr("遥控模式")},
-                       {QStringLiteral("taskparams.power_enable"), tr("配电使能")},
-                       {QStringLiteral("taskparams.buoyancy"), tr("浮力")}}},
-                     {tr("爬行遥控"),
-                      {{QStringLiteral("taskparams.crawl_gear"), tr("档位")},
-                       {QStringLiteral("taskparams.crawl_speed"), tr("速度 (m/s)")},
-                       {QStringLiteral("taskparams.crawl_angular"), tr("角速度 (°/s)")}}},
-                     {tr("航行遥控"),
-                      {{QStringLiteral("taskparams.forward"), tr("前进百分比")},
-                       {QStringLiteral("taskparams.turn"), tr("转向百分比")},
-                       {QStringLiteral("taskparams.dive"), tr("下潜百分比")}}},
-                     {tr("推进器调试"),
-                      {{QStringLiteral("taskparams.tail_left"), tr("左尾推")},
-                       {QStringLiteral("taskparams.tail_right"), tr("右尾推")},
-                       {QStringLiteral("taskparams.vertical_left"), tr("左前垂推")},
-                       {QStringLiteral("taskparams.vertical_right"), tr("右前垂推")},
-                       {QStringLiteral("taskparams.vertical_back"), tr("后垂推")}}},
-                     {tr("配电通路"),
-                      {{QStringLiteral("taskparams.power_channels"), tr("1 至 16 路指令")}}}},
-                    2);
+    setupTaskParamsTab();
 
     createDetailTab(tr("定位"),
                     {{tr("基础状态"),
@@ -1800,6 +1839,7 @@ void BottomStatusPanel::setupPerceptionTab()
         {QStringLiteral("perception.final.topic"), tr("Topic 状态")},
         {QStringLiteral("perception.final.time"), tr("更新时间")},
         {QStringLiteral("perception.final.task_id"), tr("任务 ID")},
+        {QStringLiteral("perception.final.mine_number"), tr("水雷统计数")},
         {QStringLiteral("perception.final.count"), tr("目标数量")},
         {QStringLiteral("perception.final.rejection"), tr("拒绝原因")}};
     layout->addWidget(createDetailGroup(content, tr("测距运动请求"), rangeFields), 0, 0);
@@ -1837,11 +1877,10 @@ void BottomStatusPanel::setupPerceptionTab()
     m_finalTargetTable = new QTableWidget(finalGroup);
     m_finalTargetTable->setObjectName(QStringLiteral("finalTargetTable"));
     m_finalTargetTable->setFont(scale.font(scale.fontSizeSmall()));
-    m_finalTargetTable->setColumnCount(15);
-    m_finalTargetTable->setHorizontalHeaderLabels({tr("ID"), tr("类别"), tr("中心 X"), tr("中心 Y"),
-                                                    tr("中心 Z"), tr("经度"), tr("纬度"), tr("深度"),
-                                                    tr("高度"), tr("L"), tr("W"), tr("H"), tr("朝向"),
-                                                    tr("几何有效性"), tr("更新时间")});
+    m_finalTargetTable->setColumnCount(8);
+    m_finalTargetTable->setHorizontalHeaderLabels({tr("ID"), tr("类别"), tr("参考点 X"), tr("参考点 Y"),
+                                                    tr("保守半径 (m)"), tr("边界点数"), tr("展示形状"),
+                                                    tr("更新时间")});
     m_finalTargetTable->verticalHeader()->setVisible(false);
     m_finalTargetTable->setShowGrid(false);
     m_finalTargetTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -2205,30 +2244,30 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("perception.final.topic"), perceptionTopicText(finalTopic, snapshot.runtimeStatus.inputSource));
     setDetailValue(QStringLiteral("perception.final.time"), finalTargets.valid ? formatTime(finalTargets.timestampMs) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("perception.final.task_id"), finalTargets.valid && finalTargets.hasTaskId ? QString::number(finalTargets.taskId) : finalTargets.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
+    setDetailValue(QStringLiteral("perception.final.mine_number"), finalTargets.valid && finalTargets.hasMineNumber ? QString::number(finalTargets.mineNumber) : finalTargets.valid ? QStringLiteral("该 Server 无此信息") : QStringLiteral("--"));
     setDetailValue(QStringLiteral("perception.final.count"), finalTargets.valid ? QString::number(finalTargets.targetCount) : QStringLiteral("--"));
     setDetailValue(QStringLiteral("perception.final.rejection"), finalTargets.valid ? (finalTargets.rejectionReason.isEmpty() ? QStringLiteral("--") : finalTargets.rejectionReason) : QStringLiteral("--"));
     if (m_finalTargetTable != nullptr) {
         m_finalTargetTable->setRowCount(snapshot.obstacles.size());
         for (int row = 0; row < snapshot.obstacles.size(); ++row) {
             const auto& target = snapshot.obstacles.at(row);
-            const bool centerValid = std::isfinite(target.position.position.x)
-                                     && std::isfinite(target.position.position.y);
-            const QString geometry = QStringLiteral("位置 %1 / 尺寸 %2 / 朝向 %3")
-                                         .arg(centerValid ? tr("有效") : tr("无效"))
-                                         .arg(target.dimensionsValid ? tr("有效") : tr("无效"))
-                                         .arg(target.headingValid ? tr("有效") : tr("未知"));
+            QString shape = tr("保守圆");
+            if (target.finalTargetBoundaryState == autoviz::model::FinalTargetBoundaryState::Valid) {
+                shape = tr("渔网边界");
+            } else if (target.finalTargetBoundaryState
+                       == autoviz::model::FinalTargetBoundaryState::InvalidFallbackCircle) {
+                shape = tr("边界无效，回退圆");
+            } else if (target.finalTargetBoundaryState
+                       == autoviz::model::FinalTargetBoundaryState::NotProvided) {
+                shape = tr("未提供边界，保守圆");
+            }
             const QStringList values = {QString::number(target.id),
-                                        target.classLabel.isEmpty() ? autoviz::model::toDisplayString(target.type) : target.classLabel,
-                                        formatNumber(target.position.position.x), formatNumber(target.position.position.y), formatNumber(target.position.z),
-                                        target.geodeticValid ? formatNumber(target.longitude, 6) : QStringLiteral("--"),
-                                        target.geodeticValid ? formatNumber(target.latitude, 6) : QStringLiteral("--"),
-                                        target.geodeticValid ? formatNumber(target.depth) : QStringLiteral("--"),
-                                        target.geodeticValid ? formatNumber(target.heightAboveBottom) : QStringLiteral("--"),
-                                        target.dimensionsValid ? formatNumber(target.length) : QStringLiteral("--"),
-                                        target.dimensionsValid ? formatNumber(target.width) : QStringLiteral("--"),
-                                        target.dimensionsValid ? formatNumber(target.height) : QStringLiteral("--"),
-                                        target.headingValid ? formatAngleDegrees(target.position.theta) : QStringLiteral("--"),
-                                        geometry, formatTime(target.header.timestamp)};
+                                        target.classLabel,
+                                        formatNumber(target.position.position.x),
+                                        formatNumber(target.position.position.y),
+                                        formatNumber(target.conservativeRadius),
+                                        QString::number(target.polygon.vertices.size()),
+                                        shape, formatTime(target.header.timestamp)};
             for (int column = 0; column < values.size(); ++column) {
                 m_finalTargetTable->setItem(row, column, makeAlignedItem(values.at(column), Qt::AlignCenter));
             }

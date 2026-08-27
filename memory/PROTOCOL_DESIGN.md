@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.6
+# AutoViz Protocol v2.7
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
@@ -39,7 +39,8 @@ field 3（旧 SubscribeRequest）和 5（旧 ChannelUpdate）已 `reserved`，�
 `VisualizationSnapshot` 的 1..4 为 sequence/server_time/session/source；领域字段固定为
 VehicleState=10、ChassisState=11、ControlCommand=12、global/local trajectory=13/14、
 ReferenceLine=15、ObstacleSet=16、ActionState=17、TaskState=18、RuntimeState=19、
-VehicleParameters=20。
+VehicleParameters=20。`FinalTargetSet=23` 是 2.7 新增的 optional 字段；它与旧
+`ObstacleSet=16` 并存，绝不复用或重解释旧字段。
 `PerceptionState=22` 是 2.5 新增的 optional 字段；21 曾用于推导的 control state event，现已
 `reserved`。`TaskState=10` 曾用于 task_start_requested，现同样 `reserved`，因为 robot_ws
 只提供当前 `task_enable`，不能可靠表达独立的启动事件。
@@ -75,8 +76,20 @@ Client                         Server
 `DataKind` 只稳定标识来源健康状态，不承担订阅。UI 可能显示 topic/type，但不得用其字符串
 做业务判断。履带、BMS、DCDC、配电使用 typed 结构；`DiagnosticMetric` 仅保留扩展诊断。
 
-`ObstacleSet.rejection_reason` 是整帧障碍物被 Adapter 或本地回放校验拒绝时的来源无关说明；
-字段存在时该 set 的 `obstacle` 必须为空。字段缺失且列表为空表示合法的无目标帧。
+`ObstacleSet.rejection_reason` 是旧泛化障碍物集合的整帧拒绝说明；当前 robot_ws 的
+`/targets/final_objects` 不再写入该字段，而是使用 `FinalTargetSet.rejection_reason`。Client 仍必须
+消费 `ObstacleSet=16`，以兼容旧 v2 Server 和其他泛化 Adapter；当同一快照同时有 16 与 23 时，
+`FinalTargetSet=23` 优先，防止把 reference point/radius 错画为旧盒体。
+
+`FinalTargetSet` 适配当前 robot_ws `FinalTargetArray`：集合 header 与每个 target header 必须为
+`odom`；`source_task_id` 与 `mine_number` 仅为感知元数据，不参与 TaskParams 门控。每个 target 的
+`reference_point` 仅是感知参考点、绝非几何中心，`radius_m` 是到外轮廓的有限正保守最大距离。
+同帧 target ID 重复、frame 非 odom、参考点非有限、半径非有限/非正或分类不在 0..3 时拒绝整帧。
+仅 final_class=2（渔网）消费边界：空边界合法并绘制保守圆；无效边界仅该目标回退圆并携带提示。
+Server Adapter 与本地 CDR decoder 必须产生相同的集合、回退和拒绝结论。2.7 保持 protocol major=2，
+因此其他旧 v2 字段和旧 bag 通道继续可用；旧 FinalTarget CDR 布局只跳过该 Topic，不阻断 bag 预检。
+Client 只在一个 FinalTarget CDR frame 完整解码、校验并消费后替换当前集合；跳过的旧布局或截断帧
+不得清空上一有效集合，也不得推进该 Topic 的消息计数或新鲜度。
 
 `PerceptionState.range_motion_directive` 与 `PerceptionState.inspection_goal` 分别对应来源无关的
 测距运动建议和观察目标，二者不能互相覆盖或在超时时一并清除。前者包含消息自己的任务 ID、

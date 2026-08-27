@@ -5,6 +5,7 @@
 #include <cstring>
 #include <limits>
 #include <QMap>
+#include <QSet>
 #include <QStringList>
 
 namespace autoviz::playback {
@@ -414,12 +415,37 @@ bool decodeGlobalPath(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QStri
 }
 
 bool readCustomPoint(CdrReader&r,double values[8],QString*e){for(int i=0;i<8;++i)if(!r.f64Raw(values[i],e))return false;return true;}
-const char* classLabel(quint8 c){return c==1?"mine":c==2?"net":c==3?"obstacle":c==4?"other":"unknown";}
-bool decodeObstacles(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
+bool decodeFinalTargets(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e)
 {
-    qint32 sec,tsec;quint32 ns,task,count,tns;QString frame,tframe;if(!readHeader(r,sec,ns,frame,e)||!r.u32(task,e)||!r.sequenceSize(count,e))return false;const quint64 source=headerNs(sec,ns,ts);auto*set=s->mutable_obstacles();fillHeader(set->mutable_header(),source,ts,"robot_ws.final_targets",frame);set->set_source_task_id(task);
-    bool invalidCenter=false;quint16 invalidCenterId=0;
-    for(quint32 i=0;i<count;++i){quint16 id;double point[8],length,width,height,heading;bool geo,dimensions,headingValid;quint8 cls;if(!readHeader(r,tsec,tns,tframe,e)||!r.u16(id,e)||!readCustomPoint(r,point,e)||!r.boolean(geo,e)||!r.f64Raw(length,e)||!r.f64Raw(width,e)||!r.f64Raw(height,e)||!r.f64Raw(heading,e)||!r.boolean(dimensions,e)||!r.boolean(headingValid,e)||!r.u8(cls,e))return false;if(!std::isfinite(point[4])||!std::isfinite(point[5])){if(!invalidCenter)invalidCenterId=id;invalidCenter=true;continue;}const bool dimensionsUsable=dimensions&&std::isfinite(length)&&std::isfinite(width)&&length>0.0&&width>0.0;const bool headingUsable=dimensionsUsable&&headingValid&&std::isfinite(heading);const bool geodeticUsable=geo&&std::isfinite(point[0])&&std::isfinite(point[1])&&std::isfinite(point[2])&&std::isfinite(point[3]);auto*o=set->add_obstacle();fillHeader(o->mutable_header(),headerNs(tsec,tns,source),ts,"robot_ws.final_target",tframe);o->set_id(std::to_string(id));o->set_type(wire::Obstacle::TYPE_OTHER);o->set_source_class(cls);o->set_class_label(classLabel(cls));o->set_source("fusion");o->mutable_center()->set_x_m(point[4]);o->mutable_center()->set_y_m(point[5]);o->mutable_center()->set_z_m(point[6]);o->set_geodetic_valid(geodeticUsable);o->set_dimensions_valid(dimensionsUsable);o->set_heading_valid(headingUsable);if(geodeticUsable){auto*g=o->mutable_geodetic_position();g->set_longitude_deg(point[0]);g->set_latitude_deg(point[1]);g->set_depth_m(point[2]);g->set_height_above_bottom_m(point[3]);}if(headingUsable)o->set_heading_rad(heading);if(dimensionsUsable){o->set_length_m(length);o->set_width_m(width);o->set_height_m(height);}o->set_is_static(true);o->set_is_virtual(false);}if(invalidCenter){set->clear_obstacle();set->set_rejection_reason("obstacle set rejected: non-finite planar center (target_id="+std::to_string(invalidCenterId)+")");}return true;
+    qint32 sec,tsec; quint32 ns,task,count,tns; quint16 mineNumber; QString frame,tframe;
+    if(!readHeader(r,sec,ns,frame,e)||!r.u32(task,e)||!r.u16(mineNumber,e)||!r.sequenceSize(count,e))return false;
+    if(count>100000U){if(e)*e=QStringLiteral("当前 FinalTargetArray targets 过多");return false;}
+    const quint64 source=headerNs(sec,ns,ts); auto*set=s->mutable_final_targets();
+    fillHeader(set->mutable_header(),source,ts,"robot_ws.final_targets",frame);set->set_source_task_id(task);set->set_mine_number(mineNumber);
+    if(frame!=QStringLiteral("odom")){set->set_rejection_reason("final target set rejected: array frame is not odom");return true;}
+    QSet<quint16> ids;
+    for(quint32 i=0;i<count;++i){
+        quint16 id; double point[8],radius; quint8 cls; quint32 boundaryCount;
+        if(!readHeader(r,tsec,tns,tframe,e)||!r.u16(id,e)||!readCustomPoint(r,point,e)||!r.f64Raw(radius,e)||!r.u8(cls,e)||!r.sequenceSize(boundaryCount,e))return false;
+        if(boundaryCount>128U){if(e)*e=QStringLiteral("FinalTarget boundary 超过 128 点");return false;}
+        QVector<QPair<double,double>> boundary;boundary.reserve(static_cast<int>(boundaryCount));
+        for(quint32 vertex=0;vertex<boundaryCount;++vertex){double values[8];if(!readCustomPoint(r,values,e))return false;boundary.push_back({values[4],values[5]});}
+        if(ids.contains(id)){set->clear_target();set->set_rejection_reason("final target set rejected: duplicate target_id="+std::to_string(id));return true;} ids.insert(id);
+        if(tframe!=QStringLiteral("odom")){set->clear_target();set->set_rejection_reason("final target set rejected: target frame is not odom (target_id="+std::to_string(id)+")");return true;}
+        if(!std::isfinite(point[4])||!std::isfinite(point[5])){set->clear_target();set->set_rejection_reason("final target set rejected: non-finite reference point (target_id="+std::to_string(id)+")");return true;}
+        if(!std::isfinite(radius)||radius<=0.0){set->clear_target();set->set_rejection_reason("final target set rejected: invalid radius (target_id="+std::to_string(id)+")");return true;}
+        if(cls>3){set->clear_target();set->set_rejection_reason("final target set rejected: invalid final_class (target_id="+std::to_string(id)+")");return true;}
+        auto*target=set->add_target();fillHeader(target->mutable_header(),headerNs(tsec,tns,source),ts,"robot_ws.final_target",tframe);target->set_target_id(id);target->set_final_class(cls);target->mutable_reference_point()->set_x_m(point[4]);target->mutable_reference_point()->set_y_m(point[5]);target->set_radius_m(radius);
+        if(cls==2&&!boundary.isEmpty()){
+            bool valid=boundary.size()>=3; double twiceArea=0.0;
+            for(int vertex=0;valid&&vertex<boundary.size();++vertex){const auto&current=boundary.at(vertex);const auto&next=boundary.at((vertex+1)%boundary.size());valid=std::isfinite(current.first)&&std::isfinite(current.second);twiceArea+=current.first*next.second-next.first*current.second;}
+            valid=valid&&std::isfinite(twiceArea)&&std::abs(twiceArea)>1.0e-9;
+            target->set_boundary_valid(valid);
+            if(valid){for(const auto&vertex:boundary){auto*point2d=target->mutable_boundary()->add_point();point2d->set_x_m(vertex.first);point2d->set_y_m(vertex.second);}}
+            else target->set_boundary_note("渔网边界无效，已回退保守圆");
+        }
+    }
+    return true;
 }
 
 ChassisCdrLayout chassisCdrLayout(const QByteArray& payload)
@@ -475,11 +501,21 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
         if (error) *error = QStringLiteral("ChassisCommand CDR 长度不匹配旧布局或当前布局: %1 字节").arg(payload.size());
         return false;
     }
+    // FinalTargetArray 的旧布局和截断 CDR 都可能在读取到一半时失败。先解码到
+    // 临时快照，且只有完全消费 payload 后才替换当前集合，避免“跳过”坏帧时清空
+    // 上一条合法目标或遗留半帧数据。
+    if (topic == "/targets/final_objects") {
+        wire::VisualizationSnapshot decoded;
+        const bool decodedOk = decodeFinalTargets(r, ts, &decoded, error);
+        if (!decodedOk || !r.finished(error)) return false;
+        snapshot->mutable_final_targets()->Swap(decoded.mutable_final_targets());
+        return true;
+    }
+
     // rosbag 的一条 topic 消息与 Server 发送的同名 snapshot 字段语义相同：它是
     // 当前完整值，不是对上一条消息的增量。尤其 Path、障碍物和底盘状态包含 repeated
     // 字段；不先清理就会在本地回放中把旧点/旧状态反复累加。
     if(topic=="/location") snapshot->clear_vehicle_state();
-    else if(topic=="/targets/final_objects") snapshot->clear_obstacles();
     else if(topic=="/detection/range_motion_request" && snapshot->has_perception_state()) {
         snapshot->mutable_perception_state()->clear_range_motion_directive();
         if (!snapshot->perception_state().has_inspection_goal()) snapshot->clear_perception_state();
@@ -493,7 +529,7 @@ bool RobotWsCdrDecoder::decode(const QString&topic,const QString&type,const QByt
     else if(topic=="/local_path") snapshot->clear_local_trajectory();
     else if(topic=="/global_path") snapshot->clear_global_trajectory();
     bool ok=false;
-    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/targets/final_objects")ok=decodeObstacles(r,ts,snapshot,error);else if(topic=="/detection/range_motion_request")ok=decodeRangeMotion(r,ts,snapshot,error);else if(topic=="/detection/inspection_request_goal")ok=decodeInspectionGoal(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error,commandLayout);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
+    if(topic=="/location")ok=decodeLocation(r,ts,snapshot,error);else if(topic=="/detection/range_motion_request")ok=decodeRangeMotion(r,ts,snapshot,error);else if(topic=="/detection/inspection_request_goal")ok=decodeInspectionGoal(r,ts,snapshot,error);else if(topic=="/chassis_command")ok=decodeCommand(r,ts,snapshot,error,commandLayout);else if(topic=="/chassis_states")ok=decodeChassis(r,ts,snapshot,error,chassisLayout);else if(topic=="/system_run_states")ok=decodeAction(r,ts,snapshot,error,actionDiagnostics);else if(topic=="/task_params")ok=decodeTask(r,ts,snapshot,error);else if(topic=="/local_path")ok=decodeLocalPath(r,ts,snapshot,error);else if(topic=="/global_path")ok=decodeGlobalPath(r,ts,snapshot,error);else if(topic.endsWith("/_action/status"))ok=updateActionStatus(r,ts,snapshot,error,actionDiagnostics);else if(topic.endsWith("/_action/feedback"))ok=updateActionFeedback(r,ts,snapshot,error,actionDiagnostics);
     if(!ok||!r.finished(error))return false;
     return true;
 }

@@ -263,3 +263,33 @@ topic 的实际录制回放；后者由合成 CDR 和 Server 转换测试覆盖�
 连接 `127.0.0.1:39090`。probe 在 8 秒得到 161 份快照、`task=1`，当时 `/task_params` 计数为 3,324；
 Client 日志确认“已连接 127.0.0.1:39090（robot_ws ROS2 adapter）”。该窗口中的三个感知 topic
 均为 count=0、timed_out=1，符合 bag 内容，未被错误显示为有效感知数据。
+
+## 2026-08-27 FinalTarget 2.7 当前消息布局
+
+- Protocol 升级为 **2.7**：保留 `VisualizationSnapshot.obstacles=16` 的旧语义和全部其他 v2
+  字段，新增 optional `VisualizationSnapshot.final_targets=23`。无需因 FinalTarget 变化升级 protocol
+  major，其他旧 v2 数据继续可接收。
+- `FinalTargetSet` 表达当前 `/targets/final_objects`：array 的 `task_id`、`mine_number` 与每个目标的
+  header、ID、分类、reference XY、radius 和仅渔网适用的 boundary。`reference_point` 明确不是几何中心。
+- Protocol GTest：`autoviz_proto_tests` **9/9 通过**，覆盖 FinalTargetSet frame round-trip 与 2.7 版本常量。
+- Server 已 source 当前 robot_ws `custom_msgs` 并重建。`robot_ws_converter_test` **15 项通过**，覆盖
+  task_id/mine_number、圆形目标、合法渔网边界、非法边界回退圆、非法半径和非 odom frame 整帧拒绝；
+  `tcp_server_test` **7/7 通过**。`colcon test-result --verbose` 为 **31 tests、0 errors、0 failures、0 skipped**。
+- Client synthetic CDR 覆盖当前 `FinalTargetArray` 的 header、task_id、mine_number、reference XY、radius、
+  分类、当前 boundary sequence 对齐、参考点非有限拒绝和非正半径拒绝，以及截断/不兼容目标帧不会替换
+  上一有效 `final_targets`。旧 FinalTarget CDR 布局不能安全识别；验证或播放时只跳过
+  `/targets/final_objects`，不使定位、控制、底盘、Action、TaskParams、路径等其他已支持 topic 的 bag
+  加载失败，也不推进被跳过目标帧的消息计数或新鲜度。另有 field-16 `ObstacleSet` Converter 自检，确保
+  旧 v2 Server 与泛化 Adapter 的障碍物数据仍可显示；同一快照有 field 23 时以当前 FinalTarget 语义优先。
+- 感知详情表显示目标 ID、类别、参考点 X/Y、保守半径、边界点数、展示形状和更新时间；不显示或伪造已删除的
+  Z、经纬度、长宽高或朝向。渔网空边界合法并绘制保守圆，无效边界显示“边界无效，回退圆”。
+- `AutoVizControlStatusUiTests` offscreen 与 Client 主程序构建均通过。既有 bag
+  `rosbag2_2026_08_18-09_12_43` 已扫描 151,608 条支持消息并通过；它不含目标通道，不能替代当前
+  FinalTarget 的真实录包验收。
+
+### 后续真实链路门禁
+
+必须用**当前** FinalTargetArray 定义录制一份含圆形目标、合法/空/非法渔网边界、无效参考点或半径以及
+后续恢复合法帧的 bag。实时链路 `robot_ws -> AutoVizServer -> TCP -> UI` 与回放链路
+`bag CDR -> RobotWsCdrDecoder -> UI` 必须比较 task_id、mine_number、ID、分类、reference XY、radius、
+边界顶点、回退/拒绝结论；允许不同的仅是接收时间或 bag 记录时间。

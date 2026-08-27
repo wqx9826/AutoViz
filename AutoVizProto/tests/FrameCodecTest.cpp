@@ -156,6 +156,25 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     range->set_motion(wire::RangeMotionDirective::MOTION_SLOW);
     range->set_speed_limit_mps(0.35);
     range->set_reason("range limit");
+    auto* finalTargets = snapshot->mutable_final_targets();
+    finalTargets->mutable_header()->set_frame_id("odom");
+    finalTargets->set_source_task_id(10);
+    finalTargets->set_mine_number(2);
+    auto* finalTarget = finalTargets->add_target();
+    finalTarget->set_target_id(42);
+    finalTarget->set_final_class(2);
+    finalTarget->mutable_reference_point()->set_x_m(1.0);
+    finalTarget->mutable_reference_point()->set_y_m(-2.0);
+    finalTarget->set_radius_m(3.0);
+    auto* boundaryPoint = finalTarget->mutable_boundary()->add_point();
+    boundaryPoint->set_x_m(0.0);
+    boundaryPoint->set_y_m(0.0);
+    boundaryPoint = finalTarget->mutable_boundary()->add_point();
+    boundaryPoint->set_x_m(1.0);
+    boundaryPoint->set_y_m(0.0);
+    boundaryPoint = finalTarget->mutable_boundary()->add_point();
+    boundaryPoint->set_x_m(0.0);
+    boundaryPoint->set_y_m(1.0);
     auto* inspection = snapshot->mutable_perception_state()->mutable_inspection_goal();
     inspection->mutable_header()->set_frame_id("odom");
     inspection->set_task_id(9);
@@ -201,6 +220,13 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     EXPECT_EQ(actual.perception_state().inspection_goal().target_id(), 42U);
     EXPECT_DOUBLE_EQ(actual.perception_state().inspection_goal().target_position().z_m(), -3.0);
     EXPECT_DOUBLE_EQ(actual.perception_state().inspection_goal().speed_limit_mps(), 0.4);
+    ASSERT_TRUE(actual.has_final_targets());
+    EXPECT_EQ(actual.final_targets().mine_number(), 2U);
+    ASSERT_EQ(actual.final_targets().target_size(), 1);
+    EXPECT_DOUBLE_EQ(actual.final_targets().target(0).radius_m(), 3.0);
+    ASSERT_EQ(actual.final_targets().target(0).boundary().point_size(), 3);
+    EXPECT_DOUBLE_EQ(actual.final_targets().target(0).boundary().point(1).x_m(), 1.0);
+    EXPECT_DOUBLE_EQ(actual.final_targets().target(0).boundary().point(2).y_m(), 1.0);
 }
 
 TEST(ProtocolEnvelopeTest, AcceptsOldSnapshotWithoutPerceptionState)
@@ -221,7 +247,7 @@ TEST(ProtocolEnvelopeTest, AcceptsOldSnapshotWithoutPerceptionState)
 TEST(ProtocolVersionTest, AcceptsOnlyV2MajorVersion)
 {
     EXPECT_EQ(wire::kProtocolMajor, 2U);
-    EXPECT_EQ(wire::kProtocolMinor, 6U);
+    EXPECT_EQ(wire::kProtocolMinor, 7U);
     EXPECT_TRUE(wire::isProtocolMajorCompatible(2U));
     EXPECT_FALSE(wire::isProtocolMajorCompatible(1U));
 }

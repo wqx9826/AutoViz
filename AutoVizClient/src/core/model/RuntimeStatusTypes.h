@@ -340,6 +340,8 @@ struct FinalTargetSetRuntimeStatus {
     qint64 timestampMs = 0;
     bool hasTaskId = false;
     int taskId = 0;
+    bool hasMineNumber = false;
+    int mineNumber = 0;
     int targetCount = 0;
     QString rejectionReason;
 };

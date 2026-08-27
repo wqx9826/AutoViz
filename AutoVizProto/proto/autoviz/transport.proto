@@ -27,6 +27,9 @@ message VisualizationSnapshot {
   optional VehicleParameters vehicle_parameters = 20;
   reserved 21;
   optional PerceptionState perception_state = 22;
+  // Added in protocol 2.7. Keeps the legacy ObstacleSet field intact so
+  // all non-FinalTarget v2 data remains compatible.
+  optional FinalTargetSet final_targets = 23;
 }
 
 message ClientHello {

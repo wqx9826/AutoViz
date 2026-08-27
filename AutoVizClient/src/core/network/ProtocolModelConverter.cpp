@@ -33,6 +33,26 @@ QString obstacleRejectionDisplayText(const std::string& reason)
     return QStringLiteral("目标集已拒绝：%1").arg(source);
 }
 
+QString finalTargetRejectionDisplayText(const std::string& reason)
+{
+    const QString source = QString::fromStdString(reason);
+    static const QRegularExpression invalidReference(
+        QStringLiteral("^final target set rejected: non-finite reference point \\(target_id=(\\d+)\\)$"));
+    static const QRegularExpression invalidRadius(
+        QStringLiteral("^final target set rejected: invalid radius \\(target_id=(\\d+)\\)$"));
+    const auto referenceMatch = invalidReference.match(source);
+    if (referenceMatch.hasMatch()) {
+        return QStringLiteral("目标集已拒绝：目标 ID %1 的参考点 X/Y 不是有限数值。")
+            .arg(referenceMatch.captured(1));
+    }
+    const auto radiusMatch = invalidRadius.match(source);
+    if (radiusMatch.hasMatch()) {
+        return QStringLiteral("目标集已拒绝：目标 ID %1 的保守半径必须为有限正数。")
+            .arg(radiusMatch.captured(1));
+    }
+    return QStringLiteral("目标集已拒绝：%1").arg(source);
+}
+
 model::Header convertHeader(const wire::Header& source)
 {
     model::Header target;
@@ -485,11 +505,15 @@ model::ObstacleList convertObstacles(const wire::ObstacleSet& source)
         obstacle.dimensionsValid = item.dimensions_valid();
         obstacle.headingValid = item.heading_valid();
         obstacle.geodeticValid = item.geodetic_valid();
-        if (item.has_geodetic_position()) { obstacle.longitude = item.geodetic_position().longitude_deg(); obstacle.latitude = item.geodetic_position().latitude_deg(); obstacle.depth = item.geodetic_position().depth_m(); obstacle.heightAboveBottom = item.geodetic_position().height_above_bottom_m(); }
+        if (item.has_geodetic_position()) {
+            obstacle.longitude = item.geodetic_position().longitude_deg();
+            obstacle.latitude = item.geodetic_position().latitude_deg();
+            obstacle.depth = item.geodetic_position().depth_m();
+            obstacle.heightAboveBottom = item.geodetic_position().height_above_bottom_m();
+        }
         if (!obstacle.dimensionsValid) {
             obstacle.shape = model::ObstacleShapeType::Point;
         } else if (!obstacle.headingValid) {
-            // Unknown orientation must not be presented as an east-facing box.
             obstacle.shape = model::ObstacleShapeType::Circle;
         }
         obstacle.boundingBox.center = obstacle.position.position;
@@ -499,6 +523,57 @@ model::ObstacleList convertObstacles(const wire::ObstacleSet& source)
         obstacle.anchorPoint = obstacle.position.position;
         for (const auto& point : item.predicted_point()) {
             obstacle.predictedTrajectory.push_back(convertTrajectoryPoint(point));
+        }
+        target.push_back(obstacle);
+    }
+    return target;
+}
+
+model::ObstacleList convertFinalTargets(const wire::FinalTargetSet& source)
+{
+    model::ObstacleList target;
+    target.reserve(source.target_size());
+    for (const auto& item : source.target()) {
+        model::Obstacle obstacle;
+        obstacle.id = static_cast<int>(item.target_id());
+        obstacle.sourceClass = static_cast<int>(item.final_class());
+        switch (item.final_class()) {
+        case 1: obstacle.classLabel = QStringLiteral("水雷"); break;
+        case 2: obstacle.classLabel = QStringLiteral("渔网"); break;
+        case 3: obstacle.classLabel = QStringLiteral("障碍物"); break;
+        default: obstacle.classLabel = QStringLiteral("未知(%1)").arg(item.final_class()); break;
+        }
+        obstacle.sourceTopic = QStringLiteral("fusion");
+        obstacle.shape = model::ObstacleShapeType::Circle;
+        obstacle.isFinalTarget = true;
+        if (item.has_header()) {
+            obstacle.header = convertHeader(item.header());
+        } else if (source.has_header()) {
+            obstacle.header = convertHeader(source.header());
+        }
+        obstacle.isStatic = true;
+        if (item.has_reference_point()) {
+            obstacle.position.position.x = item.reference_point().x_m();
+            obstacle.position.position.y = item.reference_point().y_m();
+        }
+        obstacle.anchorPoint = obstacle.position.position;
+        obstacle.conservativeRadius = item.radius_m();
+        obstacle.length = item.radius_m() * 2.0;
+        obstacle.width = item.radius_m() * 2.0;
+        obstacle.finalTargetBoundaryState = model::FinalTargetBoundaryState::NotApplicable;
+        if (item.final_class() == 2) {
+            if (item.boundary_valid() && item.has_boundary() && item.boundary().point_size() >= 3) {
+                obstacle.shape = model::ObstacleShapeType::Polygon;
+                obstacle.finalTargetBoundaryState = model::FinalTargetBoundaryState::Valid;
+                for (const auto& point : item.boundary().point()) {
+                    obstacle.polygon.vertices.push_back({point.x_m(), point.y_m()});
+                }
+            } else if (!item.boundary_valid()) {
+                obstacle.finalTargetBoundaryState = model::FinalTargetBoundaryState::InvalidFallbackCircle;
+                obstacle.finalTargetBoundaryNote = QString::fromStdString(item.boundary_note());
+            } else {
+                obstacle.finalTargetBoundaryState = model::FinalTargetBoundaryState::NotProvided;
+            }
         }
         target.push_back(obstacle);
     }
@@ -743,8 +818,8 @@ model::InspectionGoalRuntimeStatus convertInspectionGoal(const wire::InspectionG
     return target;
 }
 
-model::FinalTargetSetRuntimeStatus convertFinalTargetSet(const wire::ObstacleSet& source,
-                                                          const QString& rejectionReason)
+model::FinalTargetSetRuntimeStatus convertLegacyObstacleSet(const wire::ObstacleSet& source,
+                                                                const QString& rejectionReason)
 {
     model::FinalTargetSetRuntimeStatus target;
     target.valid = true;
@@ -754,6 +829,23 @@ model::FinalTargetSetRuntimeStatus convertFinalTargetSet(const wire::ObstacleSet
     target.hasTaskId = source.has_source_task_id();
     target.taskId = static_cast<int>(source.source_task_id());
     target.targetCount = source.obstacle_size();
+    target.rejectionReason = rejectionReason;
+    return target;
+}
+
+model::FinalTargetSetRuntimeStatus convertFinalTargetSet(const wire::FinalTargetSet& source,
+                                                          const QString& rejectionReason)
+{
+    model::FinalTargetSetRuntimeStatus target;
+    target.valid = true;
+    if (source.has_header()) target.header = convertHeader(source.header());
+    target.timestampMs = source.has_header() ? timestampMs(source.header())
+                                             : QDateTime::currentMSecsSinceEpoch();
+    target.hasTaskId = source.has_source_task_id();
+    target.taskId = static_cast<int>(source.source_task_id());
+    target.hasMineNumber = source.has_mine_number();
+    target.mineNumber = static_cast<int>(source.mine_number());
+    target.targetCount = source.target_size();
     target.rejectionReason = rejectionReason;
     return target;
 }
@@ -849,14 +941,29 @@ datacenter::VisualizationSnapshot ProtocolModelConverter::toModelSnapshot(
         target.referenceLine = convertReferenceLine(source.reference_line());
         target.runtimeStatus.hasReferenceLineData = !target.referenceLine.points.isEmpty();
     }
+    // ObstacleSet=16 remains a valid v2 payload for non-robot_ws adapters
+    // and pre-2.7 Servers.  The current FinalTargetSet=23 takes precedence
+    // when both are present, so reference-point/radius data is never rendered
+    // as legacy box geometry.
     if (source.has_obstacles()) {
         target.obstacles = convertObstacles(source.obstacles());
         if (source.obstacles().has_rejection_reason()) {
             target.obstacleRejectionReason = obstacleRejectionDisplayText(
                 source.obstacles().rejection_reason());
         }
-        target.finalTargetSetRuntimeStatus = convertFinalTargetSet(
+        target.finalTargetSetRuntimeStatus = convertLegacyObstacleSet(
             source.obstacles(), target.obstacleRejectionReason);
+        target.runtimeStatus.hasObstacleData = !target.obstacles.isEmpty();
+    }
+    if (source.has_final_targets()) {
+        target.obstacles = convertFinalTargets(source.final_targets());
+        target.obstacleRejectionReason.clear();
+        if (source.final_targets().has_rejection_reason()) {
+            target.obstacleRejectionReason = finalTargetRejectionDisplayText(
+                source.final_targets().rejection_reason());
+        }
+        target.finalTargetSetRuntimeStatus = convertFinalTargetSet(
+            source.final_targets(), target.obstacleRejectionReason);
         target.runtimeStatus.hasObstacleData = !target.obstacles.isEmpty();
     }
     if (source.has_action_state()) {

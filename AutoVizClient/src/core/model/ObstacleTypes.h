@@ -22,6 +22,17 @@ enum class ObstacleShapeType {
     Box
 };
 
+// The current robot_ws FinalTarget message supplies a reference point and a
+// conservative radius, not a geometric centre and box dimensions. These
+// fields retain the generic scene model while preventing that distinction from
+// being lost before rendering and detail display.
+enum class FinalTargetBoundaryState {
+    NotApplicable,
+    NotProvided,
+    Valid,
+    InvalidFallbackCircle
+};
+
 struct Obstacle {
     int id = -1;
     ObstacleType type = ObstacleType::Unknown;
@@ -44,6 +55,10 @@ struct Obstacle {
     double longitude = 0.0, latitude = 0.0, depth = 0.0, heightAboveBottom = 0.0;
     bool dimensionsValid = false;
     bool headingValid = false;
+    bool isFinalTarget = false;
+    double conservativeRadius = 0.0;
+    FinalTargetBoundaryState finalTargetBoundaryState = FinalTargetBoundaryState::NotApplicable;
+    QString finalTargetBoundaryNote;
 };
 
 using ObstacleList = QVector<Obstacle>;

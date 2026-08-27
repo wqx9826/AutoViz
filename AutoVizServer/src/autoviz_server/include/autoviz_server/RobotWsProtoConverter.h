@@ -24,7 +24,7 @@ class RobotWsProtoConverter final {
 public:
     static ::autoviz::VehicleState vehicleState(
         const custom_msgs::msg::Location& message, std::uint64_t receiveTimeNs);
-    static ::autoviz::ObstacleSet obstacles(
+    static ::autoviz::FinalTargetSet finalTargets(
         const custom_msgs::msg::FinalTargetArray& message, std::uint64_t receiveTimeNs);
     static ::autoviz::RangeMotionDirective rangeMotionDirective(
         const custom_msgs::msg::RangeMotionRequest& message, std::uint64_t receiveTimeNs);

@@ -63,68 +63,81 @@ TEST(RobotWsProtoConverterTest, ConvertsLocationAndKeepsVerticalQuantitiesDistin
     EXPECT_DOUBLE_EQ(actual.underwater().usbl_z_m(), 4.75);
 }
 
-TEST(RobotWsProtoConverterTest, ConvertsFinalTargetsIncludingPointTargets)
+TEST(RobotWsProtoConverterTest, ConvertsCurrentFinalTargetsAndFusionMetadata)
 {
     custom_msgs::msg::FinalTargetArray source;
     source.header.frame_id = "odom";
     source.header.stamp.sec = 5;
+    source.task_id = 7;
+    source.mine_number = 1;
     source.targets.resize(2);
-    auto& valid = source.targets[0];
-    valid.target_id = 42;
-    valid.final_class = valid.CLASS_MINE;
-    valid.real_center_point.x = 10.0;
-    valid.real_center_point.y = 20.0;
-    valid.real_center_point.z = -2.0;
-    valid.length = 3.0;
-    valid.width = 1.5;
-    valid.height = 0.8;
-    valid.heading = 1.2;
-    valid.dimensions_valid = true;
-    valid.heading_valid = true;
-    source.targets[1].target_id = 99;
-    source.targets[1].dimensions_valid = false;
+    auto& mine = source.targets[0];
+    mine.header.frame_id = "odom";
+    mine.target_id = 42;
+    mine.final_class = mine.CLASS_MINE;
+    mine.reference_point.x = 10.0;
+    mine.reference_point.y = 20.0;
+    mine.radius = 3.0;
+    auto& net = source.targets[1];
+    net.header.frame_id = "odom";
+    net.target_id = 99;
+    net.final_class = net.CLASS_NET;
+    net.reference_point.x = 5.0;
+    net.reference_point.y = -2.0;
+    net.radius = 4.0;
+    net.boundary.resize(3);
+    net.boundary[0].x = 3.0; net.boundary[0].y = -3.0;
+    net.boundary[1].x = 7.0; net.boundary[1].y = -3.0;
+    net.boundary[2].x = 5.0; net.boundary[2].y = 1.0;
 
-    const auto actual = autoviz_server::RobotWsProtoConverter::obstacles(
+    const auto actual = autoviz_server::RobotWsProtoConverter::finalTargets(
         source, kReceiveTimeNs);
-    ASSERT_EQ(actual.obstacle_size(), 2);
-    EXPECT_EQ(actual.obstacle(0).id(), "42");
-    EXPECT_EQ(actual.obstacle(0).source_class(), valid.CLASS_MINE);
-    EXPECT_DOUBLE_EQ(actual.obstacle(0).center().x_m(), 10.0);
-    EXPECT_DOUBLE_EQ(actual.obstacle(0).length_m(), 3.0);
-    EXPECT_TRUE(actual.obstacle(0).has_heading_rad());
-    EXPECT_FALSE(actual.obstacle(1).dimensions_valid());
+    ASSERT_EQ(actual.target_size(), 2);
+    EXPECT_EQ(actual.source_task_id(), 7U);
+    EXPECT_EQ(actual.mine_number(), 1U);
+    EXPECT_EQ(actual.target(0).target_id(), 42U);
+    EXPECT_EQ(actual.target(0).final_class(), mine.CLASS_MINE);
+    EXPECT_DOUBLE_EQ(actual.target(0).reference_point().x_m(), 10.0);
+    EXPECT_DOUBLE_EQ(actual.target(0).radius_m(), 3.0);
+    ASSERT_EQ(actual.target(1).boundary().point_size(), 3);
+    EXPECT_TRUE(actual.target(1).boundary_valid());
 }
 
-TEST(RobotWsProtoConverterTest, NormalizesFinalTargetGeometryValidity)
+TEST(RobotWsProtoConverterTest, RejectsInvalidFinalTargetFrameAndFallsBackForInvalidNetBoundary)
 {
     custom_msgs::msg::FinalTargetArray source;
+    source.header.frame_id = "odom";
     source.targets.resize(1);
     auto& target = source.targets.front();
-    target.real_center_point.x = 1.0;
-    target.real_center_point.y = 2.0;
-    target.length = 3.0;
-    target.width = 4.0;
-    target.dimensions_valid = true;
-    target.heading_valid = false;
+    target.header.frame_id = "odom";
+    target.target_id = 42;
+    target.final_class = target.CLASS_NET;
+    target.reference_point.x = 1.0;
+    target.reference_point.y = 2.0;
+    target.radius = 3.0;
+    target.boundary.resize(2);
 
-    auto actual = autoviz_server::RobotWsProtoConverter::obstacles(source, kReceiveTimeNs);
-    ASSERT_EQ(actual.obstacle_size(), 1);
-    EXPECT_TRUE(actual.obstacle(0).dimensions_valid());
-    EXPECT_FALSE(actual.obstacle(0).heading_valid());
-    EXPECT_FALSE(actual.obstacle(0).has_heading_rad());
+    auto actual = autoviz_server::RobotWsProtoConverter::finalTargets(source, kReceiveTimeNs);
+    ASSERT_EQ(actual.target_size(), 1);
+    EXPECT_FALSE(actual.target(0).boundary_valid());
+    EXPECT_EQ(actual.target(0).boundary_note(), "渔网边界无效，已回退保守圆");
 
-    target.length = -3.0;
-    actual = autoviz_server::RobotWsProtoConverter::obstacles(source, kReceiveTimeNs);
-    ASSERT_EQ(actual.obstacle_size(), 1);
-    EXPECT_FALSE(actual.obstacle(0).dimensions_valid());
-    EXPECT_FALSE(actual.obstacle(0).heading_valid());
-    EXPECT_FALSE(actual.obstacle(0).has_length_m());
+    target.radius = -3.0;
+    actual = autoviz_server::RobotWsProtoConverter::finalTargets(source, kReceiveTimeNs);
+    EXPECT_EQ(actual.target_size(), 0);
+    EXPECT_EQ(actual.rejection_reason(), "final target set rejected: invalid radius (target_id=42)");
 
-    target.real_center_point.x = std::numeric_limits<double>::quiet_NaN();
-    actual = autoviz_server::RobotWsProtoConverter::obstacles(source, kReceiveTimeNs);
-    EXPECT_EQ(actual.obstacle_size(), 0);
-    EXPECT_EQ(actual.rejection_reason(),
-              "obstacle set rejected: non-finite planar center (target_id=0)");
+    target.radius = 3.0;
+    target.final_class = 99;
+    actual = autoviz_server::RobotWsProtoConverter::finalTargets(source, kReceiveTimeNs);
+    EXPECT_EQ(actual.target_size(), 0);
+    EXPECT_EQ(actual.rejection_reason(), "final target set rejected: invalid final_class (target_id=42)");
+
+    target.final_class = target.CLASS_NET;
+    source.header.frame_id = "map";
+    actual = autoviz_server::RobotWsProtoConverter::finalTargets(source, kReceiveTimeNs);
+    EXPECT_EQ(actual.target_size(), 0);
+    EXPECT_EQ(actual.rejection_reason(), "final target set rejected: array frame is not odom");
 }
 
 TEST(RobotWsProtoConverterTest, ConvertsPerceptionRequests)

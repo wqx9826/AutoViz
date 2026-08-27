@@ -173,6 +173,15 @@ TEST(VisualizationServerTest, RequiresHelloThenSendsHelloAndLatestSnapshot)
 
     autoviz::VisualizationSnapshot snapshot;
     snapshot.mutable_vehicle_state()->mutable_position()->set_x_m(12.5);
+    auto* finalTargets = snapshot.mutable_final_targets();
+    finalTargets->set_source_task_id(7);
+    finalTargets->set_mine_number(1);
+    auto* finalTarget = finalTargets->add_target();
+    finalTarget->set_target_id(42);
+    finalTarget->set_final_class(1);
+    finalTarget->mutable_reference_point()->set_x_m(3.0);
+    finalTarget->mutable_reference_point()->set_y_m(-2.0);
+    finalTarget->set_radius_m(1.5);
     server.publishSnapshot(snapshot);
 
     TestClient client;
@@ -195,6 +204,10 @@ TEST(VisualizationServerTest, RequiresHelloThenSendsHelloAndLatestSnapshot)
     }));
     EXPECT_EQ(received.snapshot().session_id(), session);
     EXPECT_DOUBLE_EQ(received.snapshot().vehicle_state().position().x_m(), 12.5);
+    ASSERT_TRUE(received.snapshot().has_final_targets());
+    EXPECT_EQ(received.snapshot().final_targets().source_task_id(), 7U);
+    ASSERT_EQ(received.snapshot().final_targets().target_size(), 1);
+    EXPECT_DOUBLE_EQ(received.snapshot().final_targets().target(0).radius_m(), 1.5);
     server.stop();
 }
 

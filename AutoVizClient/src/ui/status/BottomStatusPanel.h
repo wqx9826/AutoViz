@@ -36,6 +36,7 @@ private:
     void setupDetailsTab();
     void setupTopicTab();
     void setupStateTabs();
+    void setupTaskParamsTab();
     void setupPerceptionTab();
     void setupControlTimelineTab();
     QGroupBox* createOverviewGroup(QWidget* parent, const QString& title, const QVector<QPair<QString, QString>>& fields);

@@ -193,68 +193,133 @@ bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
 bool runFinalTargetCdrChecks(QTextStream& error)
 {
     const auto appendTarget = [](QByteArray* payload, quint16 id, double x, double y,
-                                 double length, double width, double heading,
-                                 bool dimensionsValid, bool headingValid) {
+                                 double radius, quint8 finalClass,
+                                 const QVector<QPair<double, double>>& boundary = {}) {
         appendCdrHeader(payload, "odom");
         appendCdrUint16(payload, id);
-        for (const double value : {0.0, 0.0, 0.0, 0.0, x, y, 0.0, 0.0}) {
-            appendCdrFloat64(payload, value);
-        }
-        appendCdrByte(payload, 0);
-        appendCdrFloat64(payload, length);
-        appendCdrFloat64(payload, width);
-        appendCdrFloat64(payload, 0.5);
-        appendCdrFloat64(payload, heading);
-        appendCdrByte(payload, dimensionsValid ? 1 : 0);
-        appendCdrByte(payload, headingValid ? 1 : 0);
-        appendCdrByte(payload, 1);
+        appendCdrCustomPoint(payload, x, y, 0.0);
+        appendCdrFloat64(payload, radius);
+        appendCdrByte(payload, finalClass);
+        appendCdrUint32(payload, static_cast<quint32>(boundary.size()));
+        for (const auto& point : boundary) appendCdrCustomPoint(payload, point.first, point.second, 0.0);
     };
-    const auto decode = [&appendTarget](double x, double length, double width, double heading,
-                                         bool dimensionsValid, bool headingValid,
+    const auto decode = [&appendTarget](double x, double radius, quint8 finalClass,
                                          ::autoviz::VisualizationSnapshot* snapshot, QString* detail) {
         QByteArray payload(4, '\0');
         payload[1] = char(1);
         appendCdrHeader(&payload, "odom");
         appendCdrUint32(&payload, 7);
+        appendCdrUint16(&payload, 1);
         appendCdrUint32(&payload, 1);
-        appendTarget(&payload, 42, x, 2.0, length, width, heading, dimensionsValid, headingValid);
+        appendTarget(&payload, 42, x, 2.0, radius, finalClass);
         return autoviz::playback::RobotWsCdrDecoder::decode(
             "/targets/final_objects", "custom_msgs/msg/FinalTargetArray", payload, 1, snapshot, detail);
     };
 
     ::autoviz::VisualizationSnapshot snapshot;
     QString detail;
-    if (!decode(1.0, 3.0, 4.0, 0.0, true, false, &snapshot, &detail)) {
+    if (!decode(1.0, 3.0, 1, &snapshot, &detail)) {
         error << "FinalTarget CDR decode failed: " << detail << '\n';
         return false;
     }
     const auto model = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
-    if (snapshot.obstacles().obstacle_size() != 1
-        || snapshot.obstacles().obstacle(0).heading_valid()
-        || !snapshot.obstacles().obstacle(0).dimensions_valid()
+    if (!snapshot.has_final_targets() || snapshot.final_targets().target_size() != 1
+        || snapshot.final_targets().mine_number() != 1U
         || model.obstacles.size() != 1
-        || model.obstacles.front().shape != autoviz::model::ObstacleShapeType::Circle) {
-        error << "FinalTarget unknown-heading semantics self-test failed\n";
+        || model.obstacles.front().shape != autoviz::model::ObstacleShapeType::Circle
+        || std::abs(model.obstacles.front().conservativeRadius - 3.0) > 1.0e-12) {
+        error << "FinalTarget conservative-circle semantics self-test failed\n";
         return false;
     }
 
-    if (!decode(std::numeric_limits<double>::quiet_NaN(), 3.0, 4.0, 0.0, true, true,
-                &snapshot, &detail)
-        || snapshot.obstacles().obstacle_size() != 0
-        || !snapshot.obstacles().has_rejection_reason()
-        || snapshot.obstacles().rejection_reason()
-               != "obstacle set rejected: non-finite planar center (target_id=42)"
+    QByteArray netPayload(4, '\0');
+    netPayload[1] = char(1);
+    appendCdrHeader(&netPayload, "odom");
+    appendCdrUint32(&netPayload, 7);
+    appendCdrUint16(&netPayload, 1);
+    appendCdrUint32(&netPayload, 1);
+    appendTarget(&netPayload, 43, 1.0, 2.0, 2.0, 2,
+                 {{0.0, 0.0}, {2.0, 0.0}, {1.0, 1.0}});
+    ::autoviz::VisualizationSnapshot netSnapshot;
+    if (!autoviz::playback::RobotWsCdrDecoder::decode(
+            "/targets/final_objects", "custom_msgs/msg/FinalTargetArray", netPayload, 1,
+            &netSnapshot, &detail)
+        || netSnapshot.final_targets().target_size() != 1
+        || netSnapshot.final_targets().target(0).boundary().point_size() != 3
+        || autoviz::network::ProtocolModelConverter::toModelSnapshot(netSnapshot).obstacles.front().shape
+               != autoviz::model::ObstacleShapeType::Polygon) {
+        error << "FinalTarget net-boundary semantics self-test failed: " << detail << '\n';
+        return false;
+    }
+
+    if (!decode(std::numeric_limits<double>::quiet_NaN(), 3.0, 1, &snapshot, &detail)
+        || snapshot.final_targets().target_size() != 0
+        || !snapshot.final_targets().has_rejection_reason()
+        || snapshot.final_targets().rejection_reason()
+               != "final target set rejected: non-finite reference point (target_id=42)"
         || autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot).obstacleRejectionReason
-               != QStringLiteral("目标集已拒绝：目标 ID 42 的平面中心 X/Y 不是有限数值。")) {
+               != QStringLiteral("目标集已拒绝：目标 ID 42 的参考点 X/Y 不是有限数值。")) {
         error << "FinalTarget invalid center did not clear the frame\n";
         return false;
     }
-    if (!decode(1.0, -3.0, 4.0, 0.0, true, true, &snapshot, &detail)
-        || snapshot.obstacles().obstacle_size() != 1
-        || snapshot.obstacles().obstacle(0).dimensions_valid()
-        || autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot).obstacles.front().shape
-               != autoviz::model::ObstacleShapeType::Point) {
-        error << "FinalTarget invalid dimensions did not become a point\n";
+    if (!decode(1.0, -3.0, 1, &snapshot, &detail)
+        || snapshot.final_targets().target_size() != 0
+        || !snapshot.final_targets().has_rejection_reason()
+        || autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot).obstacleRejectionReason
+               != QStringLiteral("目标集已拒绝：目标 ID 42 的保守半径必须为有限正数。")) {
+        error << "FinalTarget invalid radius did not reject the frame\n";
+        return false;
+    }
+
+    // An incompatible/truncated target frame must leave the most recent valid
+    // target set untouched. LocalRosbagPlaybackSource can then skip it without
+    // displaying a partial frame or falsely replacing valid data.
+    ::autoviz::VisualizationSnapshot atomicSnapshot;
+    if (!decode(5.0, 2.0, 1, &atomicSnapshot, &detail)) {
+        error << "FinalTarget atomic decode setup failed: " << detail << '\n';
+        return false;
+    }
+    QByteArray truncatedPayload(4, '\0');
+    truncatedPayload[1] = char(1);
+    appendCdrHeader(&truncatedPayload, "odom");
+    appendCdrUint32(&truncatedPayload, 7);
+    appendCdrUint16(&truncatedPayload, 1);
+    appendCdrUint32(&truncatedPayload, 1);
+    appendCdrHeader(&truncatedPayload, "odom");
+    appendCdrUint16(&truncatedPayload, 99);
+    if (autoviz::playback::RobotWsCdrDecoder::decode(
+            "/targets/final_objects", "custom_msgs/msg/FinalTargetArray", truncatedPayload, 2,
+            &atomicSnapshot, &detail)
+        || atomicSnapshot.final_targets().target_size() != 1
+        || atomicSnapshot.final_targets().target(0).target_id() != 42U
+        || std::abs(atomicSnapshot.final_targets().target(0).radius_m() - 2.0) > 1.0e-12) {
+        error << "Failed FinalTarget CDR mutated the prior valid target snapshot\n";
+        return false;
+    }
+    return true;
+}
+
+bool runLegacyObstacleCompatibilityChecks(QTextStream& error)
+{
+    ::autoviz::VisualizationSnapshot snapshot;
+    auto* obstacle = snapshot.mutable_obstacles()->add_obstacle();
+    obstacle->set_id("legacy-42");
+    obstacle->set_source_class(3);
+    obstacle->set_class_label("legacy obstacle");
+    obstacle->set_source("legacy-server");
+    obstacle->mutable_center()->set_x_m(4.0);
+    obstacle->mutable_center()->set_y_m(-1.0);
+    obstacle->set_length_m(3.0);
+    obstacle->set_width_m(2.0);
+    obstacle->set_dimensions_valid(true);
+    obstacle->set_heading_valid(false);
+    const auto model = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
+    if (model.obstacles.size() != 1
+        || model.obstacles.front().isFinalTarget
+        || model.obstacles.front().sourceTopic != QStringLiteral("legacy-server")
+        || model.obstacles.front().shape != autoviz::model::ObstacleShapeType::Circle
+        || std::abs(model.obstacles.front().position.position.x - 4.0) > 1.0e-12) {
+        error << "Legacy ObstacleSet field-16 compatibility self-test failed\n";
         return false;
     }
     return true;
@@ -857,6 +922,9 @@ int main(int argc, char** argv)
     if (!runFinalTargetCdrChecks(error)) {
         return 1;
     }
+    if (!runLegacyObstacleCompatibilityChecks(error)) {
+        return 1;
+    }
     if (!runPerceptionCdrChecks(error)) {
         return 1;
     }
@@ -890,7 +958,7 @@ int main(int argc, char** argv)
     if (!runGoalUuidNormalizationChecks(error)) {
         return 1;
     }
-    out << "CDR, FinalTarget and perception semantics, command-summary source selection, legacy chassis pass-through, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
+    out << "CDR, FinalTarget, legacy ObstacleSet and perception semantics, command-summary source selection, legacy chassis pass-through, ChassisCommand layout, action classification, center-turn, vertical-control, action-diagnostic, shared Server/bag fields, and goal-UUID normalization self-tests: OK\n";
 
     const QStringList arguments = app.arguments().mid(1);
     if (arguments.isEmpty()) {
