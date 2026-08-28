@@ -285,15 +285,44 @@ bool readMotor(CdrReader&r,Motor&m,QString*e){return r.f64(m.speed,e)&&r.f64(m.t
 bool readMotorCommand(CdrReader&r,Motor&m,QString*e){return r.boolean(m.cmdEnable,e)&&r.boolean(m.cmdSpeedMode,e)&&r.boolean(m.cmdReverse,e)&&r.f64(m.cmdSpeed,e)&&r.f64(m.cmdTorque,e);}
 void fillMotor(wire::CrawlMotorState*t,const Motor&m,quint8 actuator){t->set_valid(true);t->set_speed_rpm(m.speed);t->set_torque_or_q_axis_current(m.torque);t->set_temperature_c(m.temp);t->set_bus_voltage_v(m.bus);t->set_controller_ready(m.ready);t->set_output_enabled(m.output);t->set_controller_u_temperature_c(m.utemp);t->set_controller_v_temperature_c(m.vtemp);t->set_fault(m.fault);t->set_motor_fault_code(m.faultCode);t->set_actuator_fault_code(actuator);t->set_command_enable(m.cmdEnable);t->set_command_speed_mode(m.cmdSpeedMode);t->set_command_reverse(m.cmdReverse);t->set_command_speed_rpm(m.cmdSpeed);t->set_command_torque_or_q_axis_current(m.cmdTorque);}
 
-enum class ChassisCdrLayout { Invalid, Legacy, LegacyWithTail, Current, CurrentWithTail };
+enum class ChassisCdrLayout { Invalid, Legacy, LegacyWithTail, Current, CurrentWithTail, CurrentWithAllThrusterMotors };
+
+struct ThrusterMotorFeedback {
+    double busCurrent = 0;
+    qint16 controllerTemperature = 0;
+    double targetSpeed = 0;
+    double actualSpeed = 0;
+};
+
+bool readThrusterMotorFeedback(CdrReader& reader, ThrusterMotorFeedback& motor, QString* error)
+{
+    return reader.f64(motor.busCurrent, error)
+           && reader.i16(motor.controllerTemperature, error)
+           && reader.f64(motor.targetSpeed, error)
+           && reader.f64(motor.actualSpeed, error);
+}
+
+void addThrusterMotor(wire::ChassisState* chassis,
+                      const char* id,
+                      const ThrusterMotorFeedback& motor)
+{
+    auto* output = chassis->add_thruster_motor();
+    output->set_id(id);
+    output->set_bus_current_a(motor.busCurrent);
+    output->set_controller_temperature_c(motor.controllerTemperature);
+    output->set_target_speed_rpm(motor.targetSpeed);
+    output->set_actual_speed_rpm(motor.actualSpeed);
+}
 
 bool decodeChassis(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*e,ChassisCdrLayout layout)
 {
-    const bool hasHeading = layout == ChassisCdrLayout::Current || layout == ChassisCdrLayout::CurrentWithTail;
-    const bool hasTailMotorTelemetry = layout == ChassisCdrLayout::LegacyWithTail || layout == ChassisCdrLayout::CurrentWithTail;
+    const bool hasHeading = layout == ChassisCdrLayout::Current || layout == ChassisCdrLayout::CurrentWithTail || layout == ChassisCdrLayout::CurrentWithAllThrusterMotors;
+    const bool hasTailMotorTelemetry = layout == ChassisCdrLayout::LegacyWithTail || layout == ChassisCdrLayout::CurrentWithTail || layout == ChassisCdrLayout::CurrentWithAllThrusterMotors;
+    const bool hasAllThrusterMotorTelemetry = layout == ChassisCdrLayout::CurrentWithAllThrusterMotors;
     quint8 thr[5],waterHb,tank, tankStatus,gear,leftAct,rightAct,crawlHb; bool tankRaw; double speed,rate;
     double headingKp=0,headingTarget=0,headingActual=0,headingError=0,headingOutput=0;
-    double leftTailBus=0,leftTailTarget=0,leftTailActual=0,rightTailBus=0,rightTailTarget=0,rightTailActual=0; qint16 leftTailTemp=0,rightTailTemp=0;
+    ThrusterMotorFeedback tailMotors[2];
+    ThrusterMotorFeedback verticalMotors[3];
     for(auto&v:thr)if(!r.u8(v,e))return false;
     if(hasHeading&&!r.f64(headingKp,e))return false;
     if(!r.u8(waterHb,e))return false;
@@ -301,22 +330,31 @@ bool decodeChassis(CdrReader&r,quint64 ts,wire::VisualizationSnapshot*s,QString*
     if(hasHeading&&!r.f64(headingActual,e))return false;
     if(hasHeading&&!r.f64(headingError,e))return false;
     if(hasHeading&&!r.f64(headingOutput,e))return false;
-    if(hasTailMotorTelemetry&&!r.f64(leftTailBus,e))return false;
-    if(hasTailMotorTelemetry&&!r.i16(leftTailTemp,e))return false;
-    if(hasTailMotorTelemetry&&!r.f64(leftTailTarget,e))return false;
-    if(hasTailMotorTelemetry&&!r.f64(leftTailActual,e))return false;
-    if(hasTailMotorTelemetry&&!r.f64(rightTailBus,e))return false;
-    if(hasTailMotorTelemetry&&!r.i16(rightTailTemp,e))return false;
-    if(hasTailMotorTelemetry&&!r.f64(rightTailTarget,e))return false;
-    if(hasTailMotorTelemetry&&!r.f64(rightTailActual,e))return false;
+    if(hasTailMotorTelemetry&&!readThrusterMotorFeedback(r, tailMotors[0], e))return false;
+    if(hasTailMotorTelemetry&&!readThrusterMotorFeedback(r, tailMotors[1], e))return false;
+    if(hasAllThrusterMotorTelemetry) {
+        for (auto& motor : verticalMotors) if (!readThrusterMotorFeedback(r, motor, e)) return false;
+    }
     if(!r.u8(tank,e)||!r.boolean(tankRaw,e)||!r.u8(tankStatus,e)||!r.u8(gear,e)||!r.f64(speed,e)||!r.f64(rate,e)||!r.u8(leftAct,e)||!r.u8(rightAct,e)||!r.u8(crawlHb,e))return false;
     Motor left,right; if(!readMotor(r,left,e)||!readMotor(r,right,e)||!readMotorCommand(r,left,e)||!readMotorCommand(r,right,e))return false;
     quint8 bmsStatus,bmsHb,alarm,current,maxVi,minVi,maxTi,minTi; double packV,packI,maxV,minV; qint8 maxT,minT;
     if(!r.u8(bmsStatus,e)||!r.u8(bmsHb,e)||!r.u8(alarm,e)||!r.u8(current,e)||!r.f64(packV,e)||!r.f64(packI,e)||!r.u8(maxVi,e)||!r.f64(maxV,e)||!r.u8(minVi,e)||!r.f64(minV,e)||!r.u8(maxTi,e)||!r.i8(maxT,e)||!r.u8(minTi,e)||!r.i8(minT,e))return false;
     quint8 warnings[12],power[16],soc; for(auto&v:warnings)if(!r.u8(v,e))return false; bool dcdc; if(!r.boolean(dcdc,e))return false; for(auto&v:power)if(!r.u8(v,e))return false; double inputV; bool emergency; if(!r.u8(soc,e)||!r.f64(inputV,e)||!r.boolean(emergency,e))return false;
     auto*c=s->mutable_chassis_state();fillHeader(c->mutable_header(),0,ts,"robot_ws.chassis_states");c->set_speed_mps(speed);c->set_yaw_rate_radps(rate);c->set_gear(gear);
-    if(hasHeading){c->set_heading_kp(headingKp);c->set_heading_target_value(headingTarget);c->set_heading_actual_value(headingActual);c->set_heading_error(headingError);c->set_heading_output(headingOutput);}
-    if(hasTailMotorTelemetry){auto*leftTail=c->add_tail_thruster_motor();leftTail->set_id("left_tail_thruster");leftTail->set_bus_current_a(leftTailBus);leftTail->set_controller_temperature_c(leftTailTemp);leftTail->set_target_speed_rpm(leftTailTarget);leftTail->set_actual_speed_rpm(leftTailActual);auto*rightTail=c->add_tail_thruster_motor();rightTail->set_id("right_tail_thruster");rightTail->set_bus_current_a(rightTailBus);rightTail->set_controller_temperature_c(rightTailTemp);rightTail->set_target_speed_rpm(rightTailTarget);rightTail->set_actual_speed_rpm(rightTailActual);}
+    // Keep consuming legacy heading-controller diagnostics to preserve the
+    // fixed CDR layout, but do not expose these retired Client-side values.
+    (void)headingKp; (void)headingTarget; (void)headingActual; (void)headingError; (void)headingOutput;
+    if(hasTailMotorTelemetry){
+        auto*leftTail=c->add_tail_thruster_motor();leftTail->set_id("left_tail_thruster");leftTail->set_bus_current_a(tailMotors[0].busCurrent);leftTail->set_controller_temperature_c(tailMotors[0].controllerTemperature);leftTail->set_target_speed_rpm(tailMotors[0].targetSpeed);leftTail->set_actual_speed_rpm(tailMotors[0].actualSpeed);
+        auto*rightTail=c->add_tail_thruster_motor();rightTail->set_id("right_tail_thruster");rightTail->set_bus_current_a(tailMotors[1].busCurrent);rightTail->set_controller_temperature_c(tailMotors[1].controllerTemperature);rightTail->set_target_speed_rpm(tailMotors[1].targetSpeed);rightTail->set_actual_speed_rpm(tailMotors[1].actualSpeed);
+        if(hasAllThrusterMotorTelemetry){
+            addThrusterMotor(c, "left_tail_thruster", tailMotors[0]);
+            addThrusterMotor(c, "right_tail_thruster", tailMotors[1]);
+            addThrusterMotor(c, "left_vertical_thruster", verticalMotors[0]);
+            addThrusterMotor(c, "right_vertical_thruster", verticalMotors[1]);
+            addThrusterMotor(c, "back_vertical_thruster", verticalMotors[2]);
+        }
+    }
     auto*u=c->mutable_underwater();u->set_water_tank_level(tank);u->set_water_tank_level_is_raw(tankRaw);u->set_water_tank_state(tankState(tankStatus));u->set_water_heartbeat(waterHb);u->set_emergency_ascent_active(emergency);const char*ids[]={"left_tail_thruster","right_tail_thruster","left_vertical_thruster","right_vertical_thruster","back_vertical_thruster"};for(int i=0;i<5;++i){auto*t=u->add_thruster();t->set_id(ids[i]);t->set_fault_code(thr[i]);}
     auto*p=c->mutable_platform();p->set_crawl_heartbeat(crawlHb);p->set_dcdc_enabled(dcdc);p->set_smart_power_input_voltage_v(inputV);fillMotor(p->mutable_left_crawl_motor(),left,leftAct);fillMotor(p->mutable_right_crawl_motor(),right,rightAct);
     auto*b=p->mutable_battery();b->set_valid(true);b->set_self_check_status(bmsStatus);b->set_heartbeat(bmsHb);b->set_alarm_level(alarm);b->set_current_status(current);b->set_pack_voltage_v(packV);b->set_pack_current_a(packI);b->set_max_cell_voltage_index(maxVi);b->set_max_cell_voltage_v(maxV);b->set_min_cell_voltage_index(minVi);b->set_min_cell_voltage_v(minV);b->set_max_temperature_index(maxTi);b->set_max_temperature_c(maxT);b->set_min_temperature_index(minTi);b->set_min_temperature_c(minT);b->set_state_of_charge_percent(soc);for(auto v:warnings)b->add_warning_code(v);for(int i=0;i<16;++i){auto*ch=p->add_power_channel();ch->set_index(i+1);ch->set_status(power[i]);} return true;
@@ -457,6 +495,7 @@ ChassisCdrLayout chassisCdrLayout(const QByteArray& payload)
     if (size >= 341 && size <= 348) return ChassisCdrLayout::LegacyWithTail;
     if (size >= 325 && size <= 332) return ChassisCdrLayout::Current;
     if (size >= 389 && size <= 396) return ChassisCdrLayout::CurrentWithTail;
+    if (size >= 485 && size <= 492) return ChassisCdrLayout::CurrentWithAllThrusterMotors;
     return ChassisCdrLayout::Invalid;
 }
 

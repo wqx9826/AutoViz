@@ -294,16 +294,6 @@ model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& sourc
                                              : QDateTime::currentMSecsSinceEpoch();
     target.currentSpeed = source.speed_mps();
     target.currentAngularVelocity = source.yaw_rate_radps();
-    target.hasHeadingKp = source.has_heading_kp();
-    target.hasHeadingTargetValue = source.has_heading_target_value();
-    target.hasHeadingActualValue = source.has_heading_actual_value();
-    target.hasHeadingError = source.has_heading_error();
-    target.hasHeadingOutput = source.has_heading_output();
-    if (target.hasHeadingKp) target.headingKp = source.heading_kp();
-    if (target.hasHeadingTargetValue) target.headingTargetValue = source.heading_target_value();
-    if (target.hasHeadingActualValue) target.headingActualValue = source.heading_actual_value();
-    if (target.hasHeadingError) target.headingError = source.heading_error();
-    if (target.hasHeadingOutput) target.headingOutput = source.heading_output();
     target.gearStatus = source.gear();
     if (source.has_underwater()) {
         const auto& underwater = source.underwater();
@@ -370,14 +360,21 @@ model::ChassisRuntimeStatus convertChassisStatus(const wire::ChassisState& sourc
             target.powerSupplyStatuses.push_back(channel.status());
         }
     }
-    for (const auto& motor : source.tail_thruster_motor()) {
-        model::ChassisRuntimeStatus::TailMotor converted;
+    const auto appendThrusterMotor = [&target](const auto& motor) {
+        model::ChassisRuntimeStatus::ThrusterMotor converted;
         converted.id = QString::fromStdString(motor.id());
         converted.busCurrent = motor.bus_current_a();
         converted.controllerTemperature = motor.controller_temperature_c();
         converted.targetSpeedRpm = motor.target_speed_rpm();
         converted.actualSpeedRpm = motor.actual_speed_rpm();
-        target.tailThrusterMotors.push_back(converted);
+        target.thrusterMotors.push_back(converted);
+    };
+    // Protocol 2.8 provides every propulsion motor. Older Servers and bags
+    // only carry the two legacy tail-motor records, which remain the fallback.
+    if (source.thruster_motor_size() > 0) {
+        for (const auto& motor : source.thruster_motor()) appendThrusterMotor(motor);
+    } else {
+        for (const auto& motor : source.tail_thruster_motor()) appendThrusterMotor(motor);
     }
     return target;
 }

@@ -15,11 +15,13 @@ Windows 开发基线统一为 Qt 6.10、Qt Kit 自带 MinGW 13.1 和同工具链
 静态库；Qt Creator/CLion 必须选择该编译器，禁止混入 MSYS2 UCRT64 的 protobuf/Abseil
 二进制。Linux Client 保持 Qt5，并使用 Linux 本机工具链重建自己的协议 SDK。
 
-协议为 2.7，不兼容 feature v1.1，不实现双栈。2.5 通过 `VisualizationSnapshot.perception_state=22`
+协议为 2.8，不兼容 feature v1.1，不实现双栈。2.5 通过 `VisualizationSnapshot.perception_state=22`
 兼容扩展感知请求；2.6 删除了重复推导的控制事件和不具备独立来源的任务启动脉冲，并保留其 field number；2.7
-新增 optional `VisualizationSnapshot.final_targets=23`，不修改旧 `obstacles=16`，因此其他 v2
+新增 optional `VisualizationSnapshot.final_targets=23`，不修改旧 `obstacles=16`；2.8 新增
+`ChassisState.thruster_motor=20` 的五组通用推进器反馈，保留 field 14 两组旧尾推语义。因此其他 v2
 领域字段及旧 bag 的非 FinalTarget 通道继续兼容。当前 FinalTarget ROS CDR 布局不兼容旧版：旧 bag
-仅跳过 `/targets/final_objects`，不得阻断其余通道。旧 Server 的缺失 optional 字段不能在 Client 伪造成零或 false。framing 为 4 字节大端长度 + protobuf
+仅跳过 `/targets/final_objects`，不得阻断其余通道。旧 Server 或旧 bag 缺失 field 20 时 Client 只能
+回退 field 14 的两组尾推，三组垂推显示 `--`，不能伪造成零或 false。framing 为 4 字节大端长度 + protobuf
 Envelope，最大 16 MiB。传输仅有 ClientHello、ServerHello、VisualizationSnapshot、
 Heartbeat、ProtocolError。
 
@@ -58,8 +60,9 @@ cmd 速度/航向/角速度/模式/档位/使能，`/location` 提供速度/航�
 `/chassis_states` 仅提供爬行速度、爬行角速度和档位反馈。左侧控制曲线的目标值来自
 `/chassis_command`，反馈值来自 `/location`；控制命令的 `enabled` 只表达当前执行状态，
 不再驱动额外的“无效/未使能”过渡展示逻辑。
-底盘详情中的尾推遥测按左、右尾推分行显示；每行固定为母线电流、控制器温度、目标转速和实际转速，
-不将两侧数据拼接为单行长文本。
+底盘详情中的“航向驱动器”按左尾推、右尾推、左前垂推、右前垂推、后垂推固定五行显示；每行固定为
+母线电流 A、控制器温度 °C、目标转速和实际转速 rpm。Client UI 不展示航向控制器诊断，但 Server、协议
+和 CDR 仍保持这些旧字段的转换/结构性读取兼容。
 
 详情页固定顺序为 ROS Topic、TaskParams、定位、底盘、控制、路径、感知信息、Action 信息、
 任务状态、控制时序；保留的垂向诊断页位于控制时序之后。TaskParams 使用非对称两栏：左栏为

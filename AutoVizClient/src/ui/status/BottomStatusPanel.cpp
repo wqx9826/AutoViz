@@ -1663,12 +1663,6 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("chassis.speed"), tr("当前前向速度")},
                        {QStringLiteral("chassis.angular"), tr("当前角速度 (°/s)")},
                        {QStringLiteral("chassis.gear"), tr("挡位状态")}}},
-                     {tr("航向控制器诊断"),
-                      {{QStringLiteral("chassis.heading_kp"), tr("Kp（协议缩放值）")},
-                       {QStringLiteral("chassis.heading_target"), tr("目标值（协议缩放值）")},
-                       {QStringLiteral("chassis.heading_actual"), tr("实际值（协议缩放值）")},
-                       {QStringLiteral("chassis.heading_error"), tr("误差（协议缩放值）")},
-                       {QStringLiteral("chassis.heading_output"), tr("输出（协议缩放值）")}}},
                      {tr("压载与电源"),
                       {{QStringLiteral("chassis.tank_level"), tr("水箱液位状态")},
                        {QStringLiteral("chassis.tank_state"), tr("压载水箱状态")},
@@ -1687,9 +1681,12 @@ void BottomStatusPanel::setupStateTabs()
                        {QStringLiteral("chassis.right_motor"), tr("右履带电机")},
                        {QStringLiteral("chassis.motor_controller"), tr("控制器就绪/输出")},
                        {QStringLiteral("chassis.motor_command"), tr("指令回采")}}},
-                     {tr("尾推驱动器"),
+                     {tr("航向驱动器"),
                       {{QStringLiteral("chassis.left_tail_motor"), tr("左尾推（A / °C / 目标 / 实际 rpm）")},
-                       {QStringLiteral("chassis.right_tail_motor"), tr("右尾推（A / °C / 目标 / 实际 rpm）")}}},
+                       {QStringLiteral("chassis.right_tail_motor"), tr("右尾推（A / °C / 目标 / 实际 rpm）")},
+                       {QStringLiteral("chassis.left_vertical_motor"), tr("左前垂推（A / °C / 目标 / 实际 rpm）")},
+                       {QStringLiteral("chassis.right_vertical_motor"), tr("右前垂推（A / °C / 目标 / 实际 rpm）")},
+                       {QStringLiteral("chassis.back_vertical_motor"), tr("后垂推（A / °C / 目标 / 实际 rpm）")}}},
                      {tr("执行器与故障"),
                      {{QStringLiteral("chassis.heartbeat"), tr("水面/爬行心跳")},
                        {QStringLiteral("chassis.tail_actuator"), tr("尾部执行器 L/R")},
@@ -2119,12 +2116,6 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("chassis.speed"), displayNumber(chassis.valid, chassis.currentSpeed));
     setDetailValue(QStringLiteral("chassis.angular"), displayAngularVelocityDegrees(chassis.valid, chassis.currentAngularVelocity));
     setDetailValue(QStringLiteral("chassis.gear"), displayInt(chassis.valid, chassis.gearStatus));
-    const QString headingDiagnosticMissing = QStringLiteral("无此版本数据");
-    setDetailValue(QStringLiteral("chassis.heading_kp"), chassis.valid && chassis.hasHeadingKp ? formatNumber(chassis.headingKp) : headingDiagnosticMissing);
-    setDetailValue(QStringLiteral("chassis.heading_target"), chassis.valid && chassis.hasHeadingTargetValue ? formatNumber(chassis.headingTargetValue) : headingDiagnosticMissing);
-    setDetailValue(QStringLiteral("chassis.heading_actual"), chassis.valid && chassis.hasHeadingActualValue ? formatNumber(chassis.headingActualValue) : headingDiagnosticMissing);
-    setDetailValue(QStringLiteral("chassis.heading_error"), chassis.valid && chassis.hasHeadingError ? formatNumber(chassis.headingError) : headingDiagnosticMissing);
-    setDetailValue(QStringLiteral("chassis.heading_output"), chassis.valid && chassis.hasHeadingOutput ? formatNumber(chassis.headingOutput) : headingDiagnosticMissing);
     setDetailValue(QStringLiteral("chassis.tank_level"), waterTankLevelText(chassis.valid, chassis.waterTankLevelStatus, chassis.waterTankLevelIsRaw));
     setDetailValue(QStringLiteral("chassis.tank_state"), waterTankStatusText(chassis.valid, chassis.waterTankState));
     setDetailValue(QStringLiteral("chassis.emergency_ascent"), displayBool(chassis.valid, chassis.emergencyAscentActive));
@@ -2162,26 +2153,23 @@ void BottomStatusPanel::updateStateTabs(const autoviz::datacenter::Visualization
     setDetailValue(QStringLiteral("chassis.right_motor"), motorFeedbackText(chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_controller"), motorControllerText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
     setDetailValue(QStringLiteral("chassis.motor_command"), motorCommandText(chassis.leftCrawlMotor, chassis.rightCrawlMotor));
-    const auto tailMotorText = [&chassis](const QString& id) {
-        if (!chassis.valid) {
-            return QStringLiteral("--");
-        }
-        const auto motor = std::find_if(chassis.tailThrusterMotors.cbegin(),
-                                        chassis.tailThrusterMotors.cend(),
+    const auto thrusterMotorText = [&chassis](const QString& id) {
+        if (!chassis.valid) return QStringLiteral("--");
+        const auto motor = std::find_if(chassis.thrusterMotors.cbegin(),
+                                        chassis.thrusterMotors.cend(),
                                         [&id](const auto& item) { return item.id == id; });
-        if (motor == chassis.tailThrusterMotors.cend()) {
-            return QStringLiteral("无此版本数据");
-        }
+        if (motor == chassis.thrusterMotors.cend()) return QStringLiteral("--");
         return QStringLiteral("%1 A / %2 °C / %3 / %4")
             .arg(formatNumber(motor->busCurrent),
                  QString::number(motor->controllerTemperature),
                  formatNumber(motor->targetSpeedRpm),
                  formatNumber(motor->actualSpeedRpm));
     };
-    setDetailValue(QStringLiteral("chassis.left_tail_motor"),
-                   tailMotorText(QStringLiteral("left_tail_thruster")));
-    setDetailValue(QStringLiteral("chassis.right_tail_motor"),
-                   tailMotorText(QStringLiteral("right_tail_thruster")));
+    setDetailValue(QStringLiteral("chassis.left_tail_motor"), thrusterMotorText(QStringLiteral("left_tail_thruster")));
+    setDetailValue(QStringLiteral("chassis.right_tail_motor"), thrusterMotorText(QStringLiteral("right_tail_thruster")));
+    setDetailValue(QStringLiteral("chassis.left_vertical_motor"), thrusterMotorText(QStringLiteral("left_vertical_thruster")));
+    setDetailValue(QStringLiteral("chassis.right_vertical_motor"), thrusterMotorText(QStringLiteral("right_vertical_thruster")));
+    setDetailValue(QStringLiteral("chassis.back_vertical_motor"), thrusterMotorText(QStringLiteral("back_vertical_thruster")));
 
     const auto& control = snapshot.controlCommandStatus;
     setDetailValue(QStringLiteral("control.state"), validText(control.valid));

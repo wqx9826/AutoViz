@@ -152,6 +152,13 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     initialSnapshot.chassisRuntimeStatus.bms.selfCheckStatus = 0;
     initialSnapshot.chassisRuntimeStatus.bms.soc = 58;
     initialSnapshot.chassisRuntimeStatus.highVoltageBmsSocStatus = 58;
+    initialSnapshot.chassisRuntimeStatus.thrusterMotors = {
+        {QStringLiteral("left_tail_thruster"), 1.1, 31, 101.0, 91.0},
+        {QStringLiteral("right_tail_thruster"), 1.2, 32, 102.0, 92.0},
+        {QStringLiteral("left_vertical_thruster"), 1.3, 33, 103.0, 93.0},
+        {QStringLiteral("right_vertical_thruster"), 1.4, 34, 104.0, 94.0},
+        {QStringLiteral("back_vertical_thruster"), 1.5, 35, 105.0, 95.0},
+    };
     panel.updateSnapshot(initialSnapshot);
 
     auto* tabs = panel.findChild<QTabWidget*>(QStringLiteral("bottomStatusTabs"));
@@ -195,7 +202,8 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
     for (const QString& group : {QStringLiteral("基础任务"), QStringLiteral("爬行遥控"),
                                  QStringLiteral("航行遥控"), QStringLiteral("推进器调试"),
                                  QStringLiteral("配电通路"), QStringLiteral("测距运动请求"),
-                                 QStringLiteral("观察目标请求"), QStringLiteral("最终融合目标")}) {
+                                 QStringLiteral("观察目标请求"), QStringLiteral("最终融合目标"),
+                                 QStringLiteral("航向驱动器")}) {
         if (!hasDetailGroup(group)) {
             error << "missing detail group: " << group << '\n';
             return false;
@@ -222,6 +230,41 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
         error << "TaskParams compact remote-control layout is invalid\n";
         return false;
     }
+    if (hasDetailGroup(QStringLiteral("航向控制器诊断"))) {
+        error << "removed heading-controller diagnostics group is still visible\n";
+        return false;
+    }
+    const auto detailLabel = [&panel](const QString& key) {
+        return panel.findChild<QLabel*>(QStringLiteral("detail.%1").arg(key));
+    };
+    const QStringList thrusterDetailKeys = {QStringLiteral("chassis.left_tail_motor"),
+                                            QStringLiteral("chassis.right_tail_motor"),
+                                            QStringLiteral("chassis.left_vertical_motor"),
+                                            QStringLiteral("chassis.right_vertical_motor"),
+                                            QStringLiteral("chassis.back_vertical_motor")};
+    const QStringList expectedThrusterTexts = {QStringLiteral("1.100 A / 31 °C / 101.000 / 91.000"),
+                                               QStringLiteral("1.200 A / 32 °C / 102.000 / 92.000"),
+                                               QStringLiteral("1.300 A / 33 °C / 103.000 / 93.000"),
+                                               QStringLiteral("1.400 A / 34 °C / 104.000 / 94.000"),
+                                               QStringLiteral("1.500 A / 35 °C / 105.000 / 95.000")};
+    for (int index = 0; index < thrusterDetailKeys.size(); ++index) {
+        const auto* label = detailLabel(thrusterDetailKeys.at(index));
+        if (label == nullptr || label->text() != expectedThrusterTexts.at(index)) {
+            error << "propulsion row text is incorrect: " << thrusterDetailKeys.at(index) << '\n';
+            return false;
+        }
+    }
+    auto legacyThrusterSnapshot = initialSnapshot;
+    legacyThrusterSnapshot.chassisRuntimeStatus.thrusterMotors.remove(2, 3);
+    panel.updateSnapshot(legacyThrusterSnapshot);
+    for (int index = 2; index < thrusterDetailKeys.size(); ++index) {
+        const auto* label = detailLabel(thrusterDetailKeys.at(index));
+        if (label == nullptr || label->text() != QStringLiteral("--")) {
+            error << "legacy propulsion row did not display --: " << thrusterDetailKeys.at(index) << '\n';
+            return false;
+        }
+    }
+    panel.updateSnapshot(initialSnapshot);
     auto* crawlSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.crawl_speed"));
     auto* sailingSpeedLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.sailing_speed"));
     auto* crawlAngularLabel = panel.findChild<QLabel*>(QStringLiteral("overview.control.crawl_angular"));
@@ -356,9 +399,6 @@ bool runControlWidgetChecks(QApplication& app, QTextStream& error)
         topicStatus(autoviz::model::VisualizationChannel::InspectionGoal, 4, 1786936821102LL),
         topicStatus(autoviz::model::VisualizationChannel::Obstacles, 5, 1786936821103LL)};
     panel.updateSnapshot(detailSnapshot);
-    const auto detailLabel = [&panel](const QString& key) {
-        return panel.findChild<QLabel*>(QStringLiteral("detail.%1").arg(key));
-    };
     auto* missingTaskEnable = detailLabel(QStringLiteral("taskparams.enable"));
     auto* rangeTaskId = detailLabel(QStringLiteral("perception.range.task_id"));
     auto* inspectionIds = detailLabel(QStringLiteral("perception.inspection.ids"));

@@ -184,6 +184,20 @@ void addThruster(wire::UnderwaterChassisState* target,
     thruster->set_fault_code(faultCode);
 }
 
+void setMotorFeedback(wire::ThrusterMotorState* target,
+                      const char* id,
+                      double busCurrent,
+                      int controllerTemperature,
+                      double targetSpeed,
+                      double actualSpeed)
+{
+    target->set_id(id);
+    target->set_bus_current_a(busCurrent);
+    target->set_controller_temperature_c(controllerTemperature);
+    target->set_target_speed_rpm(targetSpeed);
+    target->set_actual_speed_rpm(actualSpeed);
+}
+
 void addTailMotor(wire::ChassisState* target,
                   const char* id,
                   double busCurrent,
@@ -197,6 +211,17 @@ void addTailMotor(wire::ChassisState* target,
     motor->set_controller_temperature_c(controllerTemperature);
     motor->set_target_speed_rpm(targetSpeed);
     motor->set_actual_speed_rpm(actualSpeed);
+}
+
+void addThrusterMotor(wire::ChassisState* target,
+                      const char* id,
+                      double busCurrent,
+                      int controllerTemperature,
+                      double targetSpeed,
+                      double actualSpeed)
+{
+    setMotorFeedback(target->add_thruster_motor(), id, busCurrent,
+                     controllerTemperature, targetSpeed, actualSpeed);
 }
 
 void fillPose(wire::Pose3D* target, const geometry_msgs::msg::Pose& source)
@@ -493,6 +518,26 @@ wire::ChassisState RobotWsProtoConverter::chassisState(
                  message.right_tail_motor_controller_temperature,
                  message.right_tail_motor_target_speed_rpm,
                  message.right_tail_motor_actual_speed_rpm);
+    addThrusterMotor(&chassis, "left_tail_thruster", message.left_tail_motor_bus_current,
+                     message.left_tail_motor_controller_temperature,
+                     message.left_tail_motor_target_speed_rpm,
+                     message.left_tail_motor_actual_speed_rpm);
+    addThrusterMotor(&chassis, "right_tail_thruster", message.right_tail_motor_bus_current,
+                     message.right_tail_motor_controller_temperature,
+                     message.right_tail_motor_target_speed_rpm,
+                     message.right_tail_motor_actual_speed_rpm);
+    addThrusterMotor(&chassis, "left_vertical_thruster", message.left_vertical_motor_bus_current,
+                     message.left_vertical_motor_controller_temperature,
+                     message.left_vertical_motor_target_speed_rpm,
+                     message.left_vertical_motor_actual_speed_rpm);
+    addThrusterMotor(&chassis, "right_vertical_thruster", message.right_vertical_motor_bus_current,
+                     message.right_vertical_motor_controller_temperature,
+                     message.right_vertical_motor_target_speed_rpm,
+                     message.right_vertical_motor_actual_speed_rpm);
+    addThrusterMotor(&chassis, "back_vertical_thruster", message.back_vertical_motor_bus_current,
+                     message.back_vertical_motor_controller_temperature,
+                     message.back_vertical_motor_target_speed_rpm,
+                     message.back_vertical_motor_actual_speed_rpm);
 
     auto* platform = chassis.mutable_platform();
     platform->set_crawl_heartbeat(message.crawl_heartbeat);

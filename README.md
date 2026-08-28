@@ -15,12 +15,13 @@ AutoVizClient 还可在不启动 Server、ROS2、WSL 或虚拟机的情况下，
 `main` 是当前 C/S v2 主线。此前现场稳定的 ROS2/Qt 单体版本保留在
 `legacy/ros2-qt-monolith` 分支，供现场回溯与对照，不再作为后续开发基线。
 
-当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.7**：Server 最多 20 Hz 发送
+当前协议为不兼容旧 feature v1.1 的 **AutoViz Protocol 2.8**：Server 最多 20 Hz 发送
 完整当前快照，不再使用订阅、ChannelUpdate 或 UPSERT/CLEAR。八条基础 robot_ws 输入和两条
 可选感知请求均由 Server Adapter 转换；Client 根据通用规划控制、垂向、水下和平台诊断
-capability 组织 UI。2.7 是同一 major 内的可选字段升级：保留全部既有 v2 领域字段，并以
-`final_targets=23` 承载当前 `FinalTargetArray` 的参考点、保守半径、渔网边界与水雷统计；旧
-Server 不发送的 optional 字段在 Client 中明确显示为“该 Server 无此信息”。
+capability 组织 UI。2.8 是同一 major 内的可选字段升级：保留全部既有 v2 领域字段，并在
+`ChassisState.thruster_motor=20` 承载五组推进器电机反馈（左/右尾推、左/右前垂推、后垂推）；
+field 14 的两组旧尾推遥测继续保留给旧 Client。远程 TCP 和本地 bag 回放统一进入同一内部模型
+与详情页；旧 Server 或旧 bag 缺失三组垂推时固定显示 `--`。
 
 ## 第三方库布局
 

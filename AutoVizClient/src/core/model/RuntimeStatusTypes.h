@@ -143,16 +143,6 @@ struct ChassisRuntimeStatus {
     qint64 timestampMs = 0;
     double currentSpeed = 0.0;
     double currentAngularVelocity = 0.0;
-    bool hasHeadingKp = false;
-    bool hasHeadingTargetValue = false;
-    bool hasHeadingActualValue = false;
-    bool hasHeadingError = false;
-    bool hasHeadingOutput = false;
-    double headingKp = 0.0;
-    double headingTargetValue = 0.0;
-    double headingActualValue = 0.0;
-    double headingError = 0.0;
-    double headingOutput = 0.0;
     int gearStatus = 0;
     int waterTankLevelStatus = 0;
     bool waterTankLevelIsRaw = false;
@@ -175,14 +165,14 @@ struct ChassisRuntimeStatus {
     CrawlMotorRuntimeStatus rightCrawlMotor;
     BmsRuntimeStatus bms;
     QVector<int> powerSupplyStatuses;
-    struct TailMotor {
+    struct ThrusterMotor {
         QString id;
         double busCurrent = 0.0;
         int controllerTemperature = 0;
         double targetSpeedRpm = 0.0;
         double actualSpeedRpm = 0.0;
     };
-    QVector<TailMotor> tailThrusterMotors;
+    QVector<ThrusterMotor> thrusterMotors;
 };
 
 struct ControlCommandStatus {

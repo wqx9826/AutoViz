@@ -118,6 +118,18 @@ void appendZeroMotorCommand(QByteArray* payload)
     appendCdrFloat64(payload, 0.0);
 }
 
+void appendThrusterMotorFeedback(QByteArray* payload,
+                                 double busCurrent,
+                                 qint16 controllerTemperature,
+                                 double targetSpeed,
+                                 double actualSpeed)
+{
+    appendCdrFloat64(payload, busCurrent);
+    appendCdrInt16(payload, controllerTemperature);
+    appendCdrFloat64(payload, targetSpeed);
+    appendCdrFloat64(payload, actualSpeed);
+}
+
 bool runCurrentChassisCommandLayoutChecks(QTextStream& error)
 {
     QByteArray payload(4, '\0');
@@ -556,14 +568,11 @@ bool runCurrentChassisDiagnosticsChecks(QTextStream& error)
     appendCdrFloat64(&payload, 9.2);  // heading actual
     appendCdrFloat64(&payload, 0.9);  // heading error
     appendCdrFloat64(&payload, 0.3);  // heading output
-    appendCdrFloat64(&payload, 4.5);  // left tail bus current
-    appendCdrInt16(&payload, 31);
-    appendCdrFloat64(&payload, 1200.0);
-    appendCdrFloat64(&payload, 1180.0);
-    appendCdrFloat64(&payload, 4.6);  // right tail bus current
-    appendCdrInt16(&payload, 32);
-    appendCdrFloat64(&payload, 1210.0);
-    appendCdrFloat64(&payload, 1190.0);
+    appendThrusterMotorFeedback(&payload, 4.5, 31, 1200.0, 1180.0);  // left tail
+    appendThrusterMotorFeedback(&payload, 4.6, 32, 1210.0, 1190.0);  // right tail
+    appendThrusterMotorFeedback(&payload, 4.7, 33, 1220.0, 1200.0);  // left vertical
+    appendThrusterMotorFeedback(&payload, 4.8, 34, 1230.0, 1210.0);  // right vertical
+    appendThrusterMotorFeedback(&payload, 4.9, 35, 1240.0, 1220.0);  // back vertical
     appendCdrByte(&payload, 0);  // tank level
     appendCdrByte(&payload, 0);  // tank level is raw
     appendCdrByte(&payload, 0);  // tank state
@@ -597,7 +606,7 @@ bool runCurrentChassisDiagnosticsChecks(QTextStream& error)
 
     ::autoviz::VisualizationSnapshot snapshot;
     QString detail;
-    if (payload.size() != 389 || !autoviz::playback::RobotWsCdrDecoder::decode(
+    if (payload.size() != 485 || !autoviz::playback::RobotWsCdrDecoder::decode(
             "/chassis_states", "custom_msgs/msg/ChassisStates", payload, 1,
             &snapshot, &detail)) {
         error << "current ChassisStates CDR self-test failed: " << detail << '\n';
@@ -605,19 +614,99 @@ bool runCurrentChassisDiagnosticsChecks(QTextStream& error)
     }
     const auto modelSnapshot = autoviz::network::ProtocolModelConverter::toModelSnapshot(snapshot);
     const auto& chassis = snapshot.chassis_state();
-    ::autoviz::VisualizationSnapshot partialDiagnostics;
-    partialDiagnostics.mutable_chassis_state()->set_heading_kp(2.0);
-    const auto partialModel = autoviz::network::ProtocolModelConverter::toModelSnapshot(partialDiagnostics);
-    const bool ok = chassis.has_heading_kp()
-                    && std::abs(chassis.heading_target_value() - 10.1) < 1.0e-12
+    // Remove only the three contiguous vertical feedback records. This is the
+    // prior 389-byte current layout: it must fall back to field 14's two tails.
+    QByteArray oldTailPayload = payload;
+    oldTailPayload.remove(124, 96);
+    ::autoviz::VisualizationSnapshot oldTailSnapshot;
+    const bool oldTailDecoded = oldTailPayload.size() == 389
+                                && autoviz::playback::RobotWsCdrDecoder::decode(
+                                    "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                    oldTailPayload, 1, &oldTailSnapshot, &detail);
+    const auto oldTailModel = autoviz::network::ProtocolModelConverter::toModelSnapshot(oldTailSnapshot);
+    // Derive every historical fixed layout from the same scalar sample. The
+    // removals include CDR alignment bytes, so each payload has the exact
+    // wire size published by that version rather than a trial parse.
+    QByteArray currentWithoutMotors = payload;
+    currentWithoutMotors.remove(60, 160);
+    ::autoviz::VisualizationSnapshot currentWithoutMotorsSnapshot;
+    const bool currentWithoutMotorsDecoded = currentWithoutMotors.size() == 325
+                                             && autoviz::playback::RobotWsCdrDecoder::decode(
+                                                 "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                                 currentWithoutMotors, 1,
+                                                 &currentWithoutMotorsSnapshot, &detail);
+    QByteArray legacyWithTail = payload;
+    legacyWithTail.remove(124, 96);
+    legacyWithTail.remove(28, 32);
+    legacyWithTail.remove(23, 5);
+    legacyWithTail.remove(9, 11);
+    ::autoviz::VisualizationSnapshot legacyWithTailSnapshot;
+    const bool legacyWithTailDecoded = legacyWithTail.size() == 341
+                                       && autoviz::playback::RobotWsCdrDecoder::decode(
+                                           "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                           legacyWithTail, 1, &legacyWithTailSnapshot, &detail);
+    QByteArray legacyWithoutTail = legacyWithTail;
+    legacyWithoutTail.remove(12, 64);
+    ::autoviz::VisualizationSnapshot legacyWithoutTailSnapshot;
+    const bool legacyWithoutTailDecoded = legacyWithoutTail.size() == 277
+                                          && autoviz::playback::RobotWsCdrDecoder::decode(
+                                              "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                              legacyWithoutTail, 1,
+                                              &legacyWithoutTailSnapshot, &detail);
+    QByteArray validPadding = payload;
+    validPadding.append(7, '\0');
+    ::autoviz::VisualizationSnapshot paddedSnapshot;
+    const bool validPaddingDecoded = validPadding.size() == 492
+                                    && autoviz::playback::RobotWsCdrDecoder::decode(
+                                        "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                        validPadding, 1, &paddedSnapshot, &detail);
+    QByteArray nonZeroPadding = payload;
+    nonZeroPadding.append('\x01');
+    QByteArray excessivePadding = payload;
+    excessivePadding.append(8, '\0');
+    const bool malformedRejected = !autoviz::playback::RobotWsCdrDecoder::decode(
+                                      "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                      payload.left(payload.size() - 1), 1, &snapshot, &detail)
+                                  && !autoviz::playback::RobotWsCdrDecoder::decode(
+                                      "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                      nonZeroPadding, 1, &snapshot, &detail)
+                                  && !autoviz::playback::RobotWsCdrDecoder::decode(
+                                      "/chassis_states", "custom_msgs/msg/ChassisStates",
+                                      excessivePadding, 1, &snapshot, &detail);
+    const bool ok = !chassis.has_heading_kp()
+                    && !chassis.has_heading_target_value()
                     && std::abs(chassis.yaw_rate_radps() + 0.4) < 1.0e-12
                     && chassis.tail_thruster_motor_size() == 2
-                    && std::abs(modelSnapshot.chassisRuntimeStatus.headingOutput - 0.3) < 1.0e-12
-                    && partialModel.chassisRuntimeStatus.hasHeadingKp
-                    && !partialModel.chassisRuntimeStatus.hasHeadingTargetValue
-                    && !partialModel.chassisRuntimeStatus.hasHeadingActualValue
-                    && !partialModel.chassisRuntimeStatus.hasHeadingError
-                    && !partialModel.chassisRuntimeStatus.hasHeadingOutput;
+                    && chassis.thruster_motor_size() == 5
+                    && chassis.thruster_motor(0).id() == "left_tail_thruster"
+                    && chassis.thruster_motor(2).id() == "left_vertical_thruster"
+                    && std::abs(chassis.thruster_motor(2).bus_current_a() - 4.7) < 1.0e-12
+                    && chassis.underwater().water_heartbeat() == 2
+                    && chassis.platform().crawl_heartbeat() == 3
+                    && std::abs(chassis.platform().battery().pack_voltage_v() - 24.0) < 1.0e-12
+                    && chassis.platform().power_channel_size() == 16
+                    && modelSnapshot.chassisRuntimeStatus.thrusterMotors.size() == 5
+                    && modelSnapshot.chassisRuntimeStatus.thrusterMotors.at(4).id == QStringLiteral("back_vertical_thruster")
+                    && std::abs(modelSnapshot.chassisRuntimeStatus.thrusterMotors.at(4).actualSpeedRpm - 1220.0) < 1.0e-12
+                    && oldTailDecoded
+                    && oldTailSnapshot.chassis_state().tail_thruster_motor_size() == 2
+                    && oldTailSnapshot.chassis_state().thruster_motor_size() == 0
+                    && oldTailModel.chassisRuntimeStatus.thrusterMotors.size() == 2
+                    && oldTailModel.chassisRuntimeStatus.thrusterMotors.at(0).id == QStringLiteral("left_tail_thruster")
+                    && std::abs(oldTailModel.chassisRuntimeStatus.thrusterMotors.at(0).busCurrent - 4.5) < 1.0e-12
+                    && oldTailModel.chassisRuntimeStatus.thrusterMotors.at(1).id == QStringLiteral("right_tail_thruster")
+                    && std::abs(oldTailModel.chassisRuntimeStatus.thrusterMotors.at(1).actualSpeedRpm - 1190.0) < 1.0e-12
+                    && currentWithoutMotorsDecoded
+                    && currentWithoutMotorsSnapshot.chassis_state().tail_thruster_motor_size() == 0
+                    && currentWithoutMotorsSnapshot.chassis_state().thruster_motor_size() == 0
+                    && legacyWithTailDecoded
+                    && legacyWithTailSnapshot.chassis_state().tail_thruster_motor_size() == 2
+                    && legacyWithTailSnapshot.chassis_state().thruster_motor_size() == 0
+                    && legacyWithoutTailDecoded
+                    && legacyWithoutTailSnapshot.chassis_state().tail_thruster_motor_size() == 0
+                    && validPaddingDecoded
+                    && paddedSnapshot.chassis_state().thruster_motor_size() == 5
+                    && malformedRejected;
     if (!ok) error << "current ChassisStates fields were not aligned\n";
     return ok;
 }

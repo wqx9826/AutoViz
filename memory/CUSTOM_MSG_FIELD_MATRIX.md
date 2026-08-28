@@ -11,7 +11,7 @@
 | `/location` | 全部标量，包括 start/Gauss/origin/odom heading/omega X/Y/USBL words | `VehicleState` typed 字段 | `decodeLocation` 同序读取 | 定位详情；heading 与 odom_heading 并列显示，不做一致性告警 |
 | `/targets/final_objects` | Array task_id/mine_number；目标 header/ID/class/reference XY/radius；仅渔网 boundary XY | `FinalTargetSet`（snapshot field 23） | `decodeFinalTargets`，严格当前 CDR 布局 | 参考点 + 保守圆；合法渔网边界画多边形，无效/缺失边界回退圆 |
 | `/chassis_command` | 原始 mode、使能、速度、角速度、挡位、水推/垂向/浮力/声纳 | `ControlCommand` | `decodeCommand` | 控制详情；angular_velocity 原值透传 |
-| `/chassis_states` | 水推/履带执行器、航向 Kp/目标/实际/误差/输出、尾推遥测、BMS、配电、底盘状态 | `ChassisState` typed 字段 | 旧无尾推 277、旧含尾推 341、当前无尾推 325、当前含尾推 389；严格按长度选择 | 底盘详情；旧布局缺失的航向/尾推字段显示“无此版本数据” |
+| `/chassis_states` | 水推/履带执行器、航向 Kp/目标/实际/误差/输出、五组推进器电机反馈、BMS、配电、底盘状态 | `ChassisState` typed 字段；field 14 保留两组尾推，field 20 写五组推进器 | 旧无尾推 277、旧含尾推 341、当前无尾推 325、当前含尾推 389、当前五电机 485；严格按长度选择 | 底盘详情“航向驱动器”固定五行；旧布局仅有两组尾推时三组垂推显示 `--`，航向诊断不在 Client UI 展示 |
 | `/system_run_states` | Action 聚合 owner/goal/state/message/mode/目标/浮力/紧急上浮 | `ActionState` | `decodeAction` | Action 主状态；隐藏 status/feedback 仅作诊断 |
 | `/task_params` | 任务使能、动作使能、急停、解除按钮、遥控/调试/配电 | `TaskState` | `decodeTask` | 当前任务使能与动作使能分别显示 |
 | `/detection/range_motion_request` | header、任务 ID、命令序号、动作、`float32` 限速、原因 | `PerceptionState.range_motion_directive` | `decodeRangeMotionRequest`；严格处理 header/string/float32 CDR 对齐 | 感知详情；消息任务 ID 原样显示，不按 TaskParams 过滤 |
@@ -47,9 +47,11 @@
 ## ChassisStates CDR 兼容
 
 所有字段为定长标量。解码器严格按封装后的有效消息长度选择布局：旧无尾推 277、旧含尾推
-341、当前无尾推 325、当前含尾推 389 字节；每种布局额外允许最多 7 字节全零 CDR 尾部填充。
-其他长度、截断或非零尾部直接报不兼容，禁止错位尝试解析。旧布局缺失的字段保持 optional 缺失，
-不填零冒充有效值。
+341、当前无尾推 325、当前含尾推 389、当前五电机 485 字节；每种布局额外允许最多 7 字节全零
+CDR 尾部填充。485 按消息声明顺序读取两组尾推后新增的左前、右前、后垂推，向 field 14 保留
+两组尾推，并向 field 20 输出固定顺序的五组 ID：`left_tail_thruster`、`right_tail_thruster`、
+`left_vertical_thruster`、`right_vertical_thruster`、`back_vertical_thruster`。其他长度、截断或
+非零尾部直接报不兼容，禁止错位尝试解析；旧布局缺失的字段保持 optional 缺失，不填零冒充有效值。
 
 历史 `ChassisCommand` 也有固定旧布局：72 字节的 `heading` 后带已删除的 `dive_speed`，当前布局
 为 64 字节。CDR decoder 根据精确长度读取旧字段以维持后续执行器/浮力/声纳字段对齐；`dive_speed`

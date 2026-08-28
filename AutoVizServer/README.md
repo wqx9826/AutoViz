@@ -1,7 +1,7 @@
 # AutoVizServer
 
 AutoVizServer 是独立 ROS2 workspace。当前 Adapter 读取八条基础 robot_ws topic 和两条可选
-感知请求 topic，转换为来源无关的 AutoViz Protocol v2.7 完整快照，并通过 TCP 只读发送给 Qt Client。
+感知请求 topic，转换为来源无关的 AutoViz Protocol v2.8 完整快照，并通过 TCP 只读发送给 Qt Client。`/chassis_states` 同时保留 field 14 的两组旧尾推反馈，并以 field 20 输出左/右尾推、左/右前垂推、后垂推五组通用推进器反馈；单位不缩放或改写。
 
 ## 从 ROS 回调到 TCP 的固定数据流
 

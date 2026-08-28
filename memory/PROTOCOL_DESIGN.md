@@ -1,4 +1,4 @@
-# AutoViz Protocol v2.7
+# AutoViz Protocol v2.8
 
 唯一 schema 位于 `AutoVizProto/proto/autoviz/*.proto`，全部使用 proto2 optional/repeated
 与 `package autoviz`。v2 删除 feature v1.1 的订阅和增量状态机，是不兼容升级。
@@ -41,6 +41,12 @@ VehicleState=10、ChassisState=11、ControlCommand=12、global/local trajectory=
 ReferenceLine=15、ObstacleSet=16、ActionState=17、TaskState=18、RuntimeState=19、
 VehicleParameters=20。`FinalTargetSet=23` 是 2.7 新增的 optional 字段；它与旧
 `ObstacleSet=16` 并存，绝不复用或重解释旧字段。
+
+`ChassisState.thruster_motor=20` 是 2.8 新增的 repeated `ThrusterMotorState`。每项使用稳定
+ID：`left_tail_thruster`、`right_tail_thruster`、`left_vertical_thruster`、
+`right_vertical_thruster`、`back_vertical_thruster`，并携带母线电流 A、控制器温度 °C、目标 rpm
+和实际 rpm。已存在的 `tail_thruster_motor=14` 不删除、不重解释；Server 同时写入它的两组尾推
+和 field 20 的五组完整反馈，允许旧 Client 保持兼容。
 `PerceptionState=22` 是 2.5 新增的 optional 字段；21 曾用于推导的 control state event，现已
 `reserved`。`TaskState=10` 曾用于 task_start_requested，现同样 `reserved`，因为 robot_ws
 只提供当前 `task_enable`，不能可靠表达独立的启动事件。
@@ -88,6 +94,8 @@ Client                         Server
 仅 final_class=2（渔网）消费边界：空边界合法并绘制保守圆；无效边界仅该目标回退圆并携带提示。
 Server Adapter 与本地 CDR decoder 必须产生相同的集合、回退和拒绝结论。2.7 保持 protocol major=2，
 因此其他旧 v2 字段和旧 bag 通道继续可用；旧 FinalTarget CDR 布局只跳过该 Topic，不阻断 bag 预检。
+2.8 也保持 major=2：Client 优先消费 field 20，缺失时才回退 field 14；旧 bag 未包含三组垂推时它们
+保持 optional 缺失，UI 统一显示 `--`，不得伪造零值。
 Client 只在一个 FinalTarget CDR frame 完整解码、校验并消费后替换当前集合；跳过的旧布局或截断帧
 不得清空上一有效集合，也不得推进该 Topic 的消息计数或新鲜度。
 
@@ -169,5 +177,8 @@ robot_ws 输出。不要在读取 `goal_uuid` 时尝试把非 canonical 字符�
 - UI 显示层才转成度和 °/s。
 - 已使用 field number 永不复用；删除字段 `reserved`。
 - 新 optional/repeated 字段可在同 major 演进；语义/单位/framing 不兼容变化提升 major。
+- `ChassisStates` CDR 必须严格按固定布局识别 277、341、325、389 和当前 485 字节（各最多允许
+  7 字节全零尾部填充）；485 按消息顺序在两组尾推之后读取左前、右前、后垂推。未知长度、截断或
+  非零尾部一律拒绝，禁止试探解析或错位读取。
 
 v2 是可信局域网只读可视化协议，不包含写控制、TLS、认证、压缩或服务发现。

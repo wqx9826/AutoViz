@@ -287,6 +287,21 @@ Client 日志确认“已连接 127.0.0.1:39090（robot_ws ROS2 adapter）”。
   `rosbag2_2026_08_18-09_12_43` 已扫描 151,608 条支持消息并通过；它不含目标通道，不能替代当前
   FinalTarget 的真实录包验收。
 
+## 2026-08-28 推进器电机反馈 Protocol 2.8
+
+- Protocol 升级为 **2.8**（major 仍为 2）：`ChassisState.thruster_motor=20` 使用五个固定 ID
+  `left_tail_thruster`、`right_tail_thruster`、`left_vertical_thruster`、
+  `right_vertical_thruster`、`back_vertical_thruster`，每组保留母线电流 A、控制器温度 °C、目标/实际
+  rpm。旧 `tail_thruster_motor=14` 未改动，Server 对同一 `ChassisStates` 仍只写其两组尾推，同时向
+  field 20 写完整五组；不缩放、不换符号、不补造零值。
+- Client `ProtocolModelConverter` 优先 field 20，缺失时回退 field 14；底盘详情删除“航向控制器诊断”，
+  “航向驱动器”固定显示五行。旧布局仅有两组尾推时三组垂推严格显示 `--`。
+- CDR 自检覆盖 485 字节当前五电机布局、277/341/325/389 字节历史布局、field 14 回退、截断、未知
+  长度、超过 7 字节尾部填充和非零尾部拒绝；485 验证五组值及后续水箱、履带、BMS 字段未错位。
+- 发布门禁仍要求用同一五电机样本比较 `ROS -> Server -> TCP -> ProtocolModelConverter -> UI` 与
+  `CDR -> RobotWsCdrDecoder -> ProtocolModelConverter -> UI` 的 ID、顺序、四项数值、单位、缺失行为和
+  页面文本；另须以当前 `ChassisStates.msg` 实录 bag 与至少一份旧 bag 完成两条人工回放验收。
+
 ### 后续真实链路门禁
 
 必须用**当前** FinalTargetArray 定义录制一份含圆形目标、合法/空/非法渔网边界、无效参考点或半径以及

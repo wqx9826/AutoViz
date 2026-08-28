@@ -123,7 +123,10 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
 {
     std::vector<wire::Envelope> expected(3);
     expected[0].mutable_client_hello()->set_protocol_major(wire::kProtocolMajor);
+    expected[0].mutable_client_hello()->set_protocol_minor(wire::kProtocolMinor);
     auto* hello = expected[1].mutable_server_hello();
+    hello->set_protocol_major(wire::kProtocolMajor);
+    hello->set_protocol_minor(wire::kProtocolMinor);
     hello->set_session_id("session-v2");
     hello->add_capability(wire::CAPABILITY_COMMON_PLANNING_CONTROL);
     hello->add_capability(wire::CAPABILITY_UNDERWATER_SYSTEM);
@@ -138,6 +141,12 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     underwater->set_water_tank_state(wire::WATER_TANK_STATE_FILLING);
     underwater->set_emergency_ascent_active(true);
     snapshot->mutable_chassis_state()->add_tail_thruster_motor()->set_actual_speed_rpm(118.0);
+    auto* thrusterMotor = snapshot->mutable_chassis_state()->add_thruster_motor();
+    thrusterMotor->set_id("left_vertical_thruster");
+    thrusterMotor->set_bus_current_a(4.6);
+    thrusterMotor->set_controller_temperature_c(32);
+    thrusterMotor->set_target_speed_rpm(120.0);
+    thrusterMotor->set_actual_speed_rpm(118.0);
     auto* platform = snapshot->mutable_chassis_state()->mutable_platform();
     platform->mutable_battery()->set_pack_voltage_v(312.5);
     platform->add_power_channel()->set_status(1);
@@ -198,6 +207,8 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     ASSERT_TRUE(decoder.decode(stream, decoded, error)) << error;
     ASSERT_EQ(decoded.size(), expected.size());
     EXPECT_EQ(decoded[0].client_hello().protocol_major(), 2U);
+    EXPECT_EQ(decoded[0].client_hello().protocol_minor(), 8U);
+    EXPECT_EQ(decoded[1].server_hello().protocol_minor(), 8U);
     EXPECT_EQ(decoded[1].server_hello().capability(1),
               wire::CAPABILITY_UNDERWATER_SYSTEM);
     const auto& actual = decoded[2].snapshot();
@@ -209,6 +220,9 @@ TEST(ProtocolEnvelopeTest, PreservesV2HandshakeCapabilitiesAndFullSnapshot)
     EXPECT_DOUBLE_EQ(actual.chassis_state().platform().battery().pack_voltage_v(), 312.5);
     ASSERT_EQ(actual.chassis_state().tail_thruster_motor_size(), 1);
     EXPECT_DOUBLE_EQ(actual.chassis_state().tail_thruster_motor(0).actual_speed_rpm(), 118.0);
+    ASSERT_EQ(actual.chassis_state().thruster_motor_size(), 1);
+    EXPECT_EQ(actual.chassis_state().thruster_motor(0).id(), "left_vertical_thruster");
+    EXPECT_DOUBLE_EQ(actual.chassis_state().thruster_motor(0).bus_current_a(), 4.6);
     EXPECT_TRUE(actual.control_command().underwater().emergency_ascent());
     EXPECT_EQ(actual.control_command().source_mode(), 11);
     EXPECT_TRUE(actual.task_state().underwater().release_emergency_ascent());
@@ -234,6 +248,8 @@ TEST(ProtocolEnvelopeTest, AcceptsOldSnapshotWithoutPerceptionState)
     wire::Envelope oldEnvelope;
     oldEnvelope.mutable_snapshot()->set_sequence(9);
     oldEnvelope.mutable_snapshot()->mutable_task_state()->set_task_id(7);
+    oldEnvelope.mutable_snapshot()->mutable_chassis_state()
+        ->add_tail_thruster_motor()->set_id("left_tail_thruster");
 
     wire::FrameDecoder decoder;
     std::vector<wire::Envelope> decoded;
@@ -242,12 +258,14 @@ TEST(ProtocolEnvelopeTest, AcceptsOldSnapshotWithoutPerceptionState)
     ASSERT_EQ(decoded.size(), 1U);
     EXPECT_FALSE(decoded.front().snapshot().has_perception_state());
     EXPECT_EQ(decoded.front().snapshot().task_state().task_id(), 7U);
+    EXPECT_EQ(decoded.front().snapshot().chassis_state().tail_thruster_motor_size(), 1);
+    EXPECT_EQ(decoded.front().snapshot().chassis_state().thruster_motor_size(), 0);
 }
 
 TEST(ProtocolVersionTest, AcceptsOnlyV2MajorVersion)
 {
     EXPECT_EQ(wire::kProtocolMajor, 2U);
-    EXPECT_EQ(wire::kProtocolMinor, 7U);
+    EXPECT_EQ(wire::kProtocolMinor, 8U);
     EXPECT_TRUE(wire::isProtocolMajorCompatible(2U));
     EXPECT_FALSE(wire::isProtocolMajorCompatible(1U));
 }

@@ -104,6 +104,15 @@ message TailThrusterMotorState {
   optional double actual_speed_rpm = 5;
 }
 
+// 通用推进器电机反馈；id 固定标识推进器位置，单位保持 A、°C、rpm。
+message ThrusterMotorState {
+  optional string id = 1;
+  optional double bus_current_a = 2;
+  optional sint32 controller_temperature_c = 3;
+  optional double target_speed_rpm = 4;
+  optional double actual_speed_rpm = 5;
+}
+
 message ChassisState {
   optional Header header = 1;
   optional double speed_mps = 2;
@@ -125,6 +134,7 @@ message ChassisState {
   optional double heading_actual_value = 17;
   optional double heading_error = 18;
   optional double heading_output = 19;
+  repeated ThrusterMotorState thruster_motor = 20;
 }
 
 message VehicleParameters {

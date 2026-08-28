@@ -115,13 +115,17 @@ protobuf 传递依赖和不同构建类型都需要在 Client/Server 重复处�
 - UI 行为依赖的字段使用显式 typed 字段；DiagnosticMetric 只承载扩展诊断。
 - 不兼容语义、单位或坐标变化提升握手的 protocol major。
 
-当前版本为 2.7。2.5 在 `VisualizationSnapshot` 新增 optional `perception_state=22`，其中的
+当前版本为 2.8。2.5 在 `VisualizationSnapshot` 新增 optional `perception_state=22`，其中的
 `RangeMotionDirective` 与 `InspectionGoal` 分别独立可选，旧快照缺失该字段保持兼容。2.6
 废弃了重复推导的控制状态事件和不具备独立来源的任务启动脉冲，其 field number 均已 reserved。
 2.7 保留旧 `ObstacleSet=16` 不变，并新增 optional `FinalTargetSet=23`：它承载当前 robot_ws
 `FinalTargetArray` 的参考点、保守半径、仅渔网适用的二维边界及 `mine_number`，绝不把参考点
-伪造成几何中心或旧盒体尺寸。它们的来源健康状态仍使用 `DataKind` 12/13 与既有
-`DATA_KIND_OBSTACLES`。Envelope 只包含 ClientHello、ServerHello、
+伪造成几何中心或旧盒体尺寸。2.8 在 `ChassisState` 新增 repeated
+`ThrusterMotorState thruster_motor=20`：稳定 ID 依次为 `left_tail_thruster`、
+`right_tail_thruster`、`left_vertical_thruster`、`right_vertical_thruster`、
+`back_vertical_thruster`，字段单位为 A、°C、rpm。既有 `tail_thruster_motor=14` 的类型和
+语义不变，Server 可同时发送其两组尾推记录与 field 20 的五组完整记录。它们的来源健康状态仍使用
+`DataKind` 12/13 与既有 `DATA_KIND_OBSTACLES`。Envelope 只包含 ClientHello、ServerHello、
 VisualizationSnapshot、Heartbeat 和 ProtocolError；v1 的订阅与增量 field number 已保留但不再使用。
 
 FrameCodec 的发送和接收 API 对称且显式返回错误：
